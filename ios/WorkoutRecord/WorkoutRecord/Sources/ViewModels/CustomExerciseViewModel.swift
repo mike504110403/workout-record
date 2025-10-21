@@ -25,15 +25,20 @@ class CustomExerciseViewModel: ObservableObject {
         name: String,
         type: Exercise.ExerciseType,
         categoryId: UUID,
-        primaryMuscleGroup: Exercise.PrimaryMuscleGroup?,
-        movementPattern: Exercise.MovementPattern?,
+        targetMuscles: [DetailedMuscleGroup] = [],
+        primaryMuscleGroup: Exercise.PrimaryMuscleGroup? = nil,
+        movementPattern: Exercise.MovementPattern? = nil,
         description: String? = nil
     ) {
+        // 從詳細肌群生成舊的 muscleGroups 字符串數組（向後兼容）
+        let muscleGroups = targetMuscles.map { $0.displayName }
+        
         let exercise = Exercise(
             name: name,
             categoryId: categoryId,
             type: type,
-            muscleGroups: [],
+            muscleGroups: muscleGroups,
+            targetMuscles: targetMuscles,
             primaryMuscleGroup: primaryMuscleGroup,
             movementPattern: movementPattern,
             description: description,

@@ -4,13 +4,14 @@ import Foundation
 struct MockData {
     
     // MARK: - Exercise Categories
+    // ⚠️ 使用固定的 UUID，確保每次啟動 App 時分類 ID 保持一致
     static let categories: [ExerciseCategory] = [
-        ExerciseCategory(id: UUID(), name: "胸部", nameEn: "Chest", displayOrder: 1),
-        ExerciseCategory(id: UUID(), name: "背部", nameEn: "Back", displayOrder: 2),
-        ExerciseCategory(id: UUID(), name: "腿部", nameEn: "Legs", displayOrder: 3),
-        ExerciseCategory(id: UUID(), name: "肩部", nameEn: "Shoulders", displayOrder: 4),
-        ExerciseCategory(id: UUID(), name: "手臂", nameEn: "Arms", displayOrder: 5),
-        ExerciseCategory(id: UUID(), name: "核心", nameEn: "Core", displayOrder: 6)
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, name: "胸部", nameEn: "Chest", displayOrder: 1),
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, name: "背部", nameEn: "Back", displayOrder: 2),
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, name: "腿部", nameEn: "Legs", displayOrder: 3),
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, name: "肩部", nameEn: "Shoulders", displayOrder: 4),
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!, name: "手臂", nameEn: "Arms", displayOrder: 5),
+        ExerciseCategory(id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!, name: "核心", nameEn: "Core", displayOrder: 6)
     ]
     
     // MARK: - Exercises by Category

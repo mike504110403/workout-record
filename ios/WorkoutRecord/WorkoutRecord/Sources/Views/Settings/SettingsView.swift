@@ -114,17 +114,24 @@ struct SettingsView: View {
 }
 
 struct ProfileView: View {
-    @State private var name = ""
-    @State private var email = "user@example.com"
-    @State private var height = ""
-    @State private var targetWeight = ""
-    @State private var weeklyGoal = 4
-    @State private var selectedGender: Gender = .notSpecified
+    @StateObject private var profile = UserProfile.shared
+    @State private var showSaveAlert = false
     
     enum Gender: String, CaseIterable {
         case male = "男性"
         case female = "女性"
         case notSpecified = "不指定"
+    }
+    
+    var selectedGender: Binding<Gender> {
+        Binding(
+            get: {
+                Gender(rawValue: profile.gender) ?? .notSpecified
+            },
+            set: { newValue in
+                profile.gender = newValue.rawValue
+            }
+        )
     }
     
     var body: some View {
@@ -136,9 +143,9 @@ struct ProfileView: View {
                         .foregroundColor(.blue)
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(name.isEmpty ? "未設定姓名" : name)
+                        Text(profile.name.isEmpty ? "未設定姓名" : profile.name)
                             .font(.headline)
-                        Text(email)
+                        Text(profile.email)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -148,16 +155,16 @@ struct ProfileView: View {
             }
             
             Section("基本資料") {
-                TextField("姓名", text: $name)
+                TextField("姓名", text: $profile.name)
                 
-                Picker("性別", selection: $selectedGender) {
+                Picker("性別", selection: selectedGender) {
                     ForEach(Gender.allCases, id: \.self) { gender in
                         Text(gender.rawValue).tag(gender)
                     }
                 }
                 
                 HStack {
-                    TextField("身高", text: $height)
+                    TextField("身高", value: $profile.height, format: .number)
                         .keyboardType(.decimalPad)
                     Text("cm")
                         .foregroundColor(.secondary)
@@ -166,24 +173,30 @@ struct ProfileView: View {
             
             Section("訓練目標") {
                 HStack {
-                    TextField("目標體重", text: $targetWeight)
+                    TextField("目標體重", value: $profile.targetWeight, format: .number)
                         .keyboardType(.decimalPad)
                     Text("kg")
                         .foregroundColor(.secondary)
                 }
                 
-                Stepper("每週訓練目標: \(weeklyGoal) 次", value: $weeklyGoal, in: 1...7)
+                Stepper("每週訓練目標: \(profile.weeklyGoal) 次", value: $profile.weeklyGoal, in: 1...7)
             }
             
             Section {
                 Button("儲存") {
-                    // TODO: Save profile
+                    profile.save()
+                    showSaveAlert = true
                 }
                 .frame(maxWidth: .infinity)
             }
         }
         .navigationTitle("個人資料")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("儲存成功", isPresented: $showSaveAlert) {
+            Button("確定", role: .cancel) { }
+        } message: {
+            Text("個人資料已更新")
+        }
     }
 }
 
@@ -243,24 +256,20 @@ struct ExerciseCategoryView: View {
 }
 
 struct AppSettingsView: View {
-    @State private var selectedUnit = "kg"
-    @State private var selectedTheme = "system"
-    @State private var selectedFormula = "epley"
-    @State private var defaultRestTime = 90
-    @State private var enableAutoRestTimer = true
-    @State private var enableHapticFeedback = true
+    @StateObject private var settings = AppSettings.shared
+    @State private var showResetAlert = false
     
     var body: some View {
         Form {
             Section("單位系統") {
-                Picker("重量單位", selection: $selectedUnit) {
+                Picker("重量單位", selection: $settings.weightUnit) {
                     Text("公斤 (kg)").tag("kg")
                     Text("磅 (lb)").tag("lb")
                 }
             }
             
             Section("外觀") {
-                Picker("主題", selection: $selectedTheme) {
+                Picker("主題", selection: $settings.theme) {
                     Text("淺色").tag("light")
                     Text("深色").tag("dark")
                     Text("跟隨系統").tag("system")
@@ -268,21 +277,18 @@ struct AppSettingsView: View {
             }
             
             Section("訓練設定") {
-                Stepper("預設休息時間: \(defaultRestTime) 秒", value: $defaultRestTime, in: 30...300, step: 15)
+                Stepper("預設休息時間: \(settings.defaultRestTime) 秒", value: $settings.defaultRestTime, in: 30...300, step: 15)
                 
-                Toggle("自動開始休息計時", isOn: $enableAutoRestTimer)
+                Toggle("自動開始休息計時", isOn: $settings.enableAutoRestTimer)
                 
-                Toggle("震動回饋", isOn: $enableHapticFeedback)
+                Toggle("震動回饋", isOn: $settings.enableHapticFeedback)
             }
             
             Section("進階設定") {
-                Picker("1RM 計算公式", selection: $selectedFormula) {
+                Picker("1RM 計算公式", selection: $settings.oneRMFormula) {
                     Text("Epley").tag("epley")
                     Text("Brzycki").tag("brzycki")
                     Text("Lander").tag("lander")
-                }
-                .onChange(of: selectedFormula) { newValue in
-                    // Show formula explanation
                 }
                 
                 NavigationLink {
@@ -295,13 +301,21 @@ struct AppSettingsView: View {
             
             Section {
                 Button("重置所有設定") {
-                    // TODO: Reset settings
+                    showResetAlert = true
                 }
                 .foregroundColor(.red)
             }
         }
         .navigationTitle("偏好設定")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("重置設定", isPresented: $showResetAlert) {
+            Button("取消", role: .cancel) { }
+            Button("重置", role: .destructive) {
+                settings.resetToDefaults()
+            }
+        } message: {
+            Text("確定要將所有設定恢復為預設值嗎？")
+        }
     }
 }
 

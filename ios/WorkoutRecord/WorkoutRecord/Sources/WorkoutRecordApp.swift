@@ -32,7 +32,7 @@ class AppState: ObservableObject {
         // UserDefaults.standard.removeObject(forKey: "CoreDataModelVersion") // ⚠️ 已禁用
         
         // 使用版本號來追蹤模型變更
-        let currentModelVersion = "2.2" // 修復 exercise primaryMuscleGroup 版本
+        let currentModelVersion = "2.3" // 修復分類 UUID 為固定值
         let savedModelVersion = UserDefaults.standard.string(forKey: "CoreDataModelVersion")
         
         print("🔍 檢查 CoreData 版本: 儲存版本=\(savedModelVersion ?? "nil"), 當前版本=\(currentModelVersion)")

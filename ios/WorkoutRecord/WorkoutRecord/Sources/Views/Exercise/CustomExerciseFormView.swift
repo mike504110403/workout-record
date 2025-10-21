@@ -11,8 +11,10 @@ struct CustomExerciseFormView: View {
     @State private var selectedCategory: ExerciseCategory?
     @State private var primaryMuscleGroup: Exercise.PrimaryMuscleGroup?
     @State private var movementPattern: Exercise.MovementPattern?
+    @State private var selectedMuscles: Set<DetailedMuscleGroup> = []  // 多選肌群
     @State private var description: String
     @State private var nameError: String?
+    @State private var showMuscleGroupPicker = false  // 顯示肌群選擇器
     
     enum FormMode: Identifiable {
         case create
@@ -43,6 +45,7 @@ struct CustomExerciseFormView: View {
             _type = State(initialValue: .freeWeight)
             _primaryMuscleGroup = State(initialValue: nil)
             _movementPattern = State(initialValue: nil)
+            _selectedMuscles = State(initialValue: [])
             _description = State(initialValue: "")
             _selectedCategory = State(initialValue: MockData.categories.first)
         case .edit(let exercise):
@@ -50,6 +53,7 @@ struct CustomExerciseFormView: View {
             _type = State(initialValue: exercise.type)
             _primaryMuscleGroup = State(initialValue: exercise.primaryMuscleGroup)
             _movementPattern = State(initialValue: exercise.movementPattern)
+            _selectedMuscles = State(initialValue: Set(exercise.targetMuscles))
             _description = State(initialValue: exercise.description ?? "")
             _selectedCategory = State(initialValue: exercise.category ?? MockData.categories.first)
         }
@@ -87,6 +91,14 @@ struct CustomExerciseFormView: View {
                             Text(category.name).tag(category as ExerciseCategory?)
                         }
                     }
+                    .onChange(of: selectedCategory) { _, newCategory in
+                        // 根據分類自動設置主要肌群
+                        if let category = newCategory {
+                            primaryMuscleGroup = mapCategoryToPrimaryMuscleGroup(category.name)
+                            // 清空已選擇的詳細肌群
+                            selectedMuscles.removeAll()
+                        }
+                    }
                 }
                 
                 Section("動作分析") {
@@ -94,6 +106,59 @@ struct CustomExerciseFormView: View {
                         Text("未選擇").tag(nil as Exercise.PrimaryMuscleGroup?)
                         ForEach(Exercise.PrimaryMuscleGroup.allCases, id: \.self) { group in
                             Text(group.displayName).tag(group as Exercise.PrimaryMuscleGroup?)
+                        }
+                    }
+                    .onChange(of: primaryMuscleGroup) { _, newValue in
+                        // 當主要肌群改變時，清空已選擇的詳細肌群
+                        selectedMuscles.removeAll()
+                    }
+                    
+                    // 目標肌群（多選）
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(action: {
+                            showMuscleGroupPicker = true
+                        }) {
+                            HStack {
+                                Text("目標肌群")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedMuscles.isEmpty {
+                                    Text("點擊選擇")
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("\(selectedMuscles.count) 個")
+                                        .foregroundColor(.secondary)
+                                }
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // 顯示已選擇的肌群
+                        if !selectedMuscles.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(selectedMuscles).sorted(by: { $0.displayName < $1.displayName }), id: \.self) { muscle in
+                                        HStack(spacing: 4) {
+                                            Text(muscle.displayName)
+                                                .font(.caption)
+                                            Button(action: {
+                                                selectedMuscles.remove(muscle)
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.caption)
+                                            }
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(muscle.color.opacity(0.2))
+                                        .foregroundColor(muscle.color)
+                                        .cornerRadius(12)
+                                    }
+                                }
+                            }
                         }
                     }
                     
@@ -142,6 +207,13 @@ struct CustomExerciseFormView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showMuscleGroupPicker) {
+                MuscleGroupPickerView(
+                    selectedCategory: selectedCategory,
+                    primaryMuscleGroup: primaryMuscleGroup,
+                    selectedMuscles: $selectedMuscles
+                )
+            }
         }
     }
     
@@ -171,6 +243,7 @@ struct CustomExerciseFormView: View {
                 name: name,
                 type: type,
                 categoryId: category.id,
+                targetMuscles: Array(selectedMuscles),
                 primaryMuscleGroup: primaryMuscleGroup,
                 movementPattern: movementPattern,
                 description: description.isEmpty ? nil : description
@@ -179,6 +252,7 @@ struct CustomExerciseFormView: View {
             var updatedExercise = exercise
             updatedExercise.name = name
             updatedExercise.type = type
+            updatedExercise.targetMuscles = Array(selectedMuscles)
             updatedExercise.primaryMuscleGroup = primaryMuscleGroup
             updatedExercise.movementPattern = movementPattern
             updatedExercise.description = description.isEmpty ? nil : description
@@ -192,6 +266,28 @@ struct CustomExerciseFormView: View {
         if case .edit(let exercise) = mode {
             viewModel.deleteExercise(id: exercise.id)
             dismiss()
+        }
+    }
+    
+    /// 根據分類名稱映射到主要肌群
+    private func mapCategoryToPrimaryMuscleGroup(_ categoryName: String) -> Exercise.PrimaryMuscleGroup? {
+        switch categoryName {
+        case "胸部", "Chest":
+            return .chest
+        case "背部", "Back":
+            return .back
+        case "腿部", "Legs":
+            return .legs
+        case "肩部", "Shoulders":
+            return .shoulders
+        case "手臂", "Arms":
+            return .arms
+        case "核心", "Core":
+            return .core
+        case "臀部", "Glutes":
+            return .glutes
+        default:
+            return nil
         }
     }
 }

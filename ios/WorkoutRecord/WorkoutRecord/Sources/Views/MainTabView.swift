@@ -3,6 +3,7 @@ import SwiftUI
 struct MainTabView: View {
     @State private var selectedTab = 0
     @StateObject private var workoutViewModel = WorkoutViewModel()
+    @StateObject private var appSettings = AppSettings.shared
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -42,6 +43,7 @@ struct MainTabView: View {
                 .tag(4)
         }
         .accentColor(.blue)
+        .preferredColorScheme(appSettings.colorScheme)
         .onReceive(NotificationCenter.default.publisher(for: .startWorkoutFromTemplate)) { notification in
             if let template = notification.userInfo?["template"] as? TemplateInfo {
                 // Switch to workout tab

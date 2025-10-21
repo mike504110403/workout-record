@@ -25,15 +25,25 @@ class ExercisePickerViewModel: ObservableObject {
         return allExercises.filter { $0.categoryId == category.id }
     }
     
-    /// Search exercises by name
+    /// Search exercises by name (支持系統動作和自定義動作)
     func searchExercises(query: String) -> [Exercise] {
         guard !query.isEmpty else { return allExercises }
         
         let lowercasedQuery = query.lowercased()
         return allExercises.filter { exercise in
+            // 搜尋動作名稱（中文）
             exercise.name.lowercased().contains(lowercasedQuery) ||
+            // 搜尋英文名稱
             (exercise.nameEn?.lowercased().contains(lowercasedQuery) ?? false) ||
-            exercise.muscleGroups.contains { $0.lowercased().contains(lowercasedQuery) }
+            // 搜尋舊的肌群標籤
+            exercise.muscleGroups.contains { $0.lowercased().contains(lowercasedQuery) } ||
+            // 搜尋新的詳細肌群
+            exercise.targetMuscles.contains { muscle in
+                muscle.displayName.lowercased().contains(lowercasedQuery) ||
+                muscle.displayNameEn.lowercased().contains(lowercasedQuery)
+            } ||
+            // 搜尋主要肌群
+            (exercise.primaryMuscleGroup?.displayName.lowercased().contains(lowercasedQuery) ?? false)
         }
     }
     
@@ -60,15 +70,31 @@ class ExercisePickerViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
+        print("🔄 ExercisePickerViewModel - 開始載入動作...")
+        
         do {
-            // ✅ 從 repository 加載數據
-            allExercises = try exerciseRepo.fetchAll()
+            // ✅ 從 repository 加載系統動作
+            var systemExercises = try exerciseRepo.fetchAll()
+            print("   - 系統動作: \(systemExercises.count) 個")
             
-            // 提取並去重 category（因為沒有單獨的 category repository）
+            // ✅ 加載自定義動作
+            let customExercises = CustomExerciseStorage.shared.loadCustomExercises()
+            print("   - 自定義動作: \(customExercises.count) 個")
+            
+            // ✅ 合併系統動作和自定義動作
+            allExercises = systemExercises + customExercises
+            
+            // 提取並去重 category
             let categoryIds = Set(allExercises.map { $0.categoryId })
             categories = MockData.categories.filter { categoryIds.contains($0.id) }
             
-            print("✅ 載入 \(allExercises.count) 個動作")
+            print("✅ 總共載入 \(allExercises.count) 個動作")
+            print("✅ 載入 \(categories.count) 個分類")
+            
+            // 調試：列出前 5 個動作
+            for (index, exercise) in allExercises.prefix(5).enumerated() {
+                print("   動作 \(index + 1): \(exercise.name) (\(exercise.isSystem ? "系統" : "自定義"))")
+            }
         } catch {
             errorMessage = "載入失敗: \(error.localizedDescription)"
             print("❌ 載入動作失敗: \(error)")
