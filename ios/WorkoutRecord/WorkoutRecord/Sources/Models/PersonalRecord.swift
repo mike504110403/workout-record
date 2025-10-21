@@ -1,44 +1,30 @@
 import Foundation
 
+// MARK: - Personal Record
+
 struct PersonalRecord: Identifiable, Codable {
     let id: UUID
     let userId: UUID
     let exerciseId: UUID
     var exercise: Exercise?
-    var recordType: RecordType
-    var value: Double
-    var reps: Int?  // Reps when the record was achieved
-    let achievedAt: Date
-    let workoutSetId: UUID?
+    var weight: Double        // PR 重量
+    var reps: Int             // 次數
+    var oneRepMax: Double     // 估算的 1RM
+    let achievedAt: Date      // 達成日期
+    let workoutId: UUID?      // 關聯的訓練 ID
     let createdAt: Date
     var updatedAt: Date
-    
-    enum RecordType: String, Codable, CaseIterable {
-        case oneRM = "1rm"
-        case maxWeight = "max_weight"
-        case maxReps = "max_reps"
-        case maxVolume = "max_volume"  // ⭐
-        
-        var displayName: String {
-            switch self {
-            case .oneRM: return "1RM"
-            case .maxWeight: return "最大重量"
-            case .maxReps: return "最大次數"
-            case .maxVolume: return "最大容量"
-            }
-        }
-    }
     
     init(
         id: UUID = UUID(),
         userId: UUID,
         exerciseId: UUID,
         exercise: Exercise? = nil,
-        recordType: RecordType,
-        value: Double,
-        reps: Int? = nil,
+        weight: Double,
+        reps: Int,
+        oneRepMax: Double,
         achievedAt: Date = Date(),
-        workoutSetId: UUID? = nil,
+        workoutId: UUID? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -46,39 +32,56 @@ struct PersonalRecord: Identifiable, Codable {
         self.userId = userId
         self.exerciseId = exerciseId
         self.exercise = exercise
-        self.recordType = recordType
-        self.value = value
+        self.weight = weight
         self.reps = reps
+        self.oneRepMax = oneRepMax
         self.achievedAt = achievedAt
-        self.workoutSetId = workoutSetId
+        self.workoutId = workoutId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 }
 
-// MARK: - Personal Record Summary
-struct PersonalRecordSummary: Identifiable {
+// MARK: - PR Summary (按動作分組)
+
+struct PRSummary: Identifiable {
     let id: UUID
+    let exerciseId: UUID
     let exerciseName: String
-    let oneRM: Double?
-    let maxWeight: Double?
-    let maxReps: Int?
-    let maxVolume: Double?  // ⭐
+    let primaryMuscleGroup: Exercise.PrimaryMuscleGroup?
+    var currentPR: PersonalRecord?
+    var prHistory: [PersonalRecord] = []
+    
+    var weight: Double? {
+        currentPR?.weight
+    }
+    
+    var reps: Int? {
+        currentPR?.reps
+    }
+    
+    var oneRepMax: Double? {
+        currentPR?.oneRepMax
+    }
+    
+    var achievedAt: Date? {
+        currentPR?.achievedAt
+    }
     
     init(
         id: UUID = UUID(),
+        exerciseId: UUID,
         exerciseName: String,
-        oneRM: Double? = nil,
-        maxWeight: Double? = nil,
-        maxReps: Int? = nil,
-        maxVolume: Double? = nil
+        primaryMuscleGroup: Exercise.PrimaryMuscleGroup? = nil,
+        currentPR: PersonalRecord? = nil,
+        prHistory: [PersonalRecord] = []
     ) {
         self.id = id
+        self.exerciseId = exerciseId
         self.exerciseName = exerciseName
-        self.oneRM = oneRM
-        self.maxWeight = maxWeight
-        self.maxReps = maxReps
-        self.maxVolume = maxVolume
+        self.primaryMuscleGroup = primaryMuscleGroup
+        self.currentPR = currentPR
+        self.prHistory = prHistory
     }
 }
 

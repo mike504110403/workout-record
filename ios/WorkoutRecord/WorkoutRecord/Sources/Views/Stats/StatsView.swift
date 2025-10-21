@@ -36,6 +36,40 @@ struct WorkoutStatsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // 容量趨勢圖
+                VolumeChartView()
+                    .padding(.horizontal)
+                
+                // PR 快速入口
+                NavigationLink {
+                    PRView()
+                } label: {
+                    HStack {
+                        Image(systemName: "trophy.fill")
+                            .foregroundColor(.orange)
+                        
+                        Text("個人記錄 (PR)")
+                            .font(.headline)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            colors: [Color.orange.opacity(0.1), Color.yellow.opacity(0.1)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+                
                 // 本週統計
                 VStack(alignment: .leading, spacing: 12) {
                     Text("本週統計")
@@ -81,6 +115,12 @@ struct WorkoutStatsView: View {
                 }
             }
             .padding(.vertical)
+        }
+        .onAppear {
+            dashboardViewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workoutCompleted)) { _ in
+            dashboardViewModel.refresh()
         }
     }
 }

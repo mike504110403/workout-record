@@ -6,22 +6,32 @@ struct WorkoutDetailView: View {
     @State private var showDeleteConfirmation = false
     @Environment(\.dismiss) var dismiss
     
-    // Mock detailed workout data
+    // ✅ 真實數據
+    @State private var fullWorkout: Workout?
     @State private var workoutExercises: [WorkoutExerciseDetail] = []
+    @State private var isLoading = true
+    
+    private let repository = WorkoutRepository()
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Workout summary header
-                summaryCard
-                
-                // Volume chart (mini)
-                volumeBreakdownCard
-                
-                // Exercise list with sets
-                exercisesList
+        Group {
+            if isLoading {
+                ProgressView("載入中...")
+            } else {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Workout summary header
+                        summaryCard
+                        
+                        // Volume chart (mini)
+                        volumeBreakdownCard
+                        
+                        // Exercise list with sets
+                        exercisesList
+                    }
+                    .padding()
+                }
             }
-            .padding()
         }
         .navigationTitle("訓練詳情")
         .navigationBarTitleDisplayMode(.inline)
@@ -46,12 +56,11 @@ struct WorkoutDetailView: View {
         }
         .confirmationDialog("確定要刪除這次訓練？", isPresented: $showDeleteConfirmation) {
             Button("刪除", role: .destructive) {
-                // TODO: Delete workout
-                dismiss()
+                deleteWorkout()
             }
         }
         .onAppear {
-            loadMockWorkoutDetail()
+            loadWorkoutDetail()
         }
     }
     
@@ -167,47 +176,62 @@ struct WorkoutDetailView: View {
     }
     
     // MARK: - Helper Functions
-    private func loadMockWorkoutDetail() {
-        // Mock workout exercises
-        workoutExercises = [
-            WorkoutExerciseDetail(
-                id: UUID(),
-                exerciseName: "槓鈴臥推",
-                totalVolume: 2760,
-                percentage: 45,
-                sets: [
-                    WorkoutSetDetail(setNumber: 1, weight: 60, reps: 12, volume: 720, isWarmup: true),
-                    WorkoutSetDetail(setNumber: 2, weight: 80, reps: 10, volume: 800, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 3, weight: 100, reps: 8, volume: 800, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 4, weight: 100, reps: 6, volume: 600, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 5, weight: 80, reps: 10, volume: 800, isWarmup: false)
-                ]
-            ),
-            WorkoutExerciseDetail(
-                id: UUID(),
-                exerciseName: "上斜啞鈴臥推",
-                totalVolume: 1800,
-                percentage: 30,
-                sets: [
-                    WorkoutSetDetail(setNumber: 1, weight: 30, reps: 12, volume: 360, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 2, weight: 35, reps: 10, volume: 350, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 3, weight: 35, reps: 10, volume: 350, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 4, weight: 32, reps: 12, volume: 384, isWarmup: false)
-                ]
-            ),
-            WorkoutExerciseDetail(
-                id: UUID(),
-                exerciseName: "啞鈴飛鳥",
-                totalVolume: 1200,
-                percentage: 20,
-                sets: [
-                    WorkoutSetDetail(setNumber: 1, weight: 20, reps: 12, volume: 240, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 2, weight: 20, reps: 12, volume: 240, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 3, weight: 20, reps: 12, volume: 240, isWarmup: false),
-                    WorkoutSetDetail(setNumber: 4, weight: 20, reps: 12, volume: 240, isWarmup: false)
-                ]
-            )
-        ]
+    
+    /// ✅ 從 repository 加載真實數據
+    private func loadWorkoutDetail() {
+        isLoading = true
+        
+        do {
+            guard let workout = try repository.fetchById(workout.id) else {
+                print("❌ 找不到訓練記錄")
+                isLoading = false
+                return
+            }
+            
+            fullWorkout = workout
+            
+            // 轉換為 UI 數據格式
+            let totalVolume = workout.totalVolume
+            
+            workoutExercises = workout.exercises.map { workoutExercise in
+                let percentage = totalVolume > 0 ? (workoutExercise.totalVolume / totalVolume) * 100 : 0
+                
+                let sets = workoutExercise.sets.map { set in
+                    WorkoutSetDetail(
+                        setNumber: set.setNumber,
+                        weight: set.weight,
+                        reps: set.reps,
+                        volume: set.weight * Double(set.reps),
+                        isWarmup: set.isWarmup
+                    )
+                }
+                
+                return WorkoutExerciseDetail(
+                    id: workoutExercise.id,
+                    exerciseName: workoutExercise.exercise?.name ?? "未知動作",
+                    totalVolume: workoutExercise.totalVolume,
+                    percentage: percentage,
+                    sets: sets
+                )
+            }
+            
+            print("✅ 載入訓練詳情: \(workoutExercises.count) 個動作")
+        } catch {
+            print("❌ 載入訓練詳情失敗: \(error)")
+        }
+        
+        isLoading = false
+    }
+    
+    /// 刪除訓練
+    private func deleteWorkout() {
+        do {
+            try repository.delete(id: workout.id)
+            NotificationCenter.default.post(name: .workoutCompleted, object: nil)
+            dismiss()
+        } catch {
+            print("❌ 刪除訓練失敗: \(error)")
+        }
     }
 }
 

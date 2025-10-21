@@ -10,11 +10,12 @@ class ExercisePickerViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     // MARK: - Private Properties
+    private let exerciseRepo = ExerciseRepository()
     private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Initialization
     init() {
-        loadMockData()
+        loadData()
     }
     
     // MARK: - Public Methods
@@ -41,7 +42,7 @@ class ExercisePickerViewModel: ObservableObject {
         guard let index = allExercises.firstIndex(where: { $0.id == exercise.id }) else { return }
         allExercises[index].isFavorite.toggle()
         
-        // TODO: Save to repository
+        // TODO: 保存到 UserDefaults 或其他持久化存儲
     }
     
     /// Get favorite exercises
@@ -51,25 +52,30 @@ class ExercisePickerViewModel: ObservableObject {
     
     /// Refresh data
     func refresh() {
-        isLoading = true
-        // TODO: Fetch from repository
-        loadMockData()
-        isLoading = false
+        loadData()
     }
     
     // MARK: - Private Methods
-    private func loadMockData() {
-        // Load from MockData
-        categories = MockData.categories
-        allExercises = MockData.allExercises
+    private func loadData() {
+        isLoading = true
+        errorMessage = nil
         
-        // Mark some exercises as favorites for demo
-        let favoriteNames = ["槓鈴臥推", "深蹲", "硬舉", "引體向上", "肩推"]
-        for (index, exercise) in allExercises.enumerated() {
-            if favoriteNames.contains(exercise.name) {
-                allExercises[index].isFavorite = true
-            }
+        do {
+            // ✅ 從 repository 加載數據
+            allExercises = try exerciseRepo.fetchAll()
+            
+            // 提取並去重 category（因為沒有單獨的 category repository）
+            let categoryIds = Set(allExercises.map { $0.categoryId })
+            categories = MockData.categories.filter { categoryIds.contains($0.id) }
+            
+            print("✅ 載入 \(allExercises.count) 個動作")
+        } catch {
+            errorMessage = "載入失敗: \(error.localizedDescription)"
+            print("❌ 載入動作失敗: \(error)")
+            allExercises = []
+            categories = []
         }
+        
+        isLoading = false
     }
 }
-

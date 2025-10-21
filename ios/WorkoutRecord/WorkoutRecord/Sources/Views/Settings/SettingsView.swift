@@ -23,6 +23,13 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    
+                    NavigationLink {
+                        GoalSettingsView()
+                    } label: {
+                        Label("目標設定", systemImage: "target")
+                            .foregroundColor(.orange)
+                    }
                 }
                 
                 // Exercise Management
@@ -34,7 +41,7 @@ struct SettingsView: View {
                     }
                     
                     NavigationLink {
-                        Text("自定義動作")
+                        CustomExerciseListView()
                     } label: {
                         Label("自定義動作", systemImage: "plus.circle")
                     }

@@ -44,50 +44,266 @@ struct HistoryView: View {
 }
 
 struct HistoryListView: View {
-    // Mock data
-    let mockWorkouts: [WorkoutSummary] = [
-        WorkoutSummary(id: UUID(), date: Date(), duration: 75, totalVolume: 5230, totalSets: 24, exercisesCount: 6),
-        WorkoutSummary(id: UUID(), date: Date().addingTimeInterval(-86400), duration: 80, totalVolume: 4800, totalSets: 22, exercisesCount: 5),
-        WorkoutSummary(id: UUID(), date: Date().addingTimeInterval(-172800), duration: 70, totalVolume: 4200, totalSets: 20, exercisesCount: 5),
-        WorkoutSummary(id: UUID(), date: Date().addingTimeInterval(-259200), duration: 85, totalVolume: 5020, totalSets: 26, exercisesCount: 6),
-    ]
+    @StateObject private var viewModel = HistoryViewModel()
+    
+    var body: some View {
+        Group {
+            if viewModel.isLoading {
+                ProgressView("載入中...")
+            } else if viewModel.workouts.isEmpty {
+                EmptyHistoryView()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(viewModel.workouts) { workout in
+                            NavigationLink(value: workout) {
+                                WorkoutHistoryCard(workout: workout)
+                            }
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    viewModel.deleteWorkout(workout)
+                                } label: {
+                                    Label("刪除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .refreshable {
+                    viewModel.refresh()
+                }
+            }
+        }
+        .onAppear {
+            viewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workoutCompleted)) { _ in
+            viewModel.refresh()
+        }
+    }
+}
+
+struct EmptyHistoryView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "figure.strengthtraining.traditional")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("尚無訓練記錄")
+                .font(.title3)
+                .fontWeight(.medium)
+            
+            Text("完成你的第一次訓練吧！")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct HistoryCalendarView: View {
+    @StateObject private var viewModel = HistoryViewModel()
+    @State private var selectedMonth = Date()
+    @State private var selectedDate: Date?
+    
+    private let calendar = Calendar.current
+    private let columns = Array(repeating: GridItem(.flexible()), count: 7)
     
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(mockWorkouts) { workout in
+            VStack(spacing: 20) {
+                // 月份選擇器
+                monthPicker
+                
+                // 日曆網格
+                calendarGrid
+                
+                // 選中日期的訓練列表
+                if let selected = selectedDate {
+                    selectedDateWorkouts(for: selected)
+                }
+            }
+            .padding()
+        }
+        .onAppear {
+            viewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workoutCompleted)) { _ in
+            viewModel.refresh()
+        }
+    }
+    
+    private var monthPicker: some View {
+        HStack {
+            Button {
+                changeMonth(by: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.title3)
+                    .foregroundColor(.blue)
+            }
+            
+            Spacer()
+            
+            Text(selectedMonth.formatted(.dateTime.year().month(.wide)))
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Spacer()
+            
+            Button {
+                changeMonth(by: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.title3)
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(.horizontal)
+    }
+    
+    private var calendarGrid: some View {
+        VStack(spacing: 12) {
+            // 星期標題
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { day in
+                    Text(day)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            
+            // 日期網格
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(getDaysInMonth(), id: \.self) { date in
+                    if let date = date {
+                        dayCell(for: date)
+                    } else {
+                        Color.clear
+                            .frame(height: 50)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+    }
+    
+    private func dayCell(for date: Date) -> some View {
+        let workoutCount = getWorkoutCount(for: date)
+        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate ?? Date.distantPast)
+        let isToday = calendar.isDateInToday(date)
+        
+        return Button {
+            selectedDate = date
+        } label: {
+            VStack(spacing: 4) {
+                Text("\(calendar.component(.day, from: date))")
+                    .font(.body)
+                    .fontWeight(isToday ? .bold : .regular)
+                    .foregroundColor(isSelected ? .white : (isToday ? .blue : .primary))
+                
+                if workoutCount > 0 {
+                    Circle()
+                        .fill(isSelected ? .white : .blue)
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                isSelected ?
+                    Color.blue :
+                    (isToday ? Color.blue.opacity(0.1) : Color.clear)
+            )
+            .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func selectedDateWorkouts(for date: Date) -> some View {
+        let workouts = getWorkouts(for: date)
+        
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(date.formatted(date: .long, time: .omitted))
+                .font(.headline)
+                .padding(.horizontal)
+            
+            if workouts.isEmpty {
+                Text("當天無訓練記錄")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+            } else {
+                ForEach(workouts) { workout in
                     NavigationLink(value: workout) {
                         WorkoutHistoryCard(workout: workout)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding()
         }
     }
-}
-
-struct HistoryCalendarView: View {
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Placeholder for calendar view
-                Rectangle()
-                    .fill(Color.blue.opacity(0.1))
-                    .frame(height: 300)
-                    .cornerRadius(12)
-                    .overlay {
-                        VStack {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 40))
-                            Text("日曆檢視")
-                            Text("開發中...")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.secondary)
-                    }
-                    .padding()
+    
+    private func changeMonth(by months: Int) {
+        if let newMonth = calendar.date(byAdding: .month, value: months, to: selectedMonth) {
+            selectedMonth = newMonth
+            selectedDate = nil
+        }
+    }
+    
+    private func getDaysInMonth() -> [Date?] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: selectedMonth),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start) else {
+            return []
+        }
+        
+        var days: [Date?] = []
+        
+        // 從月初所在週的週日開始
+        var date = monthFirstWeek.start
+        
+        while true {
+            let isInCurrentMonth = calendar.isDate(date, equalTo: selectedMonth, toGranularity: .month)
+            
+            if isInCurrentMonth {
+                days.append(date)
+            } else if !days.isEmpty {
+                // 如果已經開始添加日期，且當前日期不在當月，則填充空白
+                days.append(nil)
+            } else {
+                // 月初前的空白
+                days.append(nil)
             }
+            
+            guard let nextDate = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+            date = nextDate
+            
+            // 檢查是否已經到達下個月的週六後
+            if !isInCurrentMonth && days.count > 28 && calendar.component(.weekday, from: date) == 1 {
+                break
+            }
+        }
+        
+        return days
+    }
+    
+    private func getWorkoutCount(for date: Date) -> Int {
+        return viewModel.workouts.filter { workout in
+            calendar.isDate(workout.date, inSameDayAs: date)
+        }.count
+    }
+    
+    private func getWorkouts(for date: Date) -> [WorkoutSummary] {
+        return viewModel.workouts.filter { workout in
+            calendar.isDate(workout.date, inSameDayAs: date)
         }
     }
 }

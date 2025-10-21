@@ -2,155 +2,197 @@ import SwiftUI
 import Charts
 
 struct VolumeChartView: View {
-    let data: [VolumeTrendPoint]
-    let chartType: ChartType
-    let timeRange: TimeRange
-    
-    enum ChartType {
-        case line, bar
-    }
-    
-    enum TimeRange {
-        case week, month, threeMonths, year
-        
-        var displayName: String {
-            switch self {
-            case .week: return "本週"
-            case .month: return "本月"
-            case .threeMonths: return "三個月"
-            case .year: return "本年"
-            }
-        }
-    }
+    @StateObject private var viewModel = VolumeChartViewModel()
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Chart title
-            HStack {
-                Text("訓練容量趨勢")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Text(VolumeCalculator.formatVolume(totalVolume))
-                    .font(.headline)
-                    .foregroundColor(.blue)
-            }
+        VStack(spacing: 16) {
+            // 標題和統計
+            headerSection
             
-            // Chart
-            Chart(data) { point in
-                if chartType == .bar {
-                    BarMark(
-                        x: .value("日期", point.date),
-                        y: .value("容量", point.volume)
-                    )
-                    .foregroundStyle(volumeGradient)
-                    .cornerRadius(4)
-                } else {
-                    LineMark(
-                        x: .value("日期", point.date),
-                        y: .value("容量", point.volume)
-                    )
-                    .foregroundStyle(Color.orange.gradient)
-                    .interpolationMethod(.catmullRom)
-                    .symbol {
-                        Circle()
-                            .fill(Color.orange)
-                            .frame(width: 6, height: 6)
-                    }
-                    
-                    AreaMark(
-                        x: .value("日期", point.date),
-                        y: .value("容量", point.volume)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.orange.opacity(0.3), Color.orange.opacity(0.05)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .interpolationMethod(.catmullRom)
-                }
-            }
-            .frame(height: 200)
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 5)) { value in
-                    AxisGridLine()
-                    AxisTick()
-                    AxisValueLabel(format: .dateTime.month().day())
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading) { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let intValue = value.as(Double.self) {
-                            Text(formatVolume(intValue))
-                                .font(.caption)
-                        }
-                    }
-                }
-            }
+            // 時間範圍選擇
+            timeRangePicker
             
-            // Statistics
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("平均")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(VolumeCalculator.formatVolume(averageVolume))
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("最高")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(VolumeCalculator.formatVolume(maxVolume))
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("訓練次數")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(data.count) 次")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                }
-            }
+            // 圖表
+            chartSection
+            
+            // 肌群篩選
+            muscleGroupFilters
+            
+            // 統計摘要
+            statsSection
         }
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(12)
-        .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
     
-    // MARK: - Computed Properties
-    private var totalVolume: Double {
-        data.reduce(0) { $0 + $1.volume }
+    // MARK: - Header
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("訓練容量趨勢")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            if viewModel.isLoading {
+                ProgressView()
+                    .scaleEffect(0.8)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     
-    private var averageVolume: Double {
-        guard !data.isEmpty else { return 0 }
-        return totalVolume / Double(data.count)
+    // MARK: - Time Range Picker
+    private var timeRangePicker: some View {
+        Picker("時間範圍", selection: $viewModel.selectedTimeRange) {
+            ForEach(ChartTimeRange.allCases, id: \.self) { range in
+                Text(range.rawValue).tag(range)
+            }
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: viewModel.selectedTimeRange) { _, newValue in
+            viewModel.changeTimeRange(newValue)
+        }
     }
     
-    private var maxVolume: Double {
-        data.map { $0.volume }.max() ?? 0
+    // MARK: - Chart
+    private var chartSection: some View {
+        Group {
+            if viewModel.dataPoints.isEmpty {
+                emptyChartView
+            } else {
+                volumeChart
+            }
+        }
+        .frame(height: 250)
     }
     
-    private var volumeGradient: LinearGradient {
-        LinearGradient(
-            colors: [Color.orange, Color.orange.opacity(0.7)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+    private var emptyChartView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 50))
+                .foregroundColor(.gray)
+            
+            Text("尚無訓練數據")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            Text("完成訓練後這裡會顯示容量趨勢")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
+    private var volumeChart: some View {
+        Chart {
+            // 總容量線
+            if viewModel.selectedMuscleGroups.contains(.all) {
+                ForEach(viewModel.dataPoints) { point in
+                    LineMark(
+                        x: .value("日期", point.date),
+                        y: .value("容量", point.totalVolume)
+                    )
+                    .foregroundStyle(.blue)
+                    .symbol(Circle())
+                    
+                    AreaMark(
+                        x: .value("日期", point.date),
+                        y: .value("容量", point.totalVolume)
+                    )
+                    .foregroundStyle(.blue.opacity(0.1))
+                }
+            }
+            
+            // 各肌群線
+            ForEach(Array(viewModel.selectedMuscleGroups.filter { $0 != .all }), id: \.self) { filter in
+                if let muscleGroup = filter.primaryMuscleGroup {
+                    ForEach(viewModel.dataPoints) { point in
+                        if let volume = point.muscleGroupVolumes[muscleGroup], volume > 0 {
+                            LineMark(
+                                x: .value("日期", point.date),
+                                y: .value("容量", volume)
+                            )
+                            .foregroundStyle(by: .value("肌群", filter.rawValue))
+                            .symbol(Circle())
+                        }
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic) { value in
+                if let date = value.as(Date.self) {
+                    AxisValueLabel {
+                        Text(date, format: .dateTime.month(.abbreviated).day())
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisValueLabel {
+                    if let volume = value.as(Double.self) {
+                        Text(formatVolume(volume))
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+        .chartLegend(position: .bottom, spacing: 8)
+    }
+    
+    // MARK: - Muscle Group Filters
+    private var muscleGroupFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(MuscleGroupFilter.allCases) { filter in
+                    FilterChip(
+                        title: filter.rawValue,
+                        isSelected: viewModel.selectedMuscleGroups.contains(filter),
+                        color: getColor(for: filter)
+                    ) {
+                        viewModel.toggleMuscleGroup(filter)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Stats Section
+    private var statsSection: some View {
+        HStack(spacing: 20) {
+            VolumeStatItem(
+                title: "平均容量",
+                value: formatVolume(viewModel.averageVolume),
+                icon: "chart.bar.fill",
+                color: .blue
+            )
+            
+            Divider()
+            
+            VolumeStatItem(
+                title: "最高容量",
+                value: formatVolume(viewModel.maxVolume),
+                icon: "arrow.up.circle.fill",
+                color: .green
+            )
+            
+            Divider()
+            
+            VolumeStatItem(
+                title: "數據點",
+                value: "\(viewModel.dataPoints.count)",
+                icon: "circle.grid.3x3.fill",
+                color: .orange
+            )
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+    
+    // MARK: - Helper Methods
     private func formatVolume(_ volume: Double) -> String {
         if volume >= 1000 {
             return String(format: "%.1fk", volume / 1000)
@@ -158,36 +200,80 @@ struct VolumeChartView: View {
             return String(format: "%.0f", volume)
         }
     }
-}
-
-// MARK: - Volume Trend Point
-struct VolumeTrendPoint: Identifiable {
-    let id = UUID()
-    let date: Date
-    let volume: Double
-    let workoutCount: Int?
     
-    init(date: Date, volume: Double, workoutCount: Int? = nil) {
-        self.date = date
-        self.volume = volume
-        self.workoutCount = workoutCount
+    private func getColor(for filter: MuscleGroupFilter) -> Color {
+        switch filter.color {
+        case "blue": return .blue
+        case "red": return .red
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "yellow": return .yellow
+        default: return .gray
+        }
     }
 }
 
-#Preview {
-    let mockData = (0..<14).map { day in
-        VolumeTrendPoint(
-            date: Calendar.current.date(byAdding: .day, value: -day, to: Date())!,
-            volume: Double.random(in: 3000...6000),
-            workoutCount: Int.random(in: 1...2)
-        )
-    }.reversed()
+// MARK: - Filter Chip
+struct FilterChip: View {
+    let title: String
+    let isSelected: Bool
+    let color: Color
+    let action: () -> Void
     
-    return VolumeChartView(
-        data: Array(mockData),
-        chartType: .bar,
-        timeRange: .week
-    )
-    .padding()
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(isSelected ? .semibold : .regular)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(isSelected ? color.opacity(0.2) : Color(.secondarySystemBackground))
+            .foregroundColor(isSelected ? color : .primary)
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? color : Color.clear, lineWidth: 1.5)
+            )
+        }
+    }
 }
 
+// MARK: - Stat Item
+private struct VolumeStatItem: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .font(.caption)
+            
+            Text(value)
+                .font(.title3)
+                .fontWeight(.bold)
+            
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Preview
+#Preview {
+    ScrollView {
+        VolumeChartView()
+            .padding()
+    }
+}

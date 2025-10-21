@@ -9,11 +9,13 @@ class WorkoutViewModel: ObservableObject {
     @Published var totalVolume: Double = 0
     @Published var totalSets: Int = 0
     @Published var workoutDuration: String = "00:00"
+    @Published var errorMessage: String?
     
     // MARK: - Private Properties
     private var workoutStartTime: Date?
     private var timerCancellable: AnyCancellable?
     private var cancellables = Set<AnyCancellable>()
+    private let repository = WorkoutRepository()
     
     // MARK: - Public Methods
     func startWorkout() {
@@ -21,8 +23,9 @@ class WorkoutViewModel: ObservableObject {
         workoutStartTime = Date()
         startTimer()
         
-        // Load mock exercises for demo
-        loadMockWorkout()
+        // 開始空白訓練
+        currentWorkoutExercises = []
+        updateTotals()
     }
     
     func startWorkoutFromTemplate(_ template: TemplateInfo) {
@@ -34,8 +37,8 @@ class WorkoutViewModel: ObservableObject {
         currentWorkoutExercises = template.exercises.map { exercise in
             WorkoutExerciseViewModel(
                 id: UUID(),
-                exerciseId: UUID(), // In real app, this would be the actual exercise ID
-                exerciseName: exercise.name,
+                exerciseId: exercise.exercise.id, // ✅ 使用實際的 exercise ID
+                exerciseName: exercise.exercise.name,
                 sets: []
             )
         }
@@ -45,7 +48,7 @@ class WorkoutViewModel: ObservableObject {
     
     func completeWorkout() {
         stopTimer()
-        // TODO: Save workout to repository
+        saveWorkout()
         resetWorkout()
     }
     
@@ -132,31 +135,126 @@ class WorkoutViewModel: ObservableObject {
         workoutStartTime = nil
     }
     
-    private func loadMockWorkout() {
-        // Mock workout with 2 exercises
-        currentWorkoutExercises = [
-            WorkoutExerciseViewModel(
-                id: UUID(),
-                exerciseId: UUID(),
-                exerciseName: "槓鈴臥推",
-                sets: [
-                    WorkoutSetViewModel(id: UUID(), setNumber: 1, weight: 80, reps: 12, volume: 960, isWarmup: false),
-                    WorkoutSetViewModel(id: UUID(), setNumber: 2, weight: 100, reps: 10, volume: 1000, isWarmup: false),
-                    WorkoutSetViewModel(id: UUID(), setNumber: 3, weight: 100, reps: 8, volume: 800, isWarmup: false),
-                ]
-            ),
-            WorkoutExerciseViewModel(
-                id: UUID(),
-                exerciseId: UUID(),
-                exerciseName: "上斜啞鈴臥推",
-                sets: [
-                    WorkoutSetViewModel(id: UUID(), setNumber: 1, weight: 30, reps: 12, volume: 360, isWarmup: false),
-                    WorkoutSetViewModel(id: UUID(), setNumber: 2, weight: 35, reps: 10, volume: 350, isWarmup: false),
-                ]
-            )
-        ]
+    // MARK: - PR Tracking
+    
+    private func checkAndRecordPRs(workout: Workout, userId: UUID) {
+        let prRepository = PersonalRecordRepository()
+        var newPRCount = 0
         
-        updateTotals()
+        for exercise in workout.exercises {
+            for set in exercise.sets {
+                // 忽略熱身組
+                if set.isWarmup {
+                    continue
+                }
+                
+                // 計算 1RM
+                let oneRM = OneRMCalculator.calculate(weight: set.weight, reps: set.reps)
+                
+                do {
+                    // 檢查是否為新 PR
+                    let isNewPR = try prRepository.isNewPR(exerciseId: exercise.exerciseId, oneRepMax: oneRM)
+                    
+                    if isNewPR {
+                        // 創建新 PR 記錄
+                        let pr = PersonalRecord(
+                            userId: userId,
+                            exerciseId: exercise.exerciseId,
+                            weight: set.weight,
+                            reps: set.reps,
+                            oneRepMax: oneRM,
+                            achievedAt: workout.startedAt,
+                            workoutId: workout.id
+                        )
+                        
+                        _ = try prRepository.create(personalRecord: pr)
+                        newPRCount += 1
+                        print("🏆 新 PR！動作: \(exercise.exerciseId), 1RM: \(oneRM)kg")
+                    }
+                } catch {
+                    print("❌ 檢查 PR 失敗: \(error)")
+                }
+            }
+        }
+        
+        if newPRCount > 0 {
+            print("🎉 本次訓練創造了 \(newPRCount) 個新 PR！")
+        }
+    }
+    
+    private func saveWorkout() {
+        guard let startTime = workoutStartTime else { return }
+        let userId = DataMigrationService.getCurrentUserId()
+        
+        // 轉換 WorkoutExerciseViewModel 為 WorkoutExercise
+        let exercises: [WorkoutExercise] = currentWorkoutExercises.enumerated().map { index, exerciseVM in
+            let sets: [WorkoutSet] = exerciseVM.sets.map { setVM in
+                WorkoutSet(
+                    id: setVM.id,
+                    workoutExerciseId: exerciseVM.id,
+                    setNumber: setVM.setNumber,
+                    weight: setVM.weight,
+                    reps: setVM.reps,
+                    rpe: setVM.rpe,
+                    restSeconds: nil,
+                    isWarmup: setVM.isWarmup,
+                    note: nil,
+                    createdAt: Date(),
+                    updatedAt: Date()
+                )
+            }
+            
+            return WorkoutExercise(
+                id: exerciseVM.id,
+                workoutId: UUID(), // 會在創建時設置
+                exerciseId: exerciseVM.exerciseId,
+                exercise: nil,
+                orderIndex: index,
+                totalVolume: exerciseVM.totalVolume,
+                totalSets: exerciseVM.sets.count,
+                note: nil,
+                sets: sets,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        }
+        
+        // 創建 Workout
+        let workout = Workout(
+            id: UUID(),
+            userId: userId,
+            startedAt: startTime,
+            endedAt: Date(),
+            duration: Int(Date().timeIntervalSince(startTime)),
+            totalVolume: totalVolume,
+            totalSets: totalSets,
+            totalExercises: currentWorkoutExercises.count,
+            note: nil,
+            templateId: nil,
+            exercises: exercises,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        
+        // 保存到資料庫
+        do {
+            _ = try repository.create(workout: workout)
+            print("✅ 訓練記錄已保存")
+            
+            // 調試：檢查保存的數據
+            for (index, ex) in workout.exercises.enumerated() {
+                print("   動作 \(index+1): exerciseId=\(ex.exerciseId), name=\(ex.exercise?.name ?? "nil")")
+            }
+            
+            // 檢查並記錄 PR
+            checkAndRecordPRs(workout: workout, userId: userId)
+            
+            // 發送通知，通知其他頁面更新數據
+            NotificationCenter.default.post(name: .workoutCompleted, object: nil)
+        } catch {
+            errorMessage = "保存失敗: \(error.localizedDescription)"
+            print("❌ 保存訓練記錄失敗: \(error)")
+        }
     }
 }
 

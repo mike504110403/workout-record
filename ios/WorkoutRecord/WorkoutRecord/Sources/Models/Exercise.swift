@@ -7,9 +7,9 @@ struct Exercise: Identifiable, Codable {
     let categoryId: UUID
     var category: ExerciseCategory?
     var type: ExerciseType
-    var muscleGroups: [String]  // Target muscle groups (legacy)
-    var primaryMuscleGroup: PrimaryMuscleGroup  // 主要肌群
-    var movementPattern: MovementPattern  // 動作模式
+    var muscleGroups: [String]  // Target muscle groups
+    var primaryMuscleGroup: PrimaryMuscleGroup?  // 主要肌群（可選，用於未來擴展）
+    var movementPattern: MovementPattern?  // 動作模式（可選，用於未來擴展）
     var description: String?
     var videoURL: String?
     var imageURL: String?
@@ -119,8 +119,8 @@ struct Exercise: Identifiable, Codable {
         category: ExerciseCategory? = nil,
         type: ExerciseType,
         muscleGroups: [String] = [],
-        primaryMuscleGroup: PrimaryMuscleGroup,
-        movementPattern: MovementPattern,
+        primaryMuscleGroup: PrimaryMuscleGroup? = nil,
+        movementPattern: MovementPattern? = nil,
         description: String? = nil,
         videoURL: String? = nil,
         imageURL: String? = nil,
@@ -152,7 +152,7 @@ struct Exercise: Identifiable, Codable {
     }
 }
 
-struct ExerciseCategory: Identifiable, Codable {
+struct ExerciseCategory: Identifiable, Codable, Hashable {
     let id: UUID
     let name: String
     let nameEn: String?

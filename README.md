@@ -1,281 +1,312 @@
-# 健身記錄 App (Workout Record)
+# 💪 WorkoutRecord - 智能健身訓練記錄
 
-> 一個專業的 iOS 健身訓練記錄 App，支援體重追蹤、訓練記錄、容量分析與數據視覺化
+一款專為健身愛好者打造的訓練記錄 App，提供完整的訓練追蹤、數據分析和目標管理功能。
 
-## 📱 專案簡介
+## ✨ 核心特色
 
-這是一個全功能的健身記錄應用程式，設計目的是幫助使用者系統化地記錄和追蹤健身訓練數據，包括：
-- 體重記錄與趨勢追蹤
-- 訓練動作記錄（重量、次數、組數）
-- **訓練容量分析**（重量 × 次數 × 組數）⭐
-- 個人記錄追蹤與 1RM 計算
-- 多維度數據視覺化圖表
-- 訓練模板與自定義動作
+### 📊 智能數據分析
+- **訓練容量趨勢**：可視化您的訓練量變化，支持按肌群篩選（胸、背、腿、肩、手臂、核心）
+- **個人記錄（PR）追蹤**：自動記錄並追蹤您的 1RM 進步
+- **體重管理**：記錄體重變化，追蹤身體組成
+- **多維度圖表**：時間範圍選擇（週、月、3月、年）
 
-## 🎯 核心功能
+### 🎯 目標設定與追蹤
+- **週訓練目標**：設定每週訓練次數，接收進度提醒
+- **肌群容量目標**：為不同肌群設定訓練容量目標
+- **智能鼓勵**：根據完成度提供個性化鼓勵訊息
+- **進度可視化**：實時查看目標達成情況
 
-### 1. 體重管理
-- 手動記錄體重
-- 體重趨勢圖表
-- 目標體重設定
-- 體重變化統計
+### 📝 訓練管理
+- **訓練模板**：預設或自定義訓練模板，快速開始訓練
+- **實時記錄**：記錄每組訓練的重量、次數和 RPE
+- **組間休息計時器**：確保充分恢復
+- **訓練歷史**：列表或日曆視圖查看歷史記錄
+- **詳細統計**：每次訓練的容量分布、動作明細
 
-### 2. 訓練記錄
-- 豐富的預設動作庫（器材/自由重量/徒手）
-- 自定義動作
-- 詳細的組數記錄（重量、次數、RPE）
+### 🏋️ 動作庫
+- **70+ 系統動作**：涵蓋主要訓練動作，包含肌群和動作模式分類
+  - 胸部：12 個動作
+  - 背部：11 個動作
+  - 腿部：12 個動作
+  - 肩部：10 個動作
+  - 手臂：11 個動作
+  - 核心：10 個動作
+- **自定義動作**：創建專屬的訓練動作
+- **分類篩選**：按部位、器材類型快速查找動作
+
+## 🛠 技術架構
+
+### iOS 客戶端
+- **語言**：Swift 5.9+
+- **UI 框架**：SwiftUI
+- **架構**：MVVM
+- **數據持久化**：CoreData（本地優先）
+- **圖表**：Swift Charts
+- **最低版本**：iOS 17.0
+
+### 數據存儲
+- **本地存儲**：CoreData
+- **存儲位置**：App 沙盒目錄
+- **容量估算**：1年約 5-10 MB
+- **數據模型**：
+  - User（用戶）
+  - Workout（訓練記錄）
+  - WorkoutExercise（訓練動作）
+  - WorkoutSet（訓練組）
+  - Exercise（動作庫）
+  - Template（訓練模板）
+  - BodyWeight（體重記錄）
+  - PersonalRecord（個人記錄）
+  - UserGoal（用戶目標）
+
+### 後端 API（規劃中）
+- **語言**：Go 1.21+
+- **框架**：Gin
+- **ORM**：GORM
+- **數據庫**：PostgreSQL
+- **認證**：JWT
+- **部署狀態**：未來作為付費雲端同步功能
+
+## 📱 功能模塊
+
+### 1. 首頁（Dashboard）
+- 今日訓練快速入口
+- 本週訓練統計
+- 目標完成進度
+- 最近訓練記錄
+
+### 2. 訓練（Workout）
+- 選擇模板或自由訓練
+- 實時記錄訓練數據
 - 組間計時器
-- 訓練模板快速開始
+- 自動計算容量和 1RM
 
-### 3. 容量分析 ⭐
-- 即時顯示單組容量
-- 訓練總容量追蹤
-- 容量趨勢圖表
-- 肌群容量分布
-- 週期容量對比
-- 動作容量進度
+### 3. 數據（Stats）
+- **體重趨勢**：折線圖顯示體重變化
+- **訓練容量趨勢**：總容量及分肌群統計
+- **個人記錄**：查看所有動作的 PR
+- **時間範圍切換**：週、月、3月、年
 
-### 4. 進階數據
-- 1RM 計算（多種公式）
-- 百分比計算（80%/85%/90% 等）
-- 個人記錄（PR）追蹤
-- 訓練頻率統計
-- 訓練時長分析
+### 4. 歷史（History）
+- **列表視圖**：按時間順序顯示訓練，支持滑動刪除
+- **日曆視圖**：月曆標記訓練日期，點擊查看當日訓練
+- **訓練詳情**：查看完整的訓練內容
+  - 容量分布圖
+  - 動作明細（可展開/收起）
+  - 每組數據（重量、次數、容量）
 
-### 5. 數據視覺化
-- 體重趨勢折線圖
-- 訓練容量趨勢圖
-- 肌群分布圓餅圖
-- 訓練頻率柱狀圖
-- 多種時間範圍篩選
-
-## 🛠️ 技術架構
-
-### 前端 (iOS)
-- **語言**: Swift
-- **框架**: SwiftUI
-- **圖表**: Swift Charts (iOS 16+)
-- **資料**: CoreData / SwiftData
-- **網路**: URLSession / Alamofire
-
-### 後端 (API)
-- **語言**: Golang
-- **框架**: Gin (Web Framework)
-- **ORM**: GORM
-- **資料庫**: PostgreSQL
-- **認證**: JWT + OAuth2.0
-
-### 身份驗證
-- Apple Sign In
-- Google Sign In
-- JWT Token 管理
-
-### 部署
-- **後端**: Docker + 雲端服務
-- **資料庫**: Managed PostgreSQL
-- **iOS**: TestFlight / App Store
-
-## 📁 專案結構
-
-```
-workout-record/
-├── ios/                    # iOS App 原始碼
-│   ├── Models/            # 資料模型
-│   ├── Views/             # SwiftUI 視圖
-│   ├── ViewModels/        # 視圖模型
-│   ├── Services/          # 服務層
-│   └── Utils/             # 工具函數
-│
-├── backend/               # 後端 API 原始碼
-│   ├── cmd/api/          # 主程式進入點
-│   ├── internal/         # 內部套件
-│   │   ├── models/       # 資料模型
-│   │   ├── handlers/     # HTTP Handlers
-│   │   ├── services/     # 業務邏輯
-│   │   ├── repository/   # 資料層
-│   │   └── middleware/   # 中介層
-│   ├── api/              # API 定義
-│   ├── migrations/       # 資料庫遷移
-│   └── docs/             # API 文件
-│
-├── docs/                  # 專案文檔
-│   ├── README.md         # 文檔索引
-│   ├── TECH_STACK.md     # 技術選型
-│   ├── DATABASE_SCHEMA.md# 資料庫設計
-│   ├── FEATURE_MAP.md    # 功能地圖
-│   ├── DEVELOPMENT_PLAN.md# 開發規劃
-│   └── API_ENDPOINTS.md  # API 文件
-│
-└── README.md             # 本檔案
-```
-
-## 📚 文檔
-
-完整的專案文檔請參閱 [`docs/`](./docs/) 目錄：
-
-- **[技術選型](./docs/TECH_STACK.md)** - 技術棧詳細說明
-- **[資料庫設計](./docs/DATABASE_SCHEMA.md)** - 完整的 Schema 與容量計算邏輯
-- **[功能地圖](./docs/FEATURE_MAP.md)** - 所有功能的詳細規劃
-- **[開發計畫](./docs/DEVELOPMENT_PLAN.md)** - 6 階段開發流程與時程
-- **[API 文件](./docs/API_ENDPOINTS.md)** - RESTful API 完整定義
+### 5. 設定（Settings）
+- 個人資料管理
+- 目標設定（週訓練次數、肌群容量）
+- 自定義動作管理
+- 體重記錄
 
 ## 🚀 快速開始
 
-### 環境需求
+### 環境要求
+- macOS 13.0+
+- Xcode 15.0+
+- iOS 17.0+ (Simulator 或真機)
 
-**iOS 開發:**
-- macOS
-- Xcode 15+
-- iOS 16.0+ (Deployment Target)
+### 運行步驟
 
-**後端開發:**
-- Go 1.21+
-- PostgreSQL 14+
-- Docker (選用)
-
-### 安裝步驟
-
-#### 1. Clone 專案
 ```bash
-git clone https://github.com/yourusername/workout-record.git
+# 1. Clone 專案
+git clone <repository-url>
 cd workout-record
-```
 
-#### 2. iOS App 設定
-```bash
-cd ios
-# 使用 Xcode 開啟專案
+# 2. 進入 iOS 項目目錄
+cd ios/WorkoutRecord
+
+# 3. 打開 Xcode 項目
 open WorkoutRecord.xcodeproj
+
+# 4. 選擇 Simulator 或真機
+# 5. 按 ⌘R 運行
 ```
 
-#### 3. 後端 API 設定
-```bash
-cd backend
-# 安裝依賴
-go mod download
+### 首次啟動
 
-# 設定環境變數
-cp .env.example .env
-# 編輯 .env 設定資料庫連線等
+App 首次啟動時會自動：
+1. 初始化 CoreData 資料庫
+2. 創建默認用戶
+3. 載入 70+ 個系統動作（含肌群分類）
+4. 創建 4 個示例訓練模板：
+   - 胸部訓練
+   - 背部訓練
+   - 腿部訓練
+   - 肩部訓練
 
-# 執行資料庫遷移
-go run cmd/migrate/main.go
+## 📊 數據存儲說明
 
-# 啟動服務
-go run cmd/api/main.go
+### 本地存儲優勢
+- ✅ **無需網絡**：完全離線可用
+- ✅ **數據私密**：所有數據存儲在本地
+- ✅ **快速訪問**：零延遲的數據讀寫
+- ✅ **零成本**：無需服務器和數據庫費用
+
+### 存儲空間估算
+基於每天一次訓練，每次 10 個動作，每個動作 4 組：
+- 1 個月：約 500 KB
+- 6 個月：約 3 MB
+- 1 年：約 5-10 MB
+- 2 年：約 10-20 MB
+
+### 數據遷移
+如需重置資料庫：
+1. 刪除 App 並重新安裝，或
+2. 修改 `WorkoutRecordApp.swift` 中的 `currentModelVersion`
+
+## 📂 項目結構
+
+```
+workout-record/
+├── ios/WorkoutRecord/              # iOS App
+│   ├── WorkoutRecord/
+│   │   ├── Sources/
+│   │   │   ├── Views/             # SwiftUI 視圖
+│   │   │   │   ├── Dashboard/     # 首頁
+│   │   │   │   ├── Workout/       # 訓練
+│   │   │   │   ├── Stats/         # 數據
+│   │   │   │   ├── History/       # 歷史
+│   │   │   │   ├── Settings/      # 設定
+│   │   │   │   ├── Charts/        # 圖表
+│   │   │   │   └── PR/            # 個人記錄
+│   │   │   ├── ViewModels/        # MVVM ViewModels
+│   │   │   ├── Models/            # 數據模型
+│   │   │   ├── Repositories/      # 數據存取層
+│   │   │   ├── Services/          # 業務邏輯服務
+│   │   │   ├── Utils/             # 工具類
+│   │   │   └── Data/              # Mock 數據
+│   │   ├── WorkoutRecord.xcdatamodeld/  # CoreData 模型
+│   │   └── Assets.xcassets/       # 資源文件
+│   └── WorkoutRecord.xcodeproj/
+│
+├── backend/                        # Go 後端（規劃中）
+│   ├── cmd/server/                # 服務器入口
+│   ├── internal/
+│   │   ├── api/                   # API 處理器
+│   │   ├── models/                # 數據模型
+│   │   └── dto/                   # 數據傳輸對象
+│   ├── config/                    # 配置
+│   └── go.mod
+│
+└── docs/                          # 項目文檔
+    ├── API_ENDPOINTS.md           # API 接口文檔
+    ├── DATABASE_SCHEMA.md         # 數據庫設計
+    ├── DEVELOPMENT_PLAN.md        # 開發計劃
+    ├── FEATURE_MAP.md             # 功能地圖
+    └── TECH_STACK.md              # 技術棧說明
 ```
 
-#### 4. PostgreSQL 設定
-```bash
-# 使用 Docker
-docker-compose up -d
+## 🎯 開發路線圖
 
-# 或手動安裝 PostgreSQL 並建立資料庫
-createdb workout_record
-```
+### 已完成 ✅
+- [x] Phase 1: 基礎訓練記錄功能
+- [x] Phase 2: CoreData 本地存儲
+- [x] Phase 3: 數據初始化和模板系統
+- [x] Phase 4: 目標管理和圖表分析
+  - [x] 訓練容量趨勢圖
+  - [x] PR 自動追蹤
+  - [x] 目標設定與進度顯示
+  - [x] 日曆視圖
 
-## 📖 開發指南
+### 進行中 🚧
+- [ ] Phase 4: Bug 修復
+  - [x] 訓練詳情頁數據加載
+  - [x] 動作庫肌群分類
+  - [ ] 肌群篩選功能調試
 
-### 開發流程
+### 規劃中 📋
+- [ ] Phase 5: UI/UX 優化
+  - [ ] 動畫效果優化
+  - [ ] 暗黑模式適配
+  - [ ] 無障礙功能
+- [ ] Phase 6: 雲端同步（付費功能）
+  - [ ] CloudKit 整合
+  - [ ] 數據同步機制
+  - [ ] 多設備支持
+- [ ] Phase 7: Apple Watch 支持
+  - [ ] watchOS App
+  - [ ] 實時訓練記錄
+  - [ ] 健康數據整合
 
-本專案採用「前端優先」的開發策略：
+## 🐛 已知問題
 
-1. **階段 1 (3-4週)**: 完成 iOS UI/UX（使用假資料）
-2. **階段 2 (1週)**: 本地資料持久化
-3. **階段 3 (2-3週)**: 後端 API 開發
-4. **階段 4 (1-2週)**: 前後端串接
-5. **階段 5 (1週)**: 身份驗證
-6. **階段 6 (1-2週)**: 測試與上架
+### 當前待解決
+1. **肌群篩選功能**：選擇特定肌群時圖表無數據顯示
+   - 狀態：調試中
+   - 影響：數據頁面的肌群篩選
+   - 預計修復：下次更新
 
-詳細規劃請參閱 [開發計畫](./docs/DEVELOPMENT_PLAN.md)
+### 已修復
+- ✅ 訓練詳情頁顯示"未知動作"
+- ✅ CoreData 模型版本管理
+- ✅ 數據庫初始化失敗
+- ✅ 日曆視圖未實現
 
-### Git 工作流程
+## 📖 詳細文檔
 
-```bash
-# 建立功能分支
-git checkout -b feature/功能名稱
-
-# 開發並 commit
-git add .
-git commit -m "feat(scope): 新功能描述"
-
-# Push 到遠端
-git push origin feature/功能名稱
-
-# 發 PR 合併到 develop
-```
-
-### Commit Message 格式
-```
-<type>(<scope>): <subject>
-
-feat: 新功能
-fix: Bug 修復
-docs: 文件更新
-style: 格式調整
-refactor: 重構
-test: 測試相關
-chore: 雜項
-```
-
-## 🧪 測試
-
-### iOS 測試
-```bash
-# 單元測試
-xcodebuild test -scheme WorkoutRecord -destination 'platform=iOS Simulator,name=iPhone 15'
-
-# UI 測試
-xcodebuild test -scheme WorkoutRecordUITests -destination 'platform=iOS Simulator,name=iPhone 15'
-```
-
-### 後端測試
-```bash
-# 執行所有測試
-go test ./...
-
-# 測試覆蓋率
-go test -cover ./...
-```
-
-## 🎨 UI/UX 預覽
-
-（開發完成後補上截圖）
-
-## 📊 專案進度
-
-- [x] 專案規劃與文檔
-- [ ] iOS App UI/UX 開發
-- [ ] 本地資料持久化
-- [ ] 後端 API 開發
-- [ ] 前後端串接
-- [ ] 身份驗證整合
-- [ ] 測試與部署
-- [ ] App Store 上架
-
-詳細進度追蹤請參閱 [Issues](../../issues) 和 [Projects](../../projects)
+- [技術棧說明](docs/TECH_STACK.md)
+- [功能地圖](docs/FEATURE_MAP.md)
+- [數據庫設計](docs/DATABASE_SCHEMA.md)
+- [開發計劃](docs/DEVELOPMENT_PLAN.md)
+- [API 接口](docs/API_ENDPOINTS.md)
 
 ## 🤝 貢獻
 
-本專案目前為個人開發專案，暫不接受外部貢獻。
+歡迎提交 Issue 和 Pull Request！
 
-## 📝 開發日誌
+## 📝 更新日誌
 
-- **2025-10-20**: 專案啟動，完成規劃與文檔
-- 待續...
+### v0.4.0 (2025-10-21)
+- ✨ 新增訓練容量趨勢圖（支持肌群篩選）
+- ✨ 新增 PR 自動追蹤功能
+- ✨ 新增目標設定與進度顯示
+- ✨ 新增日曆視圖（月曆模式）
+- 🐛 修復訓練詳情頁數據加載問題
+- 🐛 修復動作庫缺少肌群分類
+- 🔧 為所有 70+ 系統動作添加肌群和動作模式
+- 🔧 優化 CoreData 版本管理
+
+### v0.3.0 (2025-10-20)
+- ✨ 實現 CoreData 本地存儲
+- ✨ 創建 Repository 數據存取層
+- ✨ 實現數據初始化服務
+- 🔧 移除大部分 Mock 數據
+- 🔧 整合 ViewModel 與 Repository
+
+### v0.2.0
+- ✨ 完成基礎 UI 框架
+- ✨ 實現訓練記錄功能
+- ✨ 添加模板系統
+
+### v0.1.0
+- 🎉 項目初始化
+- 📱 基礎項目結構搭建
 
 ## 📄 授權
 
-本專案為個人使用專案
+MIT License
 
-## 📞 聯絡
+## 👨‍💻 作者
 
-如有問題或建議，請建立 [Issue](../../issues)
+Mike
 
 ---
 
-**開發時間**: 2025-10-20 開始  
-**預計完成**: 2025-12 月底（2-3 個月）
+**打造專屬於你的訓練記錄工具 💪**
 
-Made with ❤️ for fitness enthusiasts
-重訓訓練紀錄用app
+## 🔧 開發備註
+
+### 調試模式
+如需重置資料庫進行測試，可在 `WorkoutRecordApp.swift` 中取消註解：
+```swift
+UserDefaults.standard.removeObject(forKey: "CoreDataModelVersion")
+```
+
+### CoreData 版本
+當前版本：`2.2` (包含肌群分類修復)
+
+### 控制台日誌
+開發模式下，控制台會顯示詳細的數據加載和保存日誌，用於調試。

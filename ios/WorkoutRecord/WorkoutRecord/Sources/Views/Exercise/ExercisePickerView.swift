@@ -2,12 +2,14 @@ import SwiftUI
 
 struct ExercisePickerView: View {
     @StateObject private var viewModel = ExercisePickerViewModel()
+    @StateObject private var customExerciseVM = CustomExerciseViewModel()
     @Environment(\.dismiss) var dismiss
     
     let onSelectExercise: (Exercise) -> Void
     
     @State private var searchText = ""
     @State private var selectedCategory: ExerciseCategory?
+    @State private var showQuickAdd = false
     
     var body: some View {
         NavigationStack {
@@ -34,10 +36,16 @@ struct ExercisePickerView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        // TODO: Show add custom exercise
+                        showQuickAdd = true
                     } label: {
                         Image(systemName: "plus")
                     }
+                }
+            }
+            .sheet(isPresented: $showQuickAdd) {
+                QuickAddExerciseSheet(customExerciseVM: customExerciseVM) { exercise in
+                    onSelectExercise(exercise)
+                    dismiss()
                 }
             }
         }

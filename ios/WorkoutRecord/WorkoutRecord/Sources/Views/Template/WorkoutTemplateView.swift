@@ -310,13 +310,26 @@ struct TemplateInfo: Identifiable {
     let id: UUID
     let name: String
     let description: String?
-    let isSystem: Bool
     let exercises: [TemplateExercise]
+    let isSystem: Bool
+    
+    init(id: UUID = UUID(), name: String, description: String? = nil, exercises: [TemplateExercise], isSystem: Bool = false) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.exercises = exercises
+        self.isSystem = isSystem
+    }
     
     struct TemplateExercise {
-        let name: String
+        let id: UUID
+        let exercise: Exercise
         let suggestedSets: Int?
         let suggestedReps: Int?
+        
+        var name: String {
+            exercise.name
+        }
     }
 }
 

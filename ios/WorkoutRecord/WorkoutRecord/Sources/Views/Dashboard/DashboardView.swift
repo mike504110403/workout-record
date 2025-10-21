@@ -15,6 +15,11 @@ struct DashboardView: View {
                     // Quick Actions Section
                     quickActionsSection
                     
+                    // Goal Progress Section
+                    if viewModel.userGoal != nil {
+                        goalProgressSection
+                    }
+                    
                     // This Week Stats Section
                     weekStatsSection
                     
@@ -27,6 +32,15 @@ struct DashboardView: View {
             .background(Color(.systemGroupedBackground))
             .sheet(isPresented: $showBodyWeightSheet) {
                 AddBodyWeightSheet(viewModel: bodyWeightViewModel)
+            }
+            .onAppear {
+                viewModel.refresh()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .workoutCompleted)) { _ in
+                viewModel.refresh()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .goalsUpdated)) { _ in
+                viewModel.refresh()
             }
         }
     }
@@ -93,6 +107,76 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal)
+        }
+    }
+    
+    // MARK: - Goal Progress
+    private var goalProgressSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("本週目標")
+                    .font(.headline)
+                
+                Spacer()
+                
+                NavigationLink {
+                    GoalSettingsView()
+                } label: {
+                    Image(systemName: "gear")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal)
+            
+            if let progress = viewModel.workoutProgress,
+               let goal = viewModel.userGoal {
+                VStack(spacing: 16) {
+                    // 進度條
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("訓練次數")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Text("\(viewModel.weekWorkoutCount) / \(goal.weeklyWorkoutGoal) 次")
+                                .font(.headline)
+                                .fontWeight(.bold)
+                        }
+                        
+                        ProgressView(value: progress.percentage, total: 100)
+                            .tint(progressColor(for: progress.percentage))
+                            .scaleEffect(y: 2)
+                        
+                        HStack {
+                            Text(viewModel.motivationalMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Text(String(format: "%.0f%%", progress.percentage))
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(progressColor(for: progress.percentage))
+                        }
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+    
+    private func progressColor(for percentage: Double) -> Color {
+        switch percentage {
+        case 0..<30: return .red
+        case 30..<70: return .orange
+        case 70..<100: return .blue
+        default: return .green
         }
     }
     

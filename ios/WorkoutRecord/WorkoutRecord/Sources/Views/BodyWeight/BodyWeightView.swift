@@ -41,7 +41,7 @@ struct BodyWeightView: View {
                 if !viewModel.bodyWeights.isEmpty {
                     BodyWeightChartView(
                         data: viewModel.chartData,
-                        targetWeight: 73.0,  // TODO: Get from user settings
+                        targetWeight: nil,  // TODO: Get from user settings
                         timeRange: .month
                     )
                 }

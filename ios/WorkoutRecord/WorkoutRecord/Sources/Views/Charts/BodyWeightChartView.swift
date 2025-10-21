@@ -129,7 +129,7 @@ struct BodyWeightChartView: View {
     
     return BodyWeightChartView(
         data: Array(mockData),
-        targetWeight: 73.0,
+        targetWeight: nil,
         timeRange: .month
     )
     .padding()
