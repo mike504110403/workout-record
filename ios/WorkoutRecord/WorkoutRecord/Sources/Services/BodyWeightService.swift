@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// 體重記錄服務
 class BodyWeightService {

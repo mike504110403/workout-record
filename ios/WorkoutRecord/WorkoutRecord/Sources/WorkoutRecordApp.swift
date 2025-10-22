@@ -1,14 +1,52 @@
 import SwiftUI
 import Combine
+import CloudKit
+import FirebaseCore
 
 @main
 struct WorkoutRecordApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var onboardingState = OnboardingState()
+    @StateObject private var cloudKitAuth = CloudKitAuthService()
+    @StateObject private var analyticsService = ComprehensiveAnalyticsService.shared
+    @StateObject private var firebaseService = FirebaseConfigService.shared
+    @StateObject private var privacyService = PrivacyConsentService.shared
+    @StateObject private var appleIDAuth = AppleIDAuthService.shared
+    
+    init() {
+        // 初始化 Firebase
+        FirebaseApp.configure()
+        
+        // 延遲初始化 CloudKit，避免啟動時的崩潰
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // CloudKit 將在 CloudKitAuthService 中自動初始化
+        }
+    }
     
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environmentObject(appState)
+            if !appleIDAuth.isSignedIn {
+                // 強制 Apple ID 登入
+                AppleIDLoginView()
+                    .environmentObject(appleIDAuth)
+            } else if onboardingState.hasCompleted {
+                MainTabView()
+                    .environmentObject(appState)
+                    .environmentObject(cloudKitAuth)
+                    .environmentObject(analyticsService)
+                    .environmentObject(firebaseService)
+                    .environmentObject(privacyService)
+                    .environmentObject(appleIDAuth)
+                    .checkPrivacyConsent()
+            } else {
+                OnboardingView(state: onboardingState)
+                    .environmentObject(cloudKitAuth)
+                    .environmentObject(analyticsService)
+                    .environmentObject(firebaseService)
+                    .environmentObject(privacyService)
+                    .environmentObject(appleIDAuth)
+                    .checkPrivacyConsent()
+            }
         }
     }
 }
@@ -24,6 +62,9 @@ class AppState: ObservableObject {
         
         // 異步初始化默認數據
         initializeApp()
+        
+        // 追蹤 App 啟動
+        AnalyticsService.shared.trackAppLaunch()
     }
     
     private func checkAndResetCoreDataIfNeededSync() {
@@ -121,6 +162,10 @@ class AppState: ObservableObject {
             do {
                 // 初始化默認數據（系統動作、示例模板等）
                 try await DataMigrationService().initializeDefaultData()
+                
+                // 檢查數據保留策略
+                DataRetentionService.shared.scheduleCleanupIfNeeded()
+                
                 print("✅ App 初始化完成")
             } catch {
                 print("❌ App 初始化失敗: \(error)")

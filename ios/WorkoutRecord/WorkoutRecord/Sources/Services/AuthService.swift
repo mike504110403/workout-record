@@ -1,9 +1,15 @@
 import Foundation
+import CloudKit
+import Combine
 
 /// 認證服務
-class AuthService {
+class AuthService: ObservableObject {
     static let shared = AuthService()
     private init() {}
+    
+    @Published var isCloudKitEnabled = false
+    @Published var cloudKitAuthService = CloudKitAuthService()
+    @Published var cloudKitSyncService = CloudKitSyncService.shared
     
     /// 登入請求
     struct LoginRequest: Encodable {
@@ -69,6 +75,39 @@ class AuthService {
             method: .put,
             body: request
         )
+    }
+    
+    // MARK: - CloudKit 整合方法
+    
+    /// 啟用 CloudKit 同步
+    func enableCloudKitSync() {
+        isCloudKitEnabled = true
+        // 開始初始同步
+        Task {
+            await cloudKitSyncService.startFullSync()
+        }
+    }
+    
+    /// 停用 CloudKit 同步
+    func disableCloudKitSync() {
+        isCloudKitEnabled = false
+    }
+    
+    /// 手動同步數據
+    func syncData() async {
+        if isCloudKitEnabled {
+            await cloudKitSyncService.startIncrementalSync()
+        }
+    }
+    
+    /// 檢查 CloudKit 可用性
+    func checkCloudKitAvailability() async -> Bool {
+        do {
+            let status = try await CKContainer.default().accountStatus()
+            return status == .available
+        } catch {
+            return false
+        }
     }
 }
 

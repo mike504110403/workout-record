@@ -45,8 +45,10 @@ class UserProfile: ObservableObject {
     
     @AppStorage("userName") var name: String = ""
     @AppStorage("userEmail") var email: String = "user@example.com"
-    @AppStorage("userGender") var gender: String = "notSpecified"
+    @AppStorage("userGender") var gender: String = "不指定"
+    @AppStorage("userAge") var age: Int = 0
     @AppStorage("userHeight") var height: Double = 0
+    @AppStorage("userCurrentWeight") var currentWeight: Double = 0
     @AppStorage("userTargetWeight") var targetWeight: Double = 0
     @AppStorage("weeklyWorkoutGoal") var weeklyGoal: Int = 4
     

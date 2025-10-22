@@ -1,9 +1,10 @@
 import Foundation
+import Combine
 
 /// 動作服務
-class ExerciseService {
+class ExerciseService: ObservableObject {
     static let shared = ExerciseService()
-    private init() {}
+    init() {}
     
     /// 列表回應
     struct ListResponse: Decodable {

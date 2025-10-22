@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var appleIDAuth: AppleIDAuthService
+    @State private var showSignOutAlert = false
+    
     var body: some View {
         NavigationStack {
             List {
@@ -17,7 +20,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("個人資料")
                                     .font(.headline)
-                                Text("未登入")
+                                Text(appleIDAuth.userName ?? "未登入")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -35,7 +38,7 @@ struct SettingsView: View {
                 // Exercise Management
                 Section("動作庫管理") {
                     NavigationLink {
-                        ExerciseManagementView()
+                        SettingsExerciseManagementView()
                     } label: {
                         Label("動作庫", systemImage: "list.bullet")
                     }
@@ -59,30 +62,22 @@ struct SettingsView: View {
                 // App Settings
                 Section("應用設定") {
                     NavigationLink {
+                        CloudKitSettingsView()
+                    } label: {
+                        Label("iCloud 同步", systemImage: "icloud")
+                    }
+                    
+                    
+                    NavigationLink {
                         AppSettingsView()
                     } label: {
                         Label("偏好設定", systemImage: "gear")
                     }
                     
                     NavigationLink {
-                        Text("通知設定")
+                        NotificationSettingsView()
                     } label: {
                         Label("通知", systemImage: "bell")
-                    }
-                }
-                
-                // Data Management
-                Section("數據管理") {
-                    Button {
-                        // TODO: Export data
-                    } label: {
-                        Label("匯出數據", systemImage: "square.and.arrow.up")
-                    }
-                    
-                    Button {
-                        // TODO: Import data
-                    } label: {
-                        Label("匯入數據", systemImage: "square.and.arrow.down")
                     }
                 }
                 
@@ -101,14 +96,31 @@ struct SettingsView: View {
                         Label("使用教學", systemImage: "book")
                     }
                     
+                    
                     NavigationLink {
-                        Text("關於我們")
+                        AboutView()
                     } label: {
                         Label("關於", systemImage: "info.circle")
                     }
                 }
+                
+                // 登出選項
+                Section {
+                    Button("登出") {
+                        showSignOutAlert = true
+                    }
+                    .foregroundColor(.red)
+                }
             }
             .navigationTitle("設定")
+            .alert("登出", isPresented: $showSignOutAlert) {
+                Button("取消", role: .cancel) { }
+                Button("登出", role: .destructive) {
+                    appleIDAuth.signOut()
+                }
+            } message: {
+                Text("確定要登出嗎？")
+            }
         }
     }
 }
@@ -116,6 +128,7 @@ struct SettingsView: View {
 struct ProfileView: View {
     @StateObject private var profile = UserProfile.shared
     @State private var showSaveAlert = false
+    @EnvironmentObject private var appleIDAuth: AppleIDAuthService
     
     enum Gender: String, CaseIterable {
         case male = "男性"
@@ -143,9 +156,9 @@ struct ProfileView: View {
                         .foregroundColor(.blue)
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(profile.name.isEmpty ? "未設定姓名" : profile.name)
+                        Text(appleIDAuth.userName ?? "未設定姓名")
                             .font(.headline)
-                        Text(profile.email)
+                        Text(appleIDAuth.userEmail ?? "未提供電子郵件")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -200,7 +213,7 @@ struct ProfileView: View {
     }
 }
 
-struct ExerciseManagementView: View {
+struct SettingsExerciseManagementView: View {
     let categories = ["胸部", "背部", "腿部", "肩部", "手臂", "核心"]
     
     var body: some View {
