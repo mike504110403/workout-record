@@ -117,14 +117,14 @@ struct PowerliftingView: View {
                 Chart(viewModel.chartData) { point in
                     LineMark(
                         x: .value("日期", point.date),
-                        y: .value("1RM", point.oneRM)
+                        y: .value("1RM", point.oneRepMax)
                     )
                     .foregroundStyle(.blue)
                     .symbol(Circle())
                     
                     PointMark(
                         x: .value("日期", point.date),
-                        y: .value("1RM", point.oneRM)
+                        y: .value("1RM", point.oneRepMax)
                     )
                     .foregroundStyle(point.isManualEntry ? .orange : .blue)
                     .symbolSize(60)

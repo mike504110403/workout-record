@@ -15,6 +15,21 @@ struct User: Identifiable, Codable {
     let createdAt: Date
     var updatedAt: Date
     
+    // MARK: - 新增偏好設定欄位
+    var defaultRestTime: Int = 90
+    var showVolumeInStats: Bool = true
+    var enableHapticFeedback: Bool = true
+    var autoSaveWorkout: Bool = true
+    var theme: AppTheme = .system
+    var enableNotifications: Bool = true
+    var notificationTime: String = "20:00"
+    var language: String = "zh-TW"
+    
+    // MARK: - Apple ID 相關欄位
+    var appleID: String?
+    var appleIDEmail: String?
+    var appleIDName: String?
+    
     enum Gender: String, Codable {
         case male = "male"
         case female = "female"
@@ -29,6 +44,13 @@ struct User: Identifiable, Codable {
             switch self {
             case .kg: return "公斤"
             case .lb: return "磅"
+            }
+        }
+        
+        var symbol: String {
+            switch self {
+            case .kg: return "kg"
+            case .lb: return "lb"
             }
         }
     }
@@ -59,6 +81,20 @@ struct User: Identifiable, Codable {
         }
     }
     
+    enum AppTheme: String, Codable, CaseIterable {
+        case light = "light"
+        case dark = "dark"
+        case system = "system"
+        
+        var displayName: String {
+            switch self {
+            case .light: return "淺色"
+            case .dark: return "深色"
+            case .system: return "跟隨系統"
+            }
+        }
+    }
+    
     init(
         id: UUID = UUID(),
         email: String,
@@ -72,7 +108,18 @@ struct User: Identifiable, Codable {
         preferredUnit: WeightUnit = .kg,
         preferred1RMFormula: OneRMFormula = .epley,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        defaultRestTime: Int = 90,
+        showVolumeInStats: Bool = true,
+        enableHapticFeedback: Bool = true,
+        autoSaveWorkout: Bool = true,
+        theme: AppTheme = .system,
+        enableNotifications: Bool = true,
+        notificationTime: String = "20:00",
+        language: String = "zh-TW",
+        appleID: String? = nil,
+        appleIDEmail: String? = nil,
+        appleIDName: String? = nil
     ) {
         self.id = id
         self.email = email
@@ -87,6 +134,17 @@ struct User: Identifiable, Codable {
         self.preferred1RMFormula = preferred1RMFormula
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.defaultRestTime = defaultRestTime
+        self.showVolumeInStats = showVolumeInStats
+        self.enableHapticFeedback = enableHapticFeedback
+        self.autoSaveWorkout = autoSaveWorkout
+        self.theme = theme
+        self.enableNotifications = enableNotifications
+        self.notificationTime = notificationTime
+        self.language = language
+        self.appleID = appleID
+        self.appleIDEmail = appleIDEmail
+        self.appleIDName = appleIDName
     }
 }
 

@@ -108,7 +108,12 @@ struct BodyWeightViewAPI: View {
         NavigationView {
             ZStack {
                 if viewModel.isLoading {
-                    ProgressView("載入中...")
+                    SwiftUI.ProgressView()
+                        .overlay(
+                            Text("載入中...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        )
                 } else {
                     List {
                         Section {

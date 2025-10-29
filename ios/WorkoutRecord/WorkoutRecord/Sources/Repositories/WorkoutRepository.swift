@@ -35,6 +35,9 @@ class WorkoutRepository {
             exerciseEntity.id = workoutExercise.id
             exerciseEntity.workoutId = workout.id
             exerciseEntity.exerciseId = workoutExercise.exerciseId
+            exerciseEntity.exerciseName = workoutExercise.exerciseName
+            exerciseEntity.isCompleted = workoutExercise.isCompleted
+            exerciseEntity.isCustomExercise = workoutExercise.isCustomExercise
             exerciseEntity.orderIndex = Int32(workoutExercise.orderIndex)
             exerciseEntity.totalVolume = workoutExercise.totalVolume
             exerciseEntity.totalSets = Int32(workoutExercise.totalSets)
@@ -77,6 +80,11 @@ class WorkoutRepository {
         return entities.compactMap { convertToModel($0) }
     }
     
+    /// 獲取所有訓練記錄 (別名方法)
+    func getAllWorkouts() throws -> [Workout] {
+        return try fetchAll()
+    }
+    
     /// 根據 ID 獲取訓練
     func fetchById(_ id: UUID) throws -> Workout? {
         let predicate = NSPredicate(format: "id == %@", id as CVarArg)
@@ -86,6 +94,11 @@ class WorkoutRepository {
             limit: 1
         )
         return entities.first.flatMap { convertToModel($0) }
+    }
+    
+    /// 根據 ID 獲取訓練 (別名方法)
+    func getWorkout(by id: UUID) throws -> Workout? {
+        return try fetchById(id)
     }
     
     /// 獲取指定時間範圍的訓練
@@ -262,11 +275,14 @@ class WorkoutRepository {
                 workoutId: exerciseEntity.workoutId ?? UUID(),
                 exerciseId: exerciseId,
                 exercise: exercise, // ✅ 加載完整的 exercise 對象
+                exerciseName: exerciseEntity.exerciseName, // ✅ 載入備用動作名稱
                 orderIndex: Int(exerciseEntity.orderIndex),
                 totalVolume: exerciseEntity.totalVolume,
                 totalSets: Int(exerciseEntity.totalSets),
                 note: exerciseEntity.note,
                 sets: sets,
+                isCustomExercise: exerciseEntity.isCustomExercise,
+                isCompleted: exerciseEntity.isCompleted,
                 createdAt: exerciseEntity.createdAt ?? Date(),
                 updatedAt: exerciseEntity.updatedAt ?? Date()
             )

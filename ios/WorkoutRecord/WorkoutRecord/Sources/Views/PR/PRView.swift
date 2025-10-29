@@ -13,7 +13,12 @@ struct PRView: View {
             
             // PR 列表
             if viewModel.isLoading {
-                ProgressView("載入中...")
+                    SwiftUI.ProgressView()
+                        .overlay(
+                            Text("載入中...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.filteredSummaries.isEmpty {
                 emptyStateView

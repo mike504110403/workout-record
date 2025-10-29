@@ -16,7 +16,12 @@ struct WorkoutDetailView: View {
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("載入中...")
+                    SwiftUI.ProgressView()
+                        .overlay(
+                            Text("載入中...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        )
             } else {
                 ScrollView {
                     VStack(spacing: 20) {
@@ -208,7 +213,7 @@ struct WorkoutDetailView: View {
                 
                 return WorkoutExerciseDetail(
                     id: workoutExercise.id,
-                    exerciseName: workoutExercise.exercise?.name ?? "未知動作",
+                    exerciseName: workoutExercise.exercise?.name ?? workoutExercise.exerciseName ?? "未知動作",
                     totalVolume: workoutExercise.totalVolume,
                     percentage: percentage,
                     sets: sets

@@ -68,7 +68,7 @@ struct AppleIDLoginView: View {
                     
                     if authService.isLoading {
                         HStack {
-                            ProgressView()
+                            SwiftUI.ProgressView()
                                 .scaleEffect(0.8)
                             Text("登入中...")
                                 .font(.caption)

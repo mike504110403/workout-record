@@ -20,18 +20,18 @@ struct MockData {
     static let chestExercises: [Exercise] = {
         let categoryId = categories[0].id
         return [
-            Exercise(name: "槓鈴臥推", nameEn: "Barbell Bench Press", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌", "三角肌前束", "肱三頭肌"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "啞鈴臥推", nameEn: "Dumbbell Bench Press", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌", "三角肌前束"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "上斜槓鈴臥推", nameEn: "Incline Barbell Press", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "上斜啞鈴臥推", nameEn: "Incline Dumbbell Press", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "下斜槓鈴臥推", nameEn: "Decline Barbell Press", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌下側"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "啞鈴飛鳥", nameEn: "Dumbbell Fly", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌"], primaryMuscleGroup: .chest, movementPattern: .isolation, isSystem: true),
-            Exercise(name: "上斜啞鈴飛鳥", nameEn: "Incline Dumbbell Fly", categoryId: categoryId, type: .freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: .chest, movementPattern: .isolation, isSystem: true),
-            Exercise(name: "胸推機", nameEn: "Chest Press Machine", categoryId: categoryId, type: .machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "蝴蝶機", nameEn: "Pec Deck Fly", categoryId: categoryId, type: .machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: .chest, movementPattern: .isolation, isSystem: true),
-            Exercise(name: "Cable 飛鳥", nameEn: "Cable Crossover", categoryId: categoryId, type: .machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: .chest, movementPattern: .isolation, isSystem: true),
-            Exercise(name: "伏地挺身", nameEn: "Push-up", categoryId: categoryId, type: .bodyweight, muscleGroups: ["胸大肌", "三角肌", "肱三頭肌"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true),
-            Exercise(name: "雙槓撐體", nameEn: "Dips", categoryId: categoryId, type: .bodyweight, muscleGroups: ["胸大肌下側", "肱三頭肌"], primaryMuscleGroup: .chest, movementPattern: .push, isSystem: true)
+            Exercise(name: "槓鈴臥推", nameEn: "Barbell Bench Press", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌", "三角肌前束", "肱三頭肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "啞鈴臥推", nameEn: "Dumbbell Bench Press", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌", "三角肌前束"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "上斜槓鈴臥推", nameEn: "Incline Barbell Press", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "上斜啞鈴臥推", nameEn: "Incline Dumbbell Press", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "下斜槓鈴臥推", nameEn: "Decline Barbell Press", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌下側"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "啞鈴飛鳥", nameEn: "Dumbbell Fly", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.isolation, isSystem: true),
+            Exercise(name: "上斜啞鈴飛鳥", nameEn: "Incline Dumbbell Fly", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["胸大肌上側"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.isolation, isSystem: true),
+            Exercise(name: "胸推機", nameEn: "Chest Press Machine", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "蝴蝶機", nameEn: "Pec Deck Fly", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.isolation, isSystem: true),
+            Exercise(name: "Cable 飛鳥", nameEn: "Cable Crossover", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["胸大肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.isolation, isSystem: true),
+            Exercise(name: "伏地挺身", nameEn: "Push-up", categoryId: categoryId, type: Exercise.ExerciseType.bodyweight, muscleGroups: ["胸大肌", "三角肌", "肱三頭肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true),
+            Exercise(name: "雙槓撐體", nameEn: "Dips", categoryId: categoryId, type: Exercise.ExerciseType.bodyweight, muscleGroups: ["胸大肌下側", "肱三頭肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.chest, movementPattern: Exercise.MovementPattern.push, isSystem: true)
         ]
     }()
     
@@ -39,17 +39,17 @@ struct MockData {
     static let backExercises: [Exercise] = {
         let categoryId = categories[1].id
         return [
-            Exercise(name: "硬舉", nameEn: "Deadlift", categoryId: categoryId, type: .freeWeight, muscleGroups: ["下背", "臀部", "腿後肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "槓鈴划船", nameEn: "Barbell Row", categoryId: categoryId, type: .freeWeight, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "啞鈴划船", nameEn: "Dumbbell Row", categoryId: categoryId, type: .freeWeight, muscleGroups: ["背闊肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "T 槓划船", nameEn: "T-Bar Row", categoryId: categoryId, type: .freeWeight, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "引體向上", nameEn: "Pull-up", categoryId: categoryId, type: .bodyweight, muscleGroups: ["背闊肌", "二頭肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "滑輪下拉", nameEn: "Lat Pulldown", categoryId: categoryId, type: .machine, muscleGroups: ["背闊肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "坐姿划船", nameEn: "Seated Cable Row", categoryId: categoryId, type: .machine, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "單臂啞鈴划船", nameEn: "One-Arm Dumbbell Row", categoryId: categoryId, type: .freeWeight, muscleGroups: ["背闊肌"], primaryMuscleGroup: .back, movementPattern: .pull, isSystem: true),
-            Exercise(name: "直臂下壓", nameEn: "Straight Arm Pulldown", categoryId: categoryId, type: .machine, muscleGroups: ["背闊肌"], primaryMuscleGroup: .back, movementPattern: .isolation, isSystem: true),
-            Exercise(name: "臉拉", nameEn: "Face Pull", categoryId: categoryId, type: .machine, muscleGroups: ["後三角肌", "上背"], primaryMuscleGroup: .shoulders, movementPattern: .pull, isSystem: true),
-            Exercise(name: "反向飛鳥", nameEn: "Reverse Fly", categoryId: categoryId, type: .freeWeight, muscleGroups: ["後三角肌", "上背"], primaryMuscleGroup: .shoulders, movementPattern: .isolation, isSystem: true)
+            Exercise(name: "硬舉", nameEn: "Deadlift", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["下背", "臀部", "腿後肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "槓鈴划船", nameEn: "Barbell Row", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "啞鈴划船", nameEn: "Dumbbell Row", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["背闊肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "T 槓划船", nameEn: "T-Bar Row", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "引體向上", nameEn: "Pull-up", categoryId: categoryId, type: Exercise.ExerciseType.bodyweight, muscleGroups: ["背闊肌", "二頭肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "滑輪下拉", nameEn: "Lat Pulldown", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["背闊肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "坐姿划船", nameEn: "Seated Cable Row", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["背闊肌", "斜方肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "單臂啞鈴划船", nameEn: "One-Arm Dumbbell Row", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["背闊肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "直臂下壓", nameEn: "Straight Arm Pulldown", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["背闊肌"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.back, movementPattern: Exercise.MovementPattern.isolation, isSystem: true),
+            Exercise(name: "臉拉", nameEn: "Face Pull", categoryId: categoryId, type: Exercise.ExerciseType.machine, muscleGroups: ["後三角肌", "上背"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.shoulders, movementPattern: Exercise.MovementPattern.pull, isSystem: true),
+            Exercise(name: "反向飛鳥", nameEn: "Reverse Fly", categoryId: categoryId, type: Exercise.ExerciseType.freeWeight, muscleGroups: ["後三角肌", "上背"], primaryMuscleGroup: Exercise.PrimaryMuscleGroup.shoulders, movementPattern: Exercise.MovementPattern.isolation, isSystem: true)
         ]
     }()
     

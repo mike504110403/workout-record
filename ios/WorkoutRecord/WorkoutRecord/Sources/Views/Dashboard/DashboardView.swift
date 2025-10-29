@@ -191,7 +191,6 @@ struct DashboardView: View {
                 StatCard(
                     title: "訓練次數",
                     value: "\(viewModel.weekWorkoutCount)",
-                    unit: "次",
                     icon: "dumbbell.fill",
                     color: .blue
                 )
@@ -199,7 +198,6 @@ struct DashboardView: View {
                 StatCard(
                     title: "總容量",
                     value: String(format: "%.0f", viewModel.weekTotalVolume),
-                    unit: "kg",
                     icon: "chart.bar.fill",
                     color: .green
                 )
@@ -407,39 +405,7 @@ struct QuickActionLinkButton: View {
     }
 }
 
-struct StatCard: View {
-    let title: String
-    let value: String
-    let unit: String
-    let icon: String
-    let color: Color
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: icon)
-                    .foregroundColor(color)
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(.title)
-                    .fontWeight(.bold)
-                Text(unit)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
-    }
-}
+// StatCard 定義已移至 Views/Components/StatCardView.swift
 
 struct RecentWorkoutRow: View {
     let workout: WorkoutSummary

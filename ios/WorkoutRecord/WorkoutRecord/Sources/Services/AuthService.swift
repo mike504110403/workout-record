@@ -1,6 +1,7 @@
 import Foundation
 import CloudKit
 import Combine
+import UIKit
 
 /// 認證服務
 class AuthService: ObservableObject {

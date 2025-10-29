@@ -77,6 +77,16 @@ class PersonalRecordRepository {
         return entities.compactMap { convertToModel($0) }
     }
     
+    /// 獲取所有個人記錄 (別名方法)
+    func getAllPersonalRecords() throws -> [PersonalRecord] {
+        return try fetchAll()
+    }
+    
+    /// 根據 ID 獲取個人記錄 (別名方法)
+    func getPersonalRecord(by id: UUID) throws -> PersonalRecord? {
+        return try fetchById(id)
+    }
+    
     // MARK: - Get Current PR
     
     /// 獲取特定動作的當前 PR（最高 1RM）

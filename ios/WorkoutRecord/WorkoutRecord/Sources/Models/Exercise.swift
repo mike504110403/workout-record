@@ -1,5 +1,8 @@
 import Foundation
 
+// MARK: - Muscle Group (別名)
+typealias MuscleGroup = Exercise.PrimaryMuscleGroup
+
 struct Exercise: Identifiable, Codable {
     let id: UUID
     var name: String

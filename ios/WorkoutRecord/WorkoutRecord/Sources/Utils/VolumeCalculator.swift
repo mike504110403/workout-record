@@ -17,6 +17,7 @@ struct VolumeCalculator {
     /// - Parameter sets: Array of workout sets
     /// - Returns: Total volume in kg (excluding warmup sets)
     static func calculateExerciseVolume(sets: [WorkoutSet]) -> Double {
+        guard !sets.isEmpty else { return 0.0 }
         return sets
             .filter { !$0.isWarmup }
             .reduce(0) { $0 + $1.volume }
@@ -26,6 +27,7 @@ struct VolumeCalculator {
     /// - Parameter exercises: Array of workout exercises
     /// - Returns: Total volume in kg
     static func calculateWorkoutVolume(exercises: [WorkoutExercise]) -> Double {
+        guard !exercises.isEmpty else { return 0.0 }
         return exercises.reduce(0) { $0 + $1.totalVolume }
     }
     
@@ -33,6 +35,7 @@ struct VolumeCalculator {
     /// - Parameter exercises: Array of workout exercises
     /// - Returns: Total number of sets
     static func calculateTotalSets(exercises: [WorkoutExercise]) -> Int {
+        guard !exercises.isEmpty else { return 0 }
         return exercises.reduce(0) { total, exercise in
             total + exercise.sets.filter { !$0.isWarmup }.count
         }

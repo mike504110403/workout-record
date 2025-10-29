@@ -133,6 +133,24 @@ class ExerciseRepository {
         return entities.compactMap { convertToModel($0) }
     }
     
+    /// 獲取自定義動作 (別名方法，不需要 userId)
+    func getCustomExercises() throws -> [Exercise] {
+        let predicate = NSPredicate(
+            format: "isSystem == NO AND isActive == YES"
+        )
+        let entities = try coreData.fetch(
+            ExerciseEntity.self,
+            predicate: predicate,
+            sortDescriptors: [NSSortDescriptor(key: "name", ascending: true)]
+        )
+        return entities.compactMap { convertToModel($0) }
+    }
+    
+    /// 根據 ID 獲取動作 (別名方法)
+    func getExercise(by id: UUID) throws -> Exercise? {
+        return try fetchById(id)
+    }
+    
     /// 搜索動作
     func search(keyword: String) throws -> [Exercise] {
         let predicate = NSPredicate(

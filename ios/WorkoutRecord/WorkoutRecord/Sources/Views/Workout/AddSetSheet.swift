@@ -2,9 +2,12 @@ import SwiftUI
 
 struct AddSetSheet: View {
     @Environment(\.dismiss) var dismiss
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     let exerciseName: String
     let setNumber: Int
+    let previousWeight: Double?  // 前一組的重量
+    let previousReps: Int?       // 前一組的次數
     let onSave: (Double, Int, Double?) -> Void
     
     @State private var weight: String = ""
@@ -13,6 +16,22 @@ struct AddSetSheet: View {
     @State private var isWarmup: Bool = false
     @State private var restSeconds: Int = 90
     @State private var showRestTimerToggle: Bool = true
+    
+    init(exerciseName: String, setNumber: Int, previousWeight: Double? = nil, previousReps: Int? = nil, onSave: @escaping (Double, Int, Double?) -> Void) {
+        self.exerciseName = exerciseName
+        self.setNumber = setNumber
+        self.previousWeight = previousWeight
+        self.previousReps = previousReps
+        self.onSave = onSave
+        
+        // 設置預設值
+        if let prevWeight = previousWeight {
+            self._weight = State(initialValue: String(format: "%.1f", prevWeight))
+        }
+        if let prevReps = previousReps {
+            self._reps = State(initialValue: "\(prevReps)")
+        }
+    }
     
     @FocusState private var focusedField: Field?
     
@@ -48,7 +67,7 @@ struct AddSetSheet: View {
                             .font(.title3)
                             .multilineTextAlignment(.trailing)
                         
-                        Text("kg")
+                        Text(globalSettings.weightUnit.symbol)
                             .foregroundColor(.secondary)
                     }
                     
@@ -73,7 +92,7 @@ struct AddSetSheet: View {
                             
                             Spacer()
                             
-                            Text(String(format: "%.0f kg", calculatedVolume))
+                            Text(globalSettings.formatWeight(calculatedVolume))
                                 .font(.title3)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.blue)
@@ -133,6 +152,9 @@ struct AddSetSheet: View {
             }
             .onAppear {
                 focusedField = .weight
+            }
+            .dismissOnTapSheet {
+                dismiss()
             }
         }
     }

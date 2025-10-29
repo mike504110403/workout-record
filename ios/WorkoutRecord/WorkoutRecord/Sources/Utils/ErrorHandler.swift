@@ -277,7 +277,7 @@ struct ErrorLoadingView: View {
             EmptyView()
         case .loading:
             VStack(spacing: 16) {
-                ProgressView()
+                SwiftUI.ProgressView()
                     .scaleEffect(1.2)
                 
                 Text("載入中...")
@@ -319,7 +319,7 @@ struct RetryButton: View {
         } label: {
             HStack {
                 if isRetrying {
-                    ProgressView()
+                    SwiftUI.ProgressView()
                         .scaleEffect(0.8)
                 } else {
                     Image(systemName: "arrow.clockwise")
@@ -344,7 +344,7 @@ struct ErrorRecoveryView: View {
             
             if isRecovering {
                 VStack(spacing: 12) {
-                    ProgressView()
+                    SwiftUI.ProgressView()
                         .scaleEffect(1.2)
                     
                     Text("正在修復...")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @State private var viewMode: ViewMode = .list
+    @State private var showFilterSheet = false
     
     enum ViewMode {
         case calendar
@@ -33,11 +34,17 @@ struct HistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        // TODO: Show filter options
+                        showFilterSheet = true
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                     }
                 }
+            }
+            .sheet(isPresented: $showFilterSheet) {
+                HistoryFilterSheet()
+                    .dismissOnTapSheet {
+                        showFilterSheet = false
+                    }
             }
         }
     }
@@ -49,7 +56,12 @@ struct HistoryListView: View {
     var body: some View {
         Group {
             if viewModel.isLoading {
-                ProgressView("載入中...")
+                    SwiftUI.ProgressView()
+                        .overlay(
+                            Text("載入中...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        )
             } else if viewModel.workouts.isEmpty {
                 EmptyHistoryView()
             } else {
@@ -366,6 +378,113 @@ struct WorkoutHistoryCard: View {
 
 // WorkoutDetailView is defined in WorkoutDetailView.swift
 // Removed duplicate definition
+
+// MARK: - History Filter Sheet
+struct HistoryFilterSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedDateRange: DateRange = .all
+    @State private var selectedExercise: String = "全部"
+    @State private var minVolume: Double = 0
+    @State private var maxVolume: Double = 10000
+    @State private var sortBy: SortOption = .date
+    
+    enum DateRange: String, CaseIterable {
+        case all = "全部"
+        case today = "今天"
+        case week = "本週"
+        case month = "本月"
+        case year = "本年"
+    }
+    
+    enum SortOption: String, CaseIterable {
+        case date = "日期"
+        case volume = "容量"
+        case duration = "時長"
+        case exercises = "動作數"
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("時間範圍") {
+                    Picker("時間範圍", selection: $selectedDateRange) {
+                        ForEach(DateRange.allCases, id: \.self) { range in
+                            Text(range.rawValue).tag(range)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                
+                Section("動作篩選") {
+                    Picker("動作", selection: $selectedExercise) {
+                        Text("全部").tag("全部")
+                        Text("臥推").tag("臥推")
+                        Text("深蹲").tag("深蹲")
+                        Text("硬舉").tag("硬舉")
+                        Text("肩推").tag("肩推")
+                    }
+                    .pickerStyle(.menu)
+                }
+                
+                Section("容量範圍") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("最小容量")
+                            Spacer()
+                            Text("\(Int(minVolume)) kg")
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $minVolume, in: 0...5000, step: 50)
+                        
+                        HStack {
+                            Text("最大容量")
+                            Spacer()
+                            Text("\(Int(maxVolume)) kg")
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $maxVolume, in: minVolume...10000, step: 50)
+                    }
+                }
+                
+                Section("排序方式") {
+                    Picker("排序", selection: $sortBy) {
+                        ForEach(SortOption.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .navigationTitle("篩選條件")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("套用") {
+                        applyFilters()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+    
+    private func applyFilters() {
+        // 這裡可以實現篩選邏輯
+        // 目前只是示範界面
+        print("套用篩選條件:")
+        print("- 時間範圍: \(selectedDateRange.rawValue)")
+        print("- 動作: \(selectedExercise)")
+        print("- 容量範圍: \(Int(minVolume)) - \(Int(maxVolume)) kg")
+        print("- 排序: \(sortBy.rawValue)")
+    }
+}
 
 #Preview {
     HistoryView()

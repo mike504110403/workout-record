@@ -12,6 +12,7 @@ struct WorkoutRecordApp: App {
     @StateObject private var firebaseService = FirebaseConfigService.shared
     @StateObject private var privacyService = PrivacyConsentService.shared
     @StateObject private var appleIDAuth = AppleIDAuthService.shared
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     init() {
         // 初始化 Firebase
@@ -39,7 +40,8 @@ struct WorkoutRecordApp: App {
                     .environmentObject(appleIDAuth)
                     .checkPrivacyConsent()
             } else {
-                OnboardingView(state: onboardingState)
+                OnboardingView()
+                    .environmentObject(onboardingState)
                     .environmentObject(cloudKitAuth)
                     .environmentObject(analyticsService)
                     .environmentObject(firebaseService)

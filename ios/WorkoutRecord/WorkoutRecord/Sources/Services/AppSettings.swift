@@ -1,11 +1,12 @@
 import SwiftUI
 import Combine
 
-/// App設定管理
+/// App設定管理 (已棄用，請使用 GlobalSettingsManager)
+@available(*, deprecated, message: "請使用 GlobalSettingsManager.shared")
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
     
-    // MARK: - 設定項目
+    // MARK: - 設定項目 (向後兼容)
     
     @AppStorage("weightUnit") var weightUnit: String = "kg"
     @AppStorage("theme") var theme: String = "system"

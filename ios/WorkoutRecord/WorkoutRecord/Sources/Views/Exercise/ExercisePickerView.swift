@@ -144,7 +144,7 @@ struct ExercisePickerView: View {
                 if viewModel.isLoading {
                     // 載入中
                     VStack(spacing: 16) {
-                        ProgressView()
+                        SwiftUI.ProgressView()
                         Text("載入動作中...")
                             .font(.subheadline)
                             .foregroundColor(.secondary)

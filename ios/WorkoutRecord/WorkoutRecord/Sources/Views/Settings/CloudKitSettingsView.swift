@@ -75,7 +75,7 @@ struct CloudKitSettingsView: View {
                                         .font(.headline)
                                     Spacer()
                                     if cloudKitSync.isSyncing {
-                                        ProgressView()
+                                        SwiftUI.ProgressView()
                                             .scaleEffect(0.8)
                                     } else {
                                         Image(systemName: "checkmark.circle.fill")

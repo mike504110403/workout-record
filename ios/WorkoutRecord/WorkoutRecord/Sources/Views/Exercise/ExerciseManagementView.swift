@@ -143,32 +143,7 @@ struct ExerciseRow: View {
     }
 }
 
-struct SearchBar: View {
-    @Binding var text: String
-    
-    var body: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-            
-            TextField("搜尋動作", text: $text)
-                .textFieldStyle(.plain)
-            
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
-}
+// SearchBar 定義已移至 Views/Components/SearchBarView.swift
 
 #Preview {
     ExerciseManagementView()

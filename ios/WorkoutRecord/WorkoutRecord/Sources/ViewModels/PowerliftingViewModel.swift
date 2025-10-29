@@ -61,7 +61,7 @@ class PowerliftingViewModel: ObservableObject {
         currentRecords.map { record in
             OneRMDataPoint(
                 date: record.achievedAt,
-                oneRM: record.oneRepMax,
+                oneRepMax: record.oneRepMax,
                 isManualEntry: record.isManualEntry
             )
         }
@@ -146,7 +146,7 @@ class PowerliftingViewModel: ObservableObject {
 struct OneRMDataPoint: Identifiable {
     let id = UUID()
     let date: Date
-    let oneRM: Double
+    let oneRepMax: Double
     let isManualEntry: Bool
 }
 

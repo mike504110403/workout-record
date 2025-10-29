@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 class VolumeChartViewModel: ObservableObject {
@@ -9,6 +10,9 @@ class VolumeChartViewModel: ObservableObject {
     @Published var selectedMuscleGroups: Set<MuscleGroupFilter> = [.all]
     @Published var isLoading = false
     @Published var errorMessage: String?
+    
+    // MARK: - Dependencies
+    private let globalSettings = GlobalSettingsManager.shared
     
     // MARK: - Computed Properties
     var maxVolume: Double {
@@ -59,6 +63,11 @@ class VolumeChartViewModel: ObservableObject {
     // MARK: - Initialization
     init() {
         loadData()
+        setupNotificationObservers()
+    }
+    
+    deinit {
+        cancellables.removeAll()
     }
     
     // MARK: - Public Methods
@@ -119,6 +128,26 @@ class VolumeChartViewModel: ObservableObject {
     
     // MARK: - Private Methods
     
+    // MARK: - Private Methods
+    
+    private func setupNotificationObservers() {
+        // 監聽訓練完成通知
+        NotificationCenter.default.publisher(for: .workoutCompleted)
+            .sink { [weak self] _ in
+                print("📊 收到訓練完成通知，刷新容量圖表")
+                self?.loadData()
+            }
+            .store(in: &cancellables)
+        
+        // 監聽應用變為活躍狀態（從後台返回時刷新）
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                print("📊 應用變為活躍狀態，刷新容量圖表")
+                self?.loadData()
+            }
+            .store(in: &cancellables)
+    }
+    
     private func aggregateVolumeByDate(workouts: [Workout], in timeRange: ChartTimeRange) -> [VolumeDataPoint] {
         let calendar = Calendar.current
         var volumeByDate: [Date: (total: Double, byMuscleGroup: [Exercise.PrimaryMuscleGroup: Double])] = [:]
@@ -134,21 +163,25 @@ class VolumeChartViewModel: ObservableObject {
             // 加總總容量
             volumeByDate[dateKey]!.total += workout.totalVolume
             
-            // 按肌群加總（需要從 exercise 獲取肌群信息）
+            // 按肌群加總（優先使用 exercise 關聯，如果沒有則嘗試從 exerciseName 推斷）
             for workoutExercise in workout.exercises {
+                var muscleGroup: Exercise.PrimaryMuscleGroup?
+                
+                // 優先使用 exercise 關聯的肌群信息
                 if let exercise = workoutExercise.exercise,
-                   let muscleGroup = exercise.primaryMuscleGroup {
+                   let primaryMuscleGroup = exercise.primaryMuscleGroup {
+                    muscleGroup = primaryMuscleGroup
+                } else {
+                    // 如果沒有 exercise 關聯，嘗試從 exerciseName 推斷肌群
+                    muscleGroup = inferMuscleGroupFromName(workoutExercise.exerciseName ?? "")
+                }
+                
+                if let muscleGroup = muscleGroup {
                     let currentVolume = volumeByDate[dateKey]!.byMuscleGroup[muscleGroup] ?? 0
                     volumeByDate[dateKey]!.byMuscleGroup[muscleGroup] = currentVolume + workoutExercise.totalVolume
                     print("✅ 肌群數據: \(muscleGroup.displayName) +\(workoutExercise.totalVolume)kg")
                 } else {
-                    print("⚠️ 訓練動作缺少 exercise 或 primaryMuscleGroup")
-                    print("   - exerciseId: \(workoutExercise.exerciseId)")
-                    print("   - exercise 是否為 nil: \(workoutExercise.exercise == nil)")
-                    if let ex = workoutExercise.exercise {
-                        print("   - exercise name: \(ex.name)")
-                        print("   - primaryMuscleGroup 是否為 nil: \(ex.primaryMuscleGroup == nil)")
-                    }
+                    print("⚠️ 無法確定肌群: exerciseId=\(workoutExercise.exerciseId), exerciseName=\(workoutExercise.exerciseName ?? "nil")")
                 }
             }
         }
@@ -163,6 +196,56 @@ class VolumeChartViewModel: ObservableObject {
         }.sorted { $0.date < $1.date }
         
         return points
+    }
+    
+    /// 從動作名稱推斷主要肌群
+    private func inferMuscleGroupFromName(_ exerciseName: String) -> Exercise.PrimaryMuscleGroup? {
+        let name = exerciseName.lowercased()
+        
+        // 胸部動作關鍵詞
+        if name.contains("胸") || name.contains("chest") || name.contains("飛鳥") || name.contains("press") {
+            return .chest
+        }
+        
+        // 背部動作關鍵詞
+        if name.contains("背") || name.contains("back") || name.contains("拉") || name.contains("pull") || name.contains("划船") {
+            return .back
+        }
+        
+        // 腿部動作關鍵詞
+        if name.contains("腿") || name.contains("leg") || name.contains("蹲") || name.contains("squat") || name.contains("深蹲") {
+            return .legs
+        }
+        
+        // 肩部動作關鍵詞
+        if name.contains("肩") || name.contains("shoulder") || name.contains("推舉") || name.contains("press") {
+            return .shoulders
+        }
+        
+        // 手臂動作關鍵詞
+        if name.contains("手臂") || name.contains("arm") || name.contains("二頭") || name.contains("三頭") || name.contains("bicep") || name.contains("tricep") {
+            return .arms
+        }
+        
+        // 核心動作關鍵詞
+        if name.contains("核心") || name.contains("core") || name.contains("腹") || name.contains("abs") || name.contains("平板") {
+            return .core
+        }
+        
+        return nil
+    }
+    
+    // MARK: - Formatted Values
+    var formattedAverageVolume: String {
+        return globalSettings.formatWeight(averageVolume)
+    }
+    
+    var formattedHighestVolume: String {
+        return globalSettings.formatWeight(maxVolume)
+    }
+    
+    var formattedMaxVolume: String {
+        return globalSettings.formatWeight(maxVolume)
     }
 }
 

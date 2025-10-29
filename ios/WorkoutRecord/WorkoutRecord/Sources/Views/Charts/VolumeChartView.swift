@@ -34,7 +34,7 @@ struct VolumeChartView: View {
                 .fontWeight(.bold)
             
             if viewModel.isLoading {
-                ProgressView()
+                SwiftUI.ProgressView()
                     .scaleEffect(0.8)
             }
         }
@@ -133,7 +133,7 @@ struct VolumeChartView: View {
             AxisMarks(position: .leading) { value in
                 AxisValueLabel {
                     if let volume = value.as(Double.self) {
-                        Text(formatVolume(volume))
+                        Text(GlobalSettingsManager.shared.formatWeight(volume))
                             .font(.caption2)
                     }
                 }
@@ -164,7 +164,7 @@ struct VolumeChartView: View {
         HStack(spacing: 20) {
             VolumeStatItem(
                 title: "平均容量",
-                value: formatVolume(viewModel.averageVolume),
+                value: viewModel.formattedAverageVolume,
                 icon: "chart.bar.fill",
                 color: .blue
             )
@@ -173,7 +173,7 @@ struct VolumeChartView: View {
             
             VolumeStatItem(
                 title: "最高容量",
-                value: formatVolume(viewModel.maxVolume),
+                value: viewModel.formattedHighestVolume,
                 icon: "arrow.up.circle.fill",
                 color: .green
             )

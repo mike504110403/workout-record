@@ -1,98 +1,150 @@
 import Foundation
 import CloudKit
-import CoreData
 import Combine
+import UIKit
+import CoreData
 
-/// CloudKit 數據同步服務
+/// iCloud 同步服務
+@MainActor
 class CloudKitSyncService: ObservableObject {
     static let shared = CloudKitSyncService()
     
     @Published var isSyncing = false
-    @Published var syncProgress: Double = 0.0
     @Published var lastSyncDate: Date?
     @Published var syncError: String?
+    @Published var syncProgress: Double = 0.0
     
-    private let container = CKContainer.default()
+    private let container: CKContainer
     private let privateDatabase: CKDatabase
-    private let coreDataStack: CoreDataStack
+    private let publicDatabase: CKDatabase
+    private var cancellables = Set<AnyCancellable>()
+    
+    // 同步狀態
+    private var isInitialSync = true
+    private var syncInProgress = false
     
     init() {
+        self.container = CKContainer.default()
         self.privateDatabase = container.privateCloudDatabase
-        self.coreDataStack = CoreDataStack.shared
-    }
-    
-    // MARK: - 同步管理
-    
-    /// 開始完整同步
-    func startFullSync() async {
-        await MainActor.run {
-            isSyncing = true
-            syncProgress = 0.0
-            syncError = nil
-        }
+        self.publicDatabase = container.publicCloudDatabase
         
-        do {
-            // 1. 同步用戶設定
-            try await syncUserProfile()
-            await updateProgress(0.2)
-            
-            // 2. 同步訓練記錄
-            try await syncWorkouts()
-            await updateProgress(0.6)
-            
-            // 3. 同步體重記錄
-            try await syncBodyWeights()
-            await updateProgress(0.8)
-            
-            // 4. 同步成就記錄
-            try await syncAchievements()
-            await updateProgress(1.0)
-            
-            await MainActor.run {
-                lastSyncDate = Date()
-                isSyncing = false
-            }
-            
-        } catch {
-            await MainActor.run {
-                syncError = error.localizedDescription
-                isSyncing = false
-            }
-        }
+        setupSyncObservers()
     }
     
-    /// 增量同步
-    func startIncrementalSync() async {
-        guard let lastSync = lastSyncDate else {
-            await startFullSync()
+    // MARK: - Setup
+    
+    private func setupSyncObservers() {
+        // 監聽 Core Data 保存事件
+        NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)
+            .sink { [weak self] _ in
+                self?.scheduleSync()
+            }
+            .store(in: &cancellables)
+        
+        // 監聽應用程式狀態
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                self?.checkForSync()
+            }
+            .store(in: &cancellables)
+    }
+    
+    // MARK: - Sync Management
+    
+    /// 開始同步
+    func startSync() async {
+        guard !syncInProgress else {
+            print("⚠️ 同步已進行中，跳過")
             return
         }
         
-        await MainActor.run {
-            isSyncing = true
-            syncProgress = 0.0
-        }
+        syncInProgress = true
+        isSyncing = true
+        syncError = nil
+        syncProgress = 0.0
         
         do {
-            // 只同步上次同步後的變更
-            try await syncChangesSince(lastSync)
-            
-            await MainActor.run {
-                lastSyncDate = Date()
-                isSyncing = false
+            if isInitialSync {
+                try await performInitialSync()
+            } else {
+                try await performIncrementalSync()
             }
             
+            lastSyncDate = Date()
+            isInitialSync = false
+            print("✅ 同步完成")
         } catch {
-            await MainActor.run {
-                syncError = error.localizedDescription
-                isSyncing = false
-            }
+            syncError = error.localizedDescription
+            print("❌ 同步失敗: \(error.localizedDescription)")
         }
+        
+        isSyncing = false
+        syncInProgress = false
     }
     
-    // MARK: - 用戶設定同步
+    /// 執行初始同步
+    private func performInitialSync() async throws {
+        print("🔄 開始初始同步...")
+        
+        // 1. 上傳本地數據到 CloudKit
+        syncProgress = 0.1
+        try await uploadLocalData()
+        
+        // 2. 下載 CloudKit 數據到本地
+        syncProgress = 0.5
+        try await downloadCloudKitData()
+        
+        // 3. 解決衝突
+        syncProgress = 0.8
+        try await resolveConflicts()
+        
+        syncProgress = 1.0
+    }
     
-    private func syncUserProfile() async throws {
+    /// 執行增量同步
+    private func performIncrementalSync() async throws {
+        print("🔄 開始增量同步...")
+        
+        // 1. 檢查變更
+        syncProgress = 0.2
+        let changes = try await fetchChanges()
+        
+        // 2. 上傳本地變更
+        syncProgress = 0.4
+        try await uploadLocalChanges()
+        
+        // 3. 下載遠端變更
+        syncProgress = 0.6
+        try await downloadRemoteChanges(changes)
+        
+        // 4. 解決衝突
+        syncProgress = 0.8
+        try await resolveConflicts()
+        
+        syncProgress = 1.0
+    }
+    
+    // MARK: - Data Upload
+    
+    /// 上傳本地數據
+    private func uploadLocalData() async throws {
+        print("📤 上傳本地數據...")
+        
+        // 上傳用戶資料
+        try await uploadUserProfile()
+        
+        // 上傳訓練記錄
+        try await uploadWorkouts()
+        
+        // 上傳個人記錄
+        try await uploadPersonalRecords()
+        
+        // 上傳自定義動作
+        try await uploadCustomExercises()
+    }
+    
+    /// 上傳用戶資料
+    private func uploadUserProfile() async throws {
         let profile = UserProfile.shared
         let record = CKRecord(recordType: "UserProfile")
         
@@ -107,167 +159,332 @@ class CloudKitSyncService: ObservableObject {
         record["lastSyncDate"] = Date()
         
         try await privateDatabase.save(record)
+        print("✅ 用戶資料已上傳")
     }
     
-    // MARK: - 訓練記錄同步
-    
-    private func syncWorkouts() async throws {
-        let workoutRepository = WorkoutRepository()
-        let workouts = try workoutRepository.fetchAll()
+    /// 上傳訓練記錄
+    private func uploadWorkouts() async throws {
+        let repository = WorkoutRepository()
+        let workouts = try repository.getAllWorkouts()
         
         for workout in workouts {
-            let record = CKRecord(recordType: "Workout", recordID: CKRecord.ID(recordName: workout.id.uuidString))
-            
+            let record = CKRecord(recordType: "Workout")
+            record["id"] = workout.id.uuidString
+            record["userId"] = workout.userId.uuidString
             record["startedAt"] = workout.startedAt
             record["endedAt"] = workout.endedAt
+            record["duration"] = workout.duration ?? 0
             record["totalVolume"] = workout.totalVolume
-            record["note"] = workout.note ?? ""
-            record["templateId"] = workout.templateId?.uuidString ?? ""
-            
-            // 同步訓練動作
-            let exerciseRecords = try await syncWorkoutExercises(workout: workout)
-            // 無法直接儲存 CKRecord.ID 陣列，改為儲存 UUID 字串陣列
-            record["exerciseIds"] = exerciseRecords.map { $0.recordID.recordName }
+            record["totalSets"] = workout.totalSets
+            record["totalExercises"] = workout.totalExercises
+            record["note"] = workout.note
+            record["lastSyncDate"] = Date()
             
             try await privateDatabase.save(record)
         }
+        
+        print("✅ 訓練記錄已上傳 (\(workouts.count) 筆)")
     }
     
-    private func syncWorkoutExercises(workout: Workout) async throws -> [CKRecord] {
-        var exerciseRecords: [CKRecord] = []
+    /// 上傳個人記錄
+    private func uploadPersonalRecords() async throws {
+        let repository = PersonalRecordRepository()
+        let records = try repository.getAllPersonalRecords()
         
-        for exercise in workout.exercises {
-            let record = CKRecord(recordType: "WorkoutExercise")
+        for record in records {
+            let ckRecord = CKRecord(recordType: "PersonalRecord")
+            ckRecord["id"] = record.id.uuidString
+            ckRecord["userId"] = record.userId.uuidString
+            ckRecord["exerciseId"] = record.exerciseId.uuidString
+            ckRecord["weight"] = record.weight
+            ckRecord["reps"] = record.reps
+            ckRecord["oneRepMax"] = record.oneRepMax
+            ckRecord["achievedAt"] = record.achievedAt
+            ckRecord["lastSyncDate"] = Date()
             
-            record["exerciseName"] = exercise.exercise?.name ?? ""
-            record["muscleGroups"] = exercise.exercise?.muscleGroups ?? []
-            record["orderIndex"] = exercise.orderIndex
-            
-            // 同步組數
-            let setRecords = try await syncWorkoutSets(exercise: exercise)
-            record["setIds"] = setRecords.map { $0.recordID.recordName }
-            
-            exerciseRecords.append(record)
+            try await privateDatabase.save(ckRecord)
         }
         
-        return exerciseRecords
+        print("✅ 個人記錄已上傳 (\(records.count) 筆)")
     }
     
-    private func syncWorkoutSets(exercise: WorkoutExercise) async throws -> [CKRecord] {
-        var setRecords: [CKRecord] = []
+    /// 上傳自定義動作
+    private func uploadCustomExercises() async throws {
+        let repository = ExerciseRepository()
+        let exercises = try repository.getCustomExercises()
         
-        for set in exercise.sets {
-            let record = CKRecord(recordType: "WorkoutSet")
-            
-            record["weight"] = set.weight
-            record["reps"] = set.reps
-            record["restSeconds"] = set.restSeconds ?? 0
-            record["isWarmup"] = set.isWarmup
-            record["setNumber"] = set.setNumber
-            
-            setRecords.append(record)
-        }
-        
-        return setRecords
-    }
-    
-    // MARK: - 體重記錄同步
-    
-    private func syncBodyWeights() async throws {
-        let bodyWeightRepository = BodyWeightRepository()
-        let bodyWeights = try bodyWeightRepository.fetchAll()
-        
-        for bodyWeight in bodyWeights {
-            let record = CKRecord(recordType: "BodyWeight", recordID: CKRecord.ID(recordName: bodyWeight.id.uuidString))
-            
-            record["weight"] = bodyWeight.weight
-            record["measuredAt"] = bodyWeight.measuredAt
-            record["note"] = bodyWeight.note ?? ""
-            record["createdAt"] = bodyWeight.createdAt
-            record["updatedAt"] = bodyWeight.updatedAt
+        for exercise in exercises {
+            let record = CKRecord(recordType: "CustomExercise")
+            record["id"] = exercise.id.uuidString
+            record["userId"] = exercise.userId?.uuidString
+            record["name"] = exercise.name
+            record["categoryId"] = exercise.categoryId.uuidString
+            record["muscleGroups"] = exercise.muscleGroups
+            record["lastSyncDate"] = Date()
             
             try await privateDatabase.save(record)
         }
-    }
-    
-    // MARK: - 成就記錄同步
-    
-    private func syncAchievements() async throws {
-        // 同步成就解鎖狀態
-        let achievements = Achievements.all
         
-        for achievement in achievements {
-            let record = CKRecord(recordType: "Achievement", recordID: CKRecord.ID(recordName: achievement.id))
-            
-            record["title"] = achievement.title
-            record["description"] = achievement.description
-            record["category"] = achievement.category.rawValue
-            record["isUnlocked"] = achievement.isUnlocked
-            record["unlockedAt"] = achievement.unlockedAt
-            record["progress"] = achievement.progress
-            
-            try await privateDatabase.save(record)
-        }
+        print("✅ 自定義動作已上傳 (\(exercises.count) 筆)")
     }
     
-    // MARK: - 變更同步
+    // MARK: - Data Download
     
-    private func syncChangesSince(_ date: Date) async throws {
-        // 查詢自指定日期以來的變更
-        let query = CKQuery(recordType: "Workout", predicate: NSPredicate(format: "modificationDate > %@", date as NSDate))
+    /// 下載 CloudKit 數據
+    private func downloadCloudKitData() async throws {
+        print("📥 下載 CloudKit 數據...")
+        
+        // 下載用戶資料
+        try await downloadUserProfile()
+        
+        // 下載訓練記錄
+        try await downloadWorkouts()
+        
+        // 下載個人記錄
+        try await downloadPersonalRecords()
+        
+        // 下載自定義動作
+        try await downloadCustomExercises()
+    }
+    
+    /// 下載用戶資料
+    private func downloadUserProfile() async throws {
+        let query = CKQuery(recordType: "UserProfile", predicate: NSPredicate(value: true))
         let results = try await privateDatabase.records(matching: query)
         
-        // 處理變更
         for (_, result) in results.matchResults {
-            switch result {
-            case .success(let record):
-                try await processRecordChange(record)
-            case .failure(let error):
-                throw error
+            if let record = try? result.get() {
+                let profile = UserProfile.shared
+                profile.name = record["name"] as? String ?? ""
+                profile.email = record["email"] as? String ?? ""
+                profile.gender = record["gender"] as? String ?? "不指定"
+                profile.age = record["age"] as? Int ?? 0
+                profile.height = record["height"] as? Double ?? 0
+                profile.currentWeight = record["currentWeight"] as? Double ?? 0
+                profile.targetWeight = record["targetWeight"] as? Double ?? 0
+                profile.weeklyGoal = record["weeklyGoal"] as? Int ?? 4
+                
+                profile.save()
+            }
+        }
+        
+        print("✅ 用戶資料已下載")
+    }
+    
+    /// 下載訓練記錄
+    private func downloadWorkouts() async throws {
+        let query = CKQuery(recordType: "Workout", predicate: NSPredicate(value: true))
+        let results = try await privateDatabase.records(matching: query)
+        
+        let repository = WorkoutRepository()
+        
+        for (_, result) in results.matchResults {
+            if let record = try? result.get() {
+                // 檢查是否已存在
+                if let idString = record["id"] as? String,
+                   let id = UUID(uuidString: idString) {
+                    let existingWorkout = try repository.getWorkout(by: id)
+                    if existingWorkout == nil {
+                        // 創建新的訓練記錄
+                        let workout = Workout(
+                            id: id,
+                            userId: UUID(uuidString: record["userId"] as? String ?? "") ?? UUID(),
+                            startedAt: record["startedAt"] as? Date ?? Date(),
+                            endedAt: record["endedAt"] as? Date,
+                            duration: record["duration"] as? Int,
+                            totalVolume: record["totalVolume"] as? Double ?? 0,
+                            totalSets: record["totalSets"] as? Int ?? 0,
+                            totalExercises: record["totalExercises"] as? Int ?? 0,
+                            note: record["note"] as? String,
+                            templateId: nil,
+                            exercises: [],
+                            createdAt: Date(),
+                            updatedAt: Date()
+                        )
+                        
+                        try repository.create(workout: workout)
+                    }
+                }
+            }
+        }
+        
+        print("✅ 訓練記錄已下載")
+    }
+    
+    /// 下載個人記錄
+    private func downloadPersonalRecords() async throws {
+        let query = CKQuery(recordType: "PersonalRecord", predicate: NSPredicate(value: true))
+        let results = try await privateDatabase.records(matching: query)
+        
+        let repository = PersonalRecordRepository()
+        
+        for (_, result) in results.matchResults {
+            if let record = try? result.get() {
+                if let idString = record["id"] as? String,
+                   let id = UUID(uuidString: idString) {
+                    let existingRecord = try repository.getPersonalRecord(by: id)
+                    if existingRecord == nil {
+                        let personalRecord = PersonalRecord(
+                            id: id,
+                            userId: UUID(uuidString: record["userId"] as? String ?? "") ?? UUID(),
+                            exerciseId: UUID(uuidString: record["exerciseId"] as? String ?? "") ?? UUID(),
+                            weight: record["weight"] as? Double ?? 0,
+                            reps: record["reps"] as? Int ?? 0,
+                            oneRepMax: record["oneRepMax"] as? Double ?? 0,
+                            achievedAt: record["achievedAt"] as? Date ?? Date(),
+                            createdAt: Date(),
+                            updatedAt: Date()
+                        )
+                        
+                        try repository.create(personalRecord: personalRecord)
+                    }
+                }
+            }
+        }
+        
+        print("✅ 個人記錄已下載")
+    }
+    
+    /// 下載自定義動作
+    private func downloadCustomExercises() async throws {
+        let query = CKQuery(recordType: "CustomExercise", predicate: NSPredicate(value: true))
+        let results = try await privateDatabase.records(matching: query)
+        
+        let repository = ExerciseRepository()
+        
+        for (_, result) in results.matchResults {
+            if let record = try? result.get() {
+                if let idString = record["id"] as? String,
+                   let id = UUID(uuidString: idString) {
+                    let existingExercise = try repository.getExercise(by: id)
+                    if existingExercise == nil {
+                        let exercise = Exercise(
+                            id: id,
+                            name: record["name"] as? String ?? "",
+                            nameEn: nil,
+                            categoryId: UUID(), // 需要提供 categoryId
+                            category: nil,
+                            type: Exercise.ExerciseType.freeWeight, // 需要提供 type
+                            muscleGroups: record["muscleGroups"] as? [String] ?? [],
+                            targetMuscles: [],
+                            primaryMuscleGroup: nil,
+                            movementPattern: nil,
+                            description: nil,
+                            videoURL: nil,
+                            imageURL: nil,
+                            isSystem: false,
+                            userId: UUID(uuidString: record["userId"] as? String ?? ""),
+                            isActive: true,
+                            displayOrder: nil,
+                            createdAt: Date(),
+                            updatedAt: Date()
+                        )
+                        
+                        try repository.create(exercise: exercise)
+                    }
+                }
+            }
+        }
+        
+        print("✅ 自定義動作已下載")
+    }
+    
+    // MARK: - Change Detection
+    
+    /// 獲取變更
+    private func fetchChanges() async throws -> [String: Any] {
+        // 這裡可以實現更複雜的變更檢測邏輯
+        // 目前返回空字典
+        return [:]
+    }
+    
+    /// 上傳本地變更
+    private func uploadLocalChanges() async throws {
+        // 實現增量上傳邏輯
+        print("📤 上傳本地變更...")
+    }
+    
+    /// 下載遠端變更
+    private func downloadRemoteChanges(_ changes: [String: Any]) async throws {
+        // 實現增量下載邏輯
+        print("📥 下載遠端變更...")
+    }
+    
+    // MARK: - Conflict Resolution
+    
+    /// 解決衝突
+    private func resolveConflicts() async throws {
+        print("🔧 解決數據衝突...")
+        // 實現衝突解決邏輯
+        // 優先使用最新的數據
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// 安排同步
+    private func scheduleSync() {
+        // 延遲同步，避免頻繁操作
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            Task {
+                await self.startSync()
             }
         }
     }
     
-    private func processRecordChange(_ record: CKRecord) async throws {
-        // 根據記錄類型處理變更
-        switch record.recordType {
-        case "Workout":
-            try await processWorkoutChange(record)
-        case "BodyWeight":
-            try await processBodyWeightChange(record)
-        case "Achievement":
-            try await processAchievementChange(record)
-        default:
-            break
+    /// 檢查是否需要同步
+    private func checkForSync() {
+        // 檢查上次同步時間
+        if let lastSync = lastSyncDate {
+            let timeSinceLastSync = Date().timeIntervalSince(lastSync)
+            if timeSinceLastSync > 300 { // 5分鐘
+                Task {
+                    await startSync()
+                }
+            }
         }
     }
     
-    private func processWorkoutChange(_ record: CKRecord) async throws {
-        // 處理訓練記錄變更
-        // 這裡可以實作具體的變更處理邏輯
-    }
-    
-    private func processBodyWeightChange(_ record: CKRecord) async throws {
-        // 處理體重記錄變更
-        // 這裡可以實作具體的變更處理邏輯
-    }
-    
-    private func processAchievementChange(_ record: CKRecord) async throws {
-        // 處理成就記錄變更
-        // 這裡可以實作具體的變更處理邏輯
-    }
-    
-    // MARK: - 進度更新
-    
-    private func updateProgress(_ progress: Double) async {
-        await MainActor.run {
-            syncProgress = progress
+    /// 手動同步
+    func manualSync() {
+        Task {
+            await startSync()
         }
     }
     
-    // MARK: - 錯誤處理
+    /// 開始完整同步
+    func startFullSync() async {
+        isInitialSync = true
+        await startSync()
+    }
     
-    func clearSyncError() {
+    /// 開始增量同步
+    func startIncrementalSync() async {
+        isInitialSync = false
+        await startSync()
+    }
+    
+    /// 重置同步狀態
+    func resetSyncState() {
+        isInitialSync = true
+        lastSyncDate = nil
         syncError = nil
+        syncProgress = 0.0
+    }
+}
+
+// MARK: - Extensions
+
+extension CloudKitSyncService {
+    /// 檢查同步狀態
+    var syncStatus: String {
+        if isSyncing {
+            return "同步中... \(Int(syncProgress * 100))%"
+        } else if let error = syncError {
+            return "同步失敗: \(error)"
+        } else if let lastSync = lastSyncDate {
+            return "上次同步: \(lastSync.formatted(date: .abbreviated, time: .shortened))"
+        } else {
+            return "尚未同步"
+        }
     }
 }

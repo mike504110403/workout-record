@@ -10,6 +10,8 @@ class WorkoutViewModel: ObservableObject {
     @Published var totalSets: Int = 0
     @Published var workoutDuration: String = "00:00"
     @Published var errorMessage: String?
+    @Published var completedWorkout: Workout?
+    @Published var showWorkoutReport = false
     
     // MARK: - Private Properties
     private var workoutStartTime: Date?
@@ -48,8 +50,11 @@ class WorkoutViewModel: ObservableObject {
     
     func completeWorkout() {
         stopTimer()
-        saveWorkout()
-        resetWorkout()
+        saveWorkout { [weak self] workout in
+            self?.completedWorkout = workout
+            self?.showWorkoutReport = true
+            self?.resetWorkout()
+        }
     }
     
     func cancelWorkout() {
@@ -83,7 +88,8 @@ class WorkoutViewModel: ObservableObject {
             sets: []
         )
         
-        currentWorkoutExercises.append(newExercise)
+        // 插入到最前面，讓新動作排在最上面
+        currentWorkoutExercises.insert(newExercise, at: 0)
     }
     
     func deleteSet(_ set: WorkoutSetViewModel, from exercise: WorkoutExerciseViewModel) {
@@ -97,6 +103,18 @@ class WorkoutViewModel: ObservableObject {
             
             updateTotals()
         }
+    }
+    
+    func completeExercise(_ exercise: WorkoutExerciseViewModel) {
+        if let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) {
+            currentWorkoutExercises[exerciseIndex].isCompleted = true
+            // TODO: 可以添加完成動作的動畫或通知
+        }
+    }
+    
+    func toggleExerciseExpansion(_ exercise: WorkoutExerciseViewModel) {
+        // This method can be used for future expansion functionality
+        // For now, it's a placeholder
     }
     
     // MARK: - Private Methods
@@ -116,14 +134,20 @@ class WorkoutViewModel: ObservableObject {
     private func updateDuration() {
         guard let startTime = workoutStartTime else { return }
         let duration = Date().timeIntervalSince(startTime)
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        workoutDuration = String(format: "%02d:%02d", minutes, seconds)
+        let totalMinutes = Int(duration / 60) // 轉換為分鐘
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        
+        if hours > 0 {
+            workoutDuration = String(format: "%d:%02d", hours, minutes)
+        } else {
+            workoutDuration = String(format: "%02d", minutes)
+        }
     }
     
     private func updateTotals() {
-        totalVolume = currentWorkoutExercises.reduce(0) { $0 + $1.totalVolume }
-        totalSets = currentWorkoutExercises.reduce(0) { $0 + $1.sets.filter { !$0.isWarmup }.count }
+        totalVolume = currentWorkoutExercises.isEmpty ? 0.0 : currentWorkoutExercises.reduce(0) { $0 + $1.totalVolume }
+        totalSets = currentWorkoutExercises.isEmpty ? 0 : currentWorkoutExercises.reduce(0) { $0 + $1.sets.filter { !$0.isWarmup }.count }
     }
     
     private func resetWorkout() {
@@ -182,7 +206,7 @@ class WorkoutViewModel: ObservableObject {
         }
     }
     
-    private func saveWorkout() {
+    private func saveWorkout(completion: @escaping (Workout) -> Void = { _ in }) {
         guard let startTime = workoutStartTime else { return }
         let userId = DataMigrationService.getCurrentUserId()
         
@@ -204,11 +228,16 @@ class WorkoutViewModel: ObservableObject {
                 )
             }
             
+            // 根據 exerciseId 查找對應的 Exercise 對象
+            let exerciseRepository = ExerciseRepository()
+            let exercise = try? exerciseRepository.fetchById(exerciseVM.exerciseId)
+            
             return WorkoutExercise(
                 id: exerciseVM.id,
                 workoutId: UUID(), // 會在創建時設置
                 exerciseId: exerciseVM.exerciseId,
-                exercise: nil,
+                exercise: exercise,
+                exerciseName: exercise?.name ?? exerciseVM.exerciseName,
                 orderIndex: index,
                 totalVolume: exerciseVM.totalVolume,
                 totalSets: exerciseVM.sets.count,
@@ -219,13 +248,16 @@ class WorkoutViewModel: ObservableObject {
             )
         }
         
+        // 計算真實的訓練時長（分鐘）
+        let actualDuration = Int(Date().timeIntervalSince(startTime) / 60)
+        
         // 創建 Workout
         let workout = Workout(
             id: UUID(),
             userId: userId,
             startedAt: startTime,
             endedAt: Date(),
-            duration: Int(Date().timeIntervalSince(startTime)),
+            duration: actualDuration,
             totalVolume: totalVolume,
             totalSets: totalSets,
             totalExercises: currentWorkoutExercises.count,
@@ -251,6 +283,9 @@ class WorkoutViewModel: ObservableObject {
             
             // 發送通知，通知其他頁面更新數據
             NotificationCenter.default.post(name: .workoutCompleted, object: nil)
+            
+            // 調用 completion
+            completion(workout)
         } catch {
             errorMessage = "保存失敗: \(error.localizedDescription)"
             print("❌ 保存訓練記錄失敗: \(error)")
@@ -265,16 +300,19 @@ class WorkoutExerciseViewModel: Identifiable, ObservableObject {
     let exerciseId: UUID
     let exerciseName: String
     @Published var sets: [WorkoutSetViewModel]
+    @Published var isCompleted: Bool = false  // 新增：動作完成狀態
     
     var totalVolume: Double {
-        sets.filter { !$0.isWarmup }.reduce(0) { $0 + $1.volume }
+        guard !sets.isEmpty else { return 0.0 }
+        return sets.filter { !$0.isWarmup }.reduce(0) { $0 + $1.volume }
     }
     
-    init(id: UUID, exerciseId: UUID, exerciseName: String, sets: [WorkoutSetViewModel]) {
+    init(id: UUID, exerciseId: UUID, exerciseName: String, sets: [WorkoutSetViewModel], isCompleted: Bool = false) {
         self.id = id
         self.exerciseId = exerciseId
         self.exerciseName = exerciseName
         self.sets = sets
+        self.isCompleted = isCompleted
     }
 }
 

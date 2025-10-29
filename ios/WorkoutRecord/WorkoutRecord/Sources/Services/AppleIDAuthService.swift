@@ -135,6 +135,52 @@ class AppleIDAuthService: NSObject, ObservableObject {
             }
         }
     }
+    
+    // MARK: - User Profile Management
+    
+    /// 更新用戶資料
+    private func updateUserProfile(userID: String, fullName: PersonNameComponents?, email: String?) {
+        let profile = UserProfile.shared
+        
+        // 更新基本資料
+        if let fullName = fullName {
+            profile.name = fullName.formatted()
+        }
+        
+        if let email = email {
+            profile.email = email
+        }
+        
+        // 儲存更新
+        profile.save()
+        
+        print("✅ 用戶資料已更新")
+    }
+    
+    /// 同步到 Firebase
+    private func syncToFirebase(userID: String, fullName: PersonNameComponents?, email: String?) {
+        Task {
+            do {
+                let firebaseService = FirebaseConfigService.shared
+                
+                // 設置用戶 ID
+                firebaseService.setUserId(userID)
+                
+                // 設置自定義屬性
+                if let fullName = fullName {
+                    firebaseService.setCustomValue(fullName.formatted(), forKey: "user_name")
+                }
+                
+                if let email = email {
+                    firebaseService.setCustomValue(email, forKey: "user_email")
+                }
+                
+                print("✅ 用戶資料已同步到 Firebase")
+            } catch {
+                print("❌ Firebase 同步失敗: \(error.localizedDescription)")
+            }
+        }
+    }
 }
 
 // MARK: - ASAuthorizationControllerDelegate
@@ -164,14 +210,45 @@ extension AppleIDAuthService: ASAuthorizationControllerDelegate {
             self.isLoading = false
             self.errorMessage = nil
             
+            // 更新用戶資料到 UserProfile
+            updateUserProfile(userID: userID, fullName: fullName, email: email)
+            
+            // 同步到 Firebase
+            syncToFirebase(userID: userID, fullName: fullName, email: email)
+            
             print("✅ Apple ID 登入成功: \(userName)")
         }
     }
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         isLoading = false
-        errorMessage = "Apple ID 登入失敗: \(error.localizedDescription)"
-        print("❌ Apple ID 登入失敗: \(error.localizedDescription)")
+        
+        // 詳細的錯誤處理
+        if let authError = error as? ASAuthorizationError {
+            switch authError.code {
+            case .canceled:
+                errorMessage = "用戶取消了登入"
+                print("❌ 用戶取消了 Apple ID 登入")
+            case .failed:
+                errorMessage = "Apple ID 登入失敗，請檢查網路連接"
+                print("❌ Apple ID 登入失敗: \(authError.localizedDescription)")
+            case .invalidResponse:
+                errorMessage = "Apple ID 回應無效，請重試"
+                print("❌ Apple ID 回應無效: \(authError.localizedDescription)")
+            case .notHandled:
+                errorMessage = "Apple ID 登入未處理，請重試"
+                print("❌ Apple ID 登入未處理: \(authError.localizedDescription)")
+            case .unknown:
+                errorMessage = "未知錯誤，請重試"
+                print("❌ Apple ID 登入未知錯誤: \(authError.localizedDescription)")
+            @unknown default:
+                errorMessage = "Apple ID 登入錯誤: \(authError.localizedDescription)"
+                print("❌ Apple ID 登入錯誤: \(authError.localizedDescription)")
+            }
+        } else {
+            errorMessage = "Apple ID 登入失敗: \(error.localizedDescription)"
+            print("❌ Apple ID 登入失敗: \(error.localizedDescription)")
+        }
     }
 }
 

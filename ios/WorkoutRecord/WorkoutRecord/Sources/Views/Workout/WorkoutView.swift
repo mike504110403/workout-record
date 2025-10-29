@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkoutView: View {
     @ObservedObject var viewModel: WorkoutViewModel
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     @State private var showExercisePicker = false
     @State private var showAddSetSheet = false
     @State private var showRestTimer = false
@@ -17,6 +18,7 @@ struct WorkoutView: View {
                     // Show workout in progress view
                     WorkoutInProgressView(
                         viewModel: viewModel,
+                        globalSettings: globalSettings,
                         showExercisePicker: $showExercisePicker,
                         showAddSetSheet: $showAddSetSheet,
                         selectedExercise: $selectedExercise
@@ -34,12 +36,18 @@ struct WorkoutView: View {
                 ExercisePickerView { exercise in
                     viewModel.addExercise(exercise)
                 }
+                .dismissOnTapSheet {
+                    showExercisePicker = false
+                }
             }
             .sheet(isPresented: $showAddSetSheet) {
                 if let exercise = selectedExercise {
+                    let lastSet = exercise.sets.last
                     AddSetSheet(
                         exerciseName: exercise.exerciseName,
                         setNumber: exercise.sets.count + 1,
+                        previousWeight: lastSet?.weight,
+                        previousReps: lastSet?.reps,
                         onSave: { weight, reps, rpe in
                             viewModel.addSet(to: exercise, weight: weight, reps: reps, rpe: rpe)
                             selectedExercise = nil
@@ -50,6 +58,9 @@ struct WorkoutView: View {
                             showRestTimer = true
                         }
                     )
+                    .dismissOnTapSheet {
+                        showAddSetSheet = false
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showRestTimer) {
@@ -61,6 +72,17 @@ struct WorkoutView: View {
             .sheet(isPresented: $showTemplatePicker) {
                 TemplatePickerSheet { template in
                     viewModel.startWorkoutFromTemplate(template)
+                }
+                .dismissOnTapSheet {
+                    showTemplatePicker = false
+                }
+            }
+            .sheet(isPresented: $viewModel.showWorkoutReport) {
+                if let workout = viewModel.completedWorkout {
+                    WorkoutSummaryReportView(workout: workout)
+                        .dismissOnTapSheet {
+                            viewModel.showWorkoutReport = false
+                        }
                 }
             }
         }
@@ -123,9 +145,15 @@ struct StartWorkoutView: View {
 
 struct WorkoutInProgressView: View {
     @ObservedObject var viewModel: WorkoutViewModel
+    @ObservedObject var globalSettings: GlobalSettingsManager
     @Binding var showExercisePicker: Bool
     @Binding var showAddSetSheet: Bool
     @Binding var selectedExercise: WorkoutExerciseViewModel?
+    
+    // 檢查是否有未完成的動作
+    private var hasIncompleteExercises: Bool {
+        viewModel.currentWorkoutExercises.contains { !$0.isCompleted }
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -135,33 +163,51 @@ struct WorkoutInProgressView: View {
             // Exercises list
             ScrollView {
                 VStack(spacing: 16) {
-                    ForEach(viewModel.currentWorkoutExercises) { exercise in
-                    WorkoutExerciseCard(
-                        exercise: exercise,
-                        onAddSet: {
-                            selectedExercise = exercise
-                            showAddSetSheet = true
-                        },
-                        onDeleteSet: { set in viewModel.deleteSet(set, from: exercise) }
-                    )
+                    // Add exercise button - only show when no incomplete exercises
+                    if !hasIncompleteExercises {
+                        Button {
+                            showExercisePicker = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                Text("新增動作")
+                            }
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(12)
+                        }
+                        .padding(.horizontal)
                     }
                     
-                    // Add exercise button
-                    Button {
-                        showExercisePicker = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("新增動作")
-                        }
-                        .font(.headline)
-                        .foregroundColor(.blue)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(12)
+                    // Current active exercise (larger)
+                    if let activeExercise = viewModel.currentWorkoutExercises.first(where: { !$0.isCompleted }) {
+                        WorkoutExerciseCard(
+                            exercise: activeExercise,
+                            isActive: true,
+                            onAddSet: {
+                                selectedExercise = activeExercise
+                                showAddSetSheet = true
+                            },
+                            onDeleteSet: { set in viewModel.deleteSet(set, from: activeExercise) },
+                            onCompleteExercise: {
+                                viewModel.completeExercise(activeExercise)
+                            }
+                        )
                     }
-                    .padding(.horizontal)
+                    
+                    // Completed exercises (collapsed, clickable to expand)
+                    ForEach(viewModel.currentWorkoutExercises.filter { $0.isCompleted }) { exercise in
+                        CompletedExerciseRow(
+                            exercise: exercise,
+                            onTap: {
+                                // Toggle expansion state
+                                viewModel.toggleExerciseExpansion(exercise)
+                            }
+                        )
+                    }
                 }
                 .padding(.vertical)
             }
@@ -216,7 +262,7 @@ struct WorkoutInProgressView: View {
                     Text("總容量")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.0f kg", viewModel.totalVolume))
+                    Text(globalSettings.formatWeight(viewModel.totalVolume))
                         .font(.title3)
                         .fontWeight(.semibold)
                 }
@@ -240,19 +286,23 @@ struct WorkoutInProgressView: View {
 
 struct WorkoutExerciseCard: View {
     let exercise: WorkoutExerciseViewModel
+    let isActive: Bool
     let onAddSet: () -> Void
     let onDeleteSet: (WorkoutSetViewModel) -> Void
+    let onCompleteExercise: () -> Void  // 新增：完成動作回調
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(exercise.exerciseName)
-                    .font(.headline)
+                    .font(isActive ? .title2 : .headline)
+                    .fontWeight(isActive ? .bold : .medium)
                 
                 Spacer()
                 
-                Text(String(format: "%.0f kg", exercise.totalVolume))
-                    .font(.subheadline)
+                Text(globalSettings.formatWeight(exercise.totalVolume))
+                    .font(isActive ? .headline : .subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(.blue)
             }
@@ -280,13 +330,13 @@ struct WorkoutExerciseCard: View {
                         Text("\(set.setNumber)")
                             .frame(width: 30)
                         
-                        Text(String(format: "%.0f", set.weight))
+                        Text(globalSettings.formatWeight(set.weight))
                             .frame(maxWidth: .infinity)
                         
                         Text("\(set.reps)")
                             .frame(maxWidth: .infinity)
                         
-                        Text(String(format: "%.0f", set.volume))
+                        Text(globalSettings.formatWeight(set.volume))
                             .frame(maxWidth: .infinity)
                             .foregroundColor(.blue)
                         
@@ -303,20 +353,51 @@ struct WorkoutExerciseCard: View {
                 }
             }
             
-            // Add set button
-            Button {
-                onAddSet()
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle")
-                    Text("新增組數")
+            // Action buttons
+            HStack(spacing: 12) {
+                if !exercise.isCompleted {
+                    Button {
+                        onAddSet()
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle")
+                            Text("新增組數")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                    
+                    Button {
+                        onCompleteExercise()
+                    } label: {
+                        HStack {
+                            Image(systemName: "checkmark.circle")
+                            Text("完成動作")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("已完成")
+                            .font(.subheadline)
+                            .foregroundColor(.green)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(8)
                 }
-                .font(.subheadline)
-                .foregroundColor(.blue)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(Color.blue.opacity(0.05))
-                .cornerRadius(8)
             }
         }
         .padding()
@@ -489,6 +570,82 @@ struct TemplatePickerCard: View {
             .padding(.horizontal)
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct CompletedExerciseRow: View {
+    let exercise: WorkoutExerciseViewModel
+    let onTap: () -> Void
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @State private var isExpanded = false
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Collapsed row
+            Button(action: {
+                isExpanded.toggle()
+                onTap()
+            }) {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title3)
+                    
+                    Text(exercise.exerciseName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    Text(globalSettings.formatWeight(exercise.totalVolume))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(.tertiarySystemBackground))
+                .cornerRadius(8)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Expanded content
+            if isExpanded {
+                VStack(spacing: 8) {
+                    ForEach(exercise.sets) { set in
+                        HStack {
+                            Text("\(set.setNumber)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 20, alignment: .leading)
+                            
+                            Text(globalSettings.formatWeight(set.weight))
+                                .font(.caption)
+                                .foregroundColor(.primary)
+                            
+                            Text("\(set.reps)次")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Text(globalSettings.formatWeight(set.volume))
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                .padding(.top, 8)
+                .background(Color(.quaternarySystemFill))
+                .cornerRadius(8)
+            }
+        }
+        .padding(.horizontal)
     }
 }
 

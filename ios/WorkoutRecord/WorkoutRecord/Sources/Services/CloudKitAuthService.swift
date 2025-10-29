@@ -22,14 +22,15 @@ class CloudKitAuthService: NSObject, ObservableObject {
     override init() {
         super.init()
         
-        // 延遲初始化 CloudKit，避免啟動時的崩潰
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            self.initializeCloudKit()
-        }
+        // 立即初始化 CloudKit，但使用安全的方式
+        initializeCloudKit()
     }
     
     /// 安全地初始化 CloudKit
     private func initializeCloudKit() {
+        isLoading = true
+        errorMessage = nil
+        
         // 檢查 CloudKit 權限
         guard checkCloudKitEntitlements() else {
             DispatchQueue.main.async {
@@ -43,7 +44,11 @@ class CloudKitAuthService: NSObject, ObservableObject {
         do {
             self.container = CKContainer.default()
             print("✅ CloudKit 容器初始化成功")
-            self.checkAccountStatus()
+            
+            // 延遲檢查帳戶狀態，避免啟動時的阻塞
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.checkAccountStatus()
+            }
         } catch {
             print("❌ CloudKit 初始化失敗: \(error.localizedDescription)")
             DispatchQueue.main.async {
@@ -96,9 +101,20 @@ class CloudKitAuthService: NSObject, ObservableObject {
                     isLoading = false
                     errorMessage = "檢查帳戶狀態失敗: \(error.localizedDescription)"
                     print("❌ CloudKit 帳戶狀態檢查失敗: \(error.localizedDescription)")
+                    
+                    // 如果是網路錯誤，提供重試選項
+                    if error.localizedDescription.contains("network") {
+                        self.errorMessage = "網路連接失敗，請檢查網路設定後重試"
+                    }
                 }
             }
         }
+    }
+    
+    /// 重試 CloudKit 初始化
+    func retryInitialization() {
+        print("🔄 重試 CloudKit 初始化...")
+        initializeCloudKit()
     }
     
     /// 更新登入狀態
