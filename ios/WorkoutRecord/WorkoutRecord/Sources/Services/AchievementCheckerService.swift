@@ -82,16 +82,25 @@ class AchievementCheckerService: ObservableObject {
     private func checkOneRMAchievement(lift: PowerLift, targetWeight: Double) -> Bool {
         do {
             let personalRecords = try personalRecordRepository.getAllPersonalRecords()
+            // 使用動作名稱匹配，而非固定 UUID
             let liftRecords = personalRecords.filter { record in
-                // 這裡需要根據 lift 類型來篩選對應的動作
-                // 暫時使用簡單的篩選邏輯
-                return record.exerciseId == lift.exerciseId
+                guard let exercise = record.exercise else { return false }
+                return lift.matches(exerciseName: exercise.name)
             }
             
+            print("🔍 檢查 \(lift.rawValue) 成就 (目標: \(targetWeight)kg)")
+            print("   找到 \(liftRecords.count) 筆相關記錄")
+            
             // 檢查是否有達到目標重量的記錄
-            return liftRecords.contains { record in
-                record.oneRepMax >= targetWeight
+            let hasAchievement = liftRecords.contains { record in
+                let achieved = record.oneRepMax >= targetWeight
+                if achieved {
+                    print("   ✅ 達成！1RM: \(record.oneRepMax)kg")
+                }
+                return achieved
             }
+            
+            return hasAchievement
         } catch {
             print("❌ 檢查 1RM 成就失敗: \(error.localizedDescription)")
             return false
@@ -103,7 +112,8 @@ class AchievementCheckerService: ObservableObject {
         do {
             let personalRecords = try personalRecordRepository.getAllPersonalRecords()
             let liftRecords = personalRecords.filter { record in
-                return record.exerciseId == lift.exerciseId
+                guard let exercise = record.exercise else { return false }
+                return lift.matches(exerciseName: exercise.name)
             }
             
             guard let bestRecord = liftRecords.max(by: { $0.oneRepMax < $1.oneRepMax }) else {
@@ -121,16 +131,26 @@ class AchievementCheckerService: ObservableObject {
         do {
             let personalRecords = try personalRecordRepository.getAllPersonalRecords()
             
-            // 獲取三大項的最佳記錄
-            let squatRecord = personalRecords.filter { $0.exerciseId == PowerLift.squat.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
-            let benchRecord = personalRecords.filter { $0.exerciseId == PowerLift.benchPress.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
-            let deadliftRecord = personalRecords.filter { $0.exerciseId == PowerLift.deadlift.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
+            // 獲取三大項的最佳記錄（使用動作名稱匹配）
+            let squatRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.squat.matches(exerciseName: exercise.name)
+            }
+            let benchRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.benchPress.matches(exerciseName: exercise.name)
+            }
+            let deadliftRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.deadlift.matches(exerciseName: exercise.name)
+            }
             
-            let squatMax = squatRecord?.oneRepMax ?? 0
-            let benchMax = benchRecord?.oneRepMax ?? 0
-            let deadliftMax = deadliftRecord?.oneRepMax ?? 0
+            let squatMax = squatRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
+            let benchMax = benchRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
+            let deadliftMax = deadliftRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
             
             let total = squatMax + benchMax + deadliftMax
+            print("🔍 檢查三項總和成就: 深蹲\(squatMax) + 臥推\(benchMax) + 硬舉\(deadliftMax) = \(total)kg (目標: \(targetTotal)kg)")
             return total >= targetTotal
         } catch {
             return false
@@ -142,13 +162,22 @@ class AchievementCheckerService: ObservableObject {
         do {
             let personalRecords = try personalRecordRepository.getAllPersonalRecords()
             
-            let squatRecord = personalRecords.filter { $0.exerciseId == PowerLift.squat.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
-            let benchRecord = personalRecords.filter { $0.exerciseId == PowerLift.benchPress.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
-            let deadliftRecord = personalRecords.filter { $0.exerciseId == PowerLift.deadlift.exerciseId }.max(by: { $0.oneRepMax < $1.oneRepMax })
+            let squatRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.squat.matches(exerciseName: exercise.name)
+            }
+            let benchRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.benchPress.matches(exerciseName: exercise.name)
+            }
+            let deadliftRecords = personalRecords.filter { record in
+                guard let exercise = record.exercise else { return false }
+                return PowerLift.deadlift.matches(exerciseName: exercise.name)
+            }
             
-            let squatMax = squatRecord?.oneRepMax ?? 0
-            let benchMax = benchRecord?.oneRepMax ?? 0
-            let deadliftMax = deadliftRecord?.oneRepMax ?? 0
+            let squatMax = squatRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
+            let benchMax = benchRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
+            let deadliftMax = deadliftRecords.max(by: { $0.oneRepMax < $1.oneRepMax })?.oneRepMax ?? 0
             
             let total = squatMax + benchMax + deadliftMax
             return min(total / targetTotal, 1.0)
@@ -346,19 +375,3 @@ extension Notification.Name {
     static let achievementUnlocked = Notification.Name("achievementUnlocked")
 }
 
-// MARK: - PowerLift Extension
-
-extension PowerLift {
-    var exerciseId: UUID {
-        // 這裡需要根據實際的動作 ID 來映射
-        // 暫時使用固定的 UUID
-        switch self {
-        case .squat:
-            return UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID()
-        case .benchPress:
-            return UUID(uuidString: "00000000-0000-0000-0000-000000000002") ?? UUID()
-        case .deadlift:
-            return UUID(uuidString: "00000000-0000-0000-0000-000000000003") ?? UUID()
-        }
-    }
-}

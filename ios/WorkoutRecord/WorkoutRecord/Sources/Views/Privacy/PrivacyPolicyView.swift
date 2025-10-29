@@ -476,8 +476,8 @@ struct ContactSection: View {
                 ContactMethod(
                     icon: "envelope.fill",
                     title: "電子郵件",
-                    value: "privacy@workoutrecord.app",
-                    action: "mailto:privacy@workoutrecord.app"
+                    value: "mike504110403@gmail.com",
+                    action: "mailto:mike504110403@gmail.com"
                 )
                 
                 ContactMethod(
@@ -561,7 +561,19 @@ struct DataTypeCard: View {
     }
 }
 
-// UsageItem 定義已移至 Views/Privacy/PrivacyConsentView.swift
+struct UsageItem: View {
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+                .font(.caption)
+            Text(text)
+                .font(.body)
+        }
+    }
+}
 
 struct SharingItem: View {
     let icon: String

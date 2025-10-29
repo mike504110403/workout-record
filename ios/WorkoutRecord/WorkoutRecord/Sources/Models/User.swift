@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct User: Identifiable, Codable {
     let id: UUID
@@ -91,6 +92,14 @@ struct User: Identifiable, Codable {
             case .light: return "淺色"
             case .dark: return "深色"
             case .system: return "跟隨系統"
+            }
+        }
+        
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .light: return .light
+            case .dark: return .dark
+            case .system: return nil // 跟隨系統
             }
         }
     }

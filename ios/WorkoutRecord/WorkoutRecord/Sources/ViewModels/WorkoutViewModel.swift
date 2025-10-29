@@ -13,11 +13,32 @@ class WorkoutViewModel: ObservableObject {
     @Published var completedWorkout: Workout?
     @Published var showWorkoutReport = false
     
+    // MARK: - Computed Properties
+    
+    /// 檢查是否所有動作都已完成（必須有組數記錄且標記為完成）
+    var canCompleteWorkout: Bool {
+        // 必須至少有一個動作
+        guard !currentWorkoutExercises.isEmpty else { return false }
+        
+        // 所有動作都必須：1) 有至少一組記錄 AND 2) 標記為完成
+        return currentWorkoutExercises.allSatisfy { exercise in
+            !exercise.sets.isEmpty && exercise.isCompleted
+        }
+    }
+    
+    /// 檢查是否有未完成的動作
+    var hasIncompleteExercises: Bool {
+        return currentWorkoutExercises.contains { exercise in
+            exercise.sets.isEmpty && !exercise.isCompleted
+        }
+    }
+    
     // MARK: - Private Properties
     private var workoutStartTime: Date?
     private var timerCancellable: AnyCancellable?
     private var cancellables = Set<AnyCancellable>()
     private let repository = WorkoutRepository()
+    private var lastSetCompletionTime: [UUID: Date] = [:] // 記錄每個動作最後一組的完成時間
     
     // MARK: - Public Methods
     func startWorkout() {
@@ -64,6 +85,15 @@ class WorkoutViewModel: ObservableObject {
     }
     
     func addSet(to exercise: WorkoutExerciseViewModel, weight: Double, reps: Int, rpe: Double?) {
+        // 計算組間休息時間
+        let currentTime = Date()
+        var restSeconds: Int? = nil
+        
+        if let lastTime = lastSetCompletionTime[exercise.id] {
+            // 計算距離上一組的時間差（秒）
+            restSeconds = Int(currentTime.timeIntervalSince(lastTime))
+        }
+        
         let newSet = WorkoutSetViewModel(
             id: UUID(),
             setNumber: exercise.sets.count + 1,
@@ -71,12 +101,16 @@ class WorkoutViewModel: ObservableObject {
             reps: reps,
             volume: weight * Double(reps),
             rpe: rpe,
+            restSeconds: restSeconds,
             isWarmup: false
         )
         
         if let index = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) {
             currentWorkoutExercises[index].sets.append(newSet)
+            // 更新最後一組完成時間
+            lastSetCompletionTime[exercise.id] = currentTime
             updateTotals()
+            objectWillChange.send() // 觸發視圖更新
         }
     }
     
@@ -90,6 +124,11 @@ class WorkoutViewModel: ObservableObject {
         
         // 插入到最前面，讓新動作排在最上面
         currentWorkoutExercises.insert(newExercise, at: 0)
+    }
+    
+    func deleteExercise(_ exercise: WorkoutExerciseViewModel) {
+        currentWorkoutExercises.removeAll { $0.id == exercise.id }
+        updateTotals()
     }
     
     func deleteSet(_ set: WorkoutSetViewModel, from exercise: WorkoutExerciseViewModel) {
@@ -108,7 +147,7 @@ class WorkoutViewModel: ObservableObject {
     func completeExercise(_ exercise: WorkoutExerciseViewModel) {
         if let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) {
             currentWorkoutExercises[exerciseIndex].isCompleted = true
-            // TODO: 可以添加完成動作的動畫或通知
+            objectWillChange.send() // 觸發視圖更新，確保 canCompleteWorkout 重新計算
         }
     }
     
@@ -230,7 +269,17 @@ class WorkoutViewModel: ObservableObject {
             
             // 根據 exerciseId 查找對應的 Exercise 對象
             let exerciseRepository = ExerciseRepository()
-            let exercise = try? exerciseRepository.fetchById(exerciseVM.exerciseId)
+            var exercise = try? exerciseRepository.fetchById(exerciseVM.exerciseId)
+            var isCustom = false
+            
+            // 如果 exerciseRepository 中找不到，嘗試從 CustomExerciseStorage 加載
+            if exercise == nil {
+                exercise = CustomExerciseStorage.shared.getCustomExercise(id: exerciseVM.exerciseId)
+                isCustom = exercise != nil
+            } else {
+                // 判斷是否為系統動作
+                isCustom = !(exercise?.isSystem ?? true)
+            }
             
             return WorkoutExercise(
                 id: exerciseVM.id,
@@ -243,6 +292,8 @@ class WorkoutViewModel: ObservableObject {
                 totalSets: exerciseVM.sets.count,
                 note: nil,
                 sets: sets,
+                isCustomExercise: isCustom,
+                isCompleted: exerciseVM.isCompleted,
                 createdAt: Date(),
                 updatedAt: Date()
             )
@@ -323,15 +374,17 @@ struct WorkoutSetViewModel: Identifiable {
     var reps: Int
     var volume: Double
     var rpe: Double?
+    var restSeconds: Int? // 組間休息時間（秒）
     var isWarmup: Bool
     
-    init(id: UUID, setNumber: Int, weight: Double, reps: Int, volume: Double, rpe: Double? = nil, isWarmup: Bool) {
+    init(id: UUID, setNumber: Int, weight: Double, reps: Int, volume: Double, rpe: Double? = nil, restSeconds: Int? = nil, isWarmup: Bool) {
         self.id = id
         self.setNumber = setNumber
         self.weight = weight
         self.reps = reps
         self.volume = volume
         self.rpe = rpe
+        self.restSeconds = restSeconds
         self.isWarmup = isWarmup
     }
 }

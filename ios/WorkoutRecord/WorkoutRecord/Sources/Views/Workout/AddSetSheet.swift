@@ -8,25 +8,29 @@ struct AddSetSheet: View {
     let setNumber: Int
     let previousWeight: Double?  // 前一組的重量
     let previousReps: Int?       // 前一組的次數
-    let onSave: (Double, Int, Double?) -> Void
+    let onSave: (Double, Int, Double?, Int) -> Void  // 添加 restSeconds 參數
     
     @State private var weight: String = ""
     @State private var reps: String = ""
     @State private var rpe: String = ""
     @State private var isWarmup: Bool = false
-    @State private var restSeconds: Int = 90
+    @State private var restSeconds: Int
     @State private var showRestTimerToggle: Bool = true
     
-    init(exerciseName: String, setNumber: Int, previousWeight: Double? = nil, previousReps: Int? = nil, onSave: @escaping (Double, Int, Double?) -> Void) {
+    init(exerciseName: String, setNumber: Int, previousWeight: Double? = nil, previousReps: Int? = nil, onSave: @escaping (Double, Int, Double?, Int) -> Void) {
         self.exerciseName = exerciseName
         self.setNumber = setNumber
         self.previousWeight = previousWeight
         self.previousReps = previousReps
         self.onSave = onSave
         
-        // 設置預設值
+        // 從全局設定讀取預設休息時間
+        self._restSeconds = State(initialValue: GlobalSettingsManager.shared.defaultRestTime)
+        
+        // 設置預設值 - 根據當前單位轉換顯示
         if let prevWeight = previousWeight {
-            self._weight = State(initialValue: String(format: "%.1f", prevWeight))
+            let displayWeight = WeightFormatter.shared.convert(prevWeight, to: GlobalSettingsManager.shared.weightUnit)
+            self._weight = State(initialValue: String(format: "%.1f", displayWeight))
         }
         if let prevReps = previousReps {
             self._reps = State(initialValue: "\(prevReps)")
@@ -165,8 +169,12 @@ struct AddSetSheet: View {
             return
         }
         
+        // 將輸入的重量轉換回公斤（數據庫始終以公斤存儲）
+        let weightInKg = WeightFormatter.shared.convertToKg(weightValue, from: globalSettings.weightUnit)
+        
         let rpeValue = Double(rpe)
-        onSave(weightValue, repsValue, rpeValue)
+        // 傳遞用戶選擇的休息時間
+        onSave(weightInKg, repsValue, rpeValue, restSeconds)
         dismiss()
     }
 }
@@ -175,8 +183,8 @@ struct AddSetSheet: View {
     AddSetSheet(
         exerciseName: "槓鈴臥推",
         setNumber: 1,
-        onSave: { weight, reps, rpe in
-            print("Weight: \(weight), Reps: \(reps), RPE: \(rpe ?? 0)")
+        onSave: { weight, reps, rpe, restSeconds in
+            print("Weight: \(weight), Reps: \(reps), RPE: \(rpe ?? 0), Rest: \(restSeconds)s")
         }
     )
 }

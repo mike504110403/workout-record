@@ -39,6 +39,20 @@ class AchievementsViewModel: ObservableObject {
         return Double(unlockedCount) / Double(totalAchievements) * 100
     }
     
+    /// 是否有未查看的成就
+    var hasUnseenAchievements: Bool {
+        guard let lastViewed = UserDefaults.standard.object(forKey: "lastViewedAchievementsDate") as? Date else {
+            // 如果從未查看，檢查是否有已解鎖的成就
+            return unlockedCount > 0
+        }
+        
+        // 檢查是否有在上次查看後解鎖的成就
+        return achievements.contains { achievement in
+            achievement.isUnlocked && 
+            (achievement.unlockedAt ?? Date.distantPast) > lastViewed
+        }
+    }
+    
     // MARK: - Private Methods
     
     private func loadAchievements() {

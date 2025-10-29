@@ -11,6 +11,8 @@ struct WorkoutDetailView: View {
     @State private var workoutExercises: [WorkoutExerciseDetail] = []
     @State private var isLoading = true
     
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    
     private let repository = WorkoutRepository()
     
     var body: some View {
@@ -207,7 +209,8 @@ struct WorkoutDetailView: View {
                         weight: set.weight,
                         reps: set.reps,
                         volume: set.weight * Double(set.reps),
-                        isWarmup: set.isWarmup
+                        isWarmup: set.isWarmup,
+                        restSeconds: set.restSeconds
                     )
                 }
                 
@@ -244,6 +247,7 @@ struct WorkoutDetailView: View {
 struct ExerciseDetailCard: View {
     let exercise: WorkoutExerciseDetail
     @State private var isExpanded = true
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -282,10 +286,12 @@ struct ExerciseDetailCard: View {
                     // Table header
                     HStack {
                         Text("組")
-                            .frame(width: 40, alignment: .center)
+                            .frame(width: 35, alignment: .center)
                         Text("重量")
                             .frame(maxWidth: .infinity)
                         Text("次數")
+                            .frame(maxWidth: .infinity)
+                        Text("休息")
                             .frame(maxWidth: .infinity)
                         Text("容量")
                             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -309,15 +315,28 @@ struct ExerciseDetailCard: View {
                                         .foregroundColor(.orange)
                                 }
                             }
-                            .frame(width: 40, alignment: .center)
+                            .frame(width: 35, alignment: .center)
                             
                             // Weight
-                            Text(String(format: "%.0f kg", set.weight))
+                            Text(WeightFormatter.shared.format(set.weight, unit: globalSettings.weightUnit))
                                 .frame(maxWidth: .infinity)
                             
                             // Reps
                             Text("\(set.reps)")
                                 .frame(maxWidth: .infinity)
+                            
+                            // Rest time
+                            if let restSeconds = set.restSeconds {
+                                Text(formatRestTime(restSeconds))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                Text("-")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity)
+                            }
                             
                             // Volume
                             Text(String(format: "%.0f", set.volume))
@@ -342,6 +361,18 @@ struct ExerciseDetailCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(16)
         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
+    }
+    
+    // 格式化休息時間
+    private func formatRestTime(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        let secs = seconds % 60
+        
+        if minutes > 0 {
+            return "\(minutes):\(String(format: "%02d", secs))"
+        } else {
+            return "\(secs)s"
+        }
     }
 }
 
@@ -393,6 +424,7 @@ struct WorkoutSetDetail: Identifiable {
     let reps: Int
     let volume: Double
     let isWarmup: Bool
+    let restSeconds: Int?
 }
 
 #Preview {

@@ -163,7 +163,7 @@ class VolumeChartViewModel: ObservableObject {
             // 加總總容量
             volumeByDate[dateKey]!.total += workout.totalVolume
             
-            // 按肌群加總（優先使用 exercise 關聯，如果沒有則嘗試從 exerciseName 推斷）
+            // 按肌群加總（優先使用 exercise 關聯，如果沒有則嘗試從自定義動作或 exerciseName 推斷）
             for workoutExercise in workout.exercises {
                 var muscleGroup: Exercise.PrimaryMuscleGroup?
                 
@@ -171,6 +171,16 @@ class VolumeChartViewModel: ObservableObject {
                 if let exercise = workoutExercise.exercise,
                    let primaryMuscleGroup = exercise.primaryMuscleGroup {
                     muscleGroup = primaryMuscleGroup
+                } else if workoutExercise.isCustomExercise {
+                    // 如果是自定義動作，嘗試從 CustomExerciseStorage 加載
+                    if let customExercise = CustomExerciseStorage.shared.getCustomExercise(id: workoutExercise.exerciseId),
+                       let primaryMuscleGroup = customExercise.primaryMuscleGroup {
+                        muscleGroup = primaryMuscleGroup
+                        print("✅ 從自定義動作加載肌群: \(customExercise.name) -> \(primaryMuscleGroup.displayName)")
+                    } else {
+                        // 如果自定義動作也沒有肌群信息，嘗試從名稱推斷
+                        muscleGroup = inferMuscleGroupFromName(workoutExercise.exerciseName ?? "")
+                    }
                 } else {
                     // 如果沒有 exercise 關聯，嘗試從 exerciseName 推斷肌群
                     muscleGroup = inferMuscleGroupFromName(workoutExercise.exerciseName ?? "")
@@ -181,7 +191,7 @@ class VolumeChartViewModel: ObservableObject {
                     volumeByDate[dateKey]!.byMuscleGroup[muscleGroup] = currentVolume + workoutExercise.totalVolume
                     print("✅ 肌群數據: \(muscleGroup.displayName) +\(workoutExercise.totalVolume)kg")
                 } else {
-                    print("⚠️ 無法確定肌群: exerciseId=\(workoutExercise.exerciseId), exerciseName=\(workoutExercise.exerciseName ?? "nil")")
+                    print("⚠️ 無法確定肌群: exerciseId=\(workoutExercise.exerciseId), exerciseName=\(workoutExercise.exerciseName ?? "nil"), isCustom=\(workoutExercise.isCustomExercise)")
                 }
             }
         }

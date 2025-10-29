@@ -19,12 +19,6 @@ struct WorkoutSummaryReportView: View {
                     
                     // 動作詳情
                     exercisesSection
-                    
-                    // 個人記錄
-                    personalRecordsSection
-                    
-                    // 訓練建議
-                    suggestionsSection
                 }
                 .padding()
             }

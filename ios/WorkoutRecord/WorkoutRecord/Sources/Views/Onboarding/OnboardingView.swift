@@ -1,81 +1,21 @@
 import SwiftUI
 import Combine
 
-/// 新手教學管理器
-@MainActor
-class OnboardingManager: ObservableObject {
-    static let shared = OnboardingManager()
-    
-    @Published var isOnboardingComplete = false
-    @Published var currentStep = 0
-    @Published var showOnboarding = false
-    
-    private let userDefaults = UserDefaults.standard
-    private let onboardingKey = "OnboardingComplete"
-    
-    private init() {
-        loadOnboardingState()
-    }
-    
-    // MARK: - Onboarding State Management
-    
-    private func loadOnboardingState() {
-        isOnboardingComplete = userDefaults.bool(forKey: onboardingKey)
-        
-        if !isOnboardingComplete {
-            showOnboarding = true
-        }
-    }
-    
-    func completeOnboarding() {
-        isOnboardingComplete = true
-        showOnboarding = false
-        userDefaults.set(true, forKey: onboardingKey)
-    }
-    
-    func resetOnboarding() {
-        isOnboardingComplete = false
-        showOnboarding = true
-        currentStep = 0
-        userDefaults.removeObject(forKey: onboardingKey)
-    }
-    
-    func nextStep() {
-        if currentStep < OnboardingStep.allCases.count - 1 {
-            currentStep += 1
-        } else {
-            completeOnboarding()
-        }
-    }
-    
-    func previousStep() {
-        if currentStep > 0 {
-            currentStep -= 1
-        }
-    }
-    
-    func skipOnboarding() {
-        completeOnboarding()
-    }
-}
-
 // MARK: - Onboarding Steps
 
 enum OnboardingStep: Int, CaseIterable {
     case welcome = 0
-    case features = 1
-    case workout = 2
-    case tracking = 3
-    case goals = 4
-    case complete = 5
+    case basicInfo = 1
+    case goals = 2
+    case features = 3
+    case complete = 4
     
     var title: String {
         switch self {
         case .welcome: return "歡迎使用健身記錄"
-        case .features: return "主要功能"
-        case .workout: return "開始訓練"
-        case .tracking: return "記錄數據"
+        case .basicInfo: return "基本資訊"
         case .goals: return "設定目標"
+        case .features: return "主要功能"
         case .complete: return "準備就緒"
         }
     }
@@ -83,10 +23,9 @@ enum OnboardingStep: Int, CaseIterable {
     var description: String {
         switch self {
         case .welcome: return "讓我們快速了解如何使用這個應用程式來追蹤你的健身進度"
-        case .features: return "應用程式提供完整的健身記錄功能，包括訓練記錄、進度追蹤和成就系統"
-        case .workout: return "開始你的第一次訓練，記錄重量、次數和組數"
-        case .tracking: return "追蹤你的訓練進度，查看個人記錄和統計數據"
+        case .basicInfo: return "請輸入你的基本資訊，幫助我們提供更好的訓練建議"
         case .goals: return "設定你的健身目標，讓訓練更有方向"
+        case .features: return "應用程式提供完整的健身記錄功能，包括訓練記錄、進度追蹤和成就系統"
         case .complete: return "你已經準備好開始你的健身之旅了！"
         }
     }
@@ -94,10 +33,9 @@ enum OnboardingStep: Int, CaseIterable {
     var icon: String {
         switch self {
         case .welcome: return "hand.wave.fill"
-        case .features: return "star.fill"
-        case .workout: return "figure.strengthtraining.traditional"
-        case .tracking: return "chart.line.uptrend.xyaxis"
+        case .basicInfo: return "person.fill"
         case .goals: return "target"
+        case .features: return "star.fill"
         case .complete: return "checkmark.circle.fill"
         }
     }
@@ -105,10 +43,9 @@ enum OnboardingStep: Int, CaseIterable {
     var color: Color {
         switch self {
         case .welcome: return .blue
-        case .features: return .purple
-        case .workout: return .green
-        case .tracking: return .orange
-        case .goals: return .red
+        case .basicInfo: return .purple
+        case .goals: return .orange
+        case .features: return .green
         case .complete: return .green
         }
     }
@@ -119,6 +56,19 @@ enum OnboardingStep: Int, CaseIterable {
 struct OnboardingView: View {
     @EnvironmentObject private var onboardingState: OnboardingState
     @State private var currentStep = OnboardingStep.welcome
+    
+    // 驗證當前步驟是否可以繼續
+    private var canProceed: Bool {
+        switch currentStep {
+        case .welcome, .features, .complete:
+            return true
+        case .basicInfo:
+            // 必須填寫體重
+            return !onboardingState.weight.isEmpty && Double(onboardingState.weight) != nil
+        case .goals:
+            return true // 目標設定是可選的
+        }
+    }
     
     var body: some View {
         ZStack {
@@ -134,71 +84,53 @@ struct OnboardingView: View {
                 // 內容區域
                 TabView(selection: $currentStep) {
                     ForEach(OnboardingStep.allCases, id: \.self) { step in
-                        OnboardingStepView(step: step)
-                            .tag(step)
+                        if step == .basicInfo {
+                            BasicInfoFormView()
+                                .environmentObject(onboardingState)
+                                .tag(step)
+                        } else if step == .goals {
+                            GoalsFormView()
+                                .environmentObject(onboardingState)
+                                .tag(step)
+                        } else {
+                            OnboardingStepView(step: step)
+                                .tag(step)
+                        }
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .tabViewStyle(.page(indexDisplayMode: .always))
                 .animation(.easeInOut, value: currentStep)
                 
                 // 底部控制區域
-                VStack(spacing: 20) {
-                    // 頁面指示器
-                    HStack(spacing: 8) {
-                        ForEach(OnboardingStep.allCases, id: \.self) { step in
-                            Circle()
-                                .fill(step == currentStep ? currentStep.color : Color.gray.opacity(0.3))
-                                .frame(width: 8, height: 8)
-                                .animation(.easeInOut, value: currentStep)
+                VStack(spacing: 16) {
+                    // 滑動提示（僅在可以滑動且非最後一步時顯示）
+                    if currentStep != .complete && canProceed {
+                        HStack(spacing: 6) {
+                            Text("向左滑動繼續")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.left")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
+                        .opacity(0.6)
                     }
                     
-                    // 按鈕區域
-                    HStack(spacing: 16) {
-                        if currentStep != .welcome {
-                            Button("上一步") {
-                                withAnimation {
-                                    if let previousStep = OnboardingStep(rawValue: currentStep.rawValue - 1) {
-                                        currentStep = previousStep
-                                    }
-                                }
-                            }
-                            .foregroundColor(.secondary)
+                    // 完成按鈕（僅在最後一步顯示）
+                    if currentStep == .complete {
+                        Button("開始使用") {
+                            onboardingState.complete()
                         }
-                        
-                        Spacer()
-                        
-                        if currentStep == .complete {
-                            Button("開始使用") {
-                                onboardingState.complete()
-                            }
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(currentStep.color)
-                            .cornerRadius(12)
-                        } else {
-                            Button("下一步") {
-                                withAnimation {
-                                    if let nextStep = OnboardingStep(rawValue: currentStep.rawValue + 1) {
-                                        currentStep = nextStep
-                                    }
-                                }
-                            }
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(currentStep.color)
-                            .cornerRadius(12)
-                        }
-                    }
-                    
-                    // 跳過按鈕
-                    if currentStep != .complete {
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(currentStep.color)
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+                    } else {
+                        // 跳過按鈕
                         Button("跳過教學") {
                             onboardingState.complete()
                         }
@@ -206,14 +138,34 @@ struct OnboardingView: View {
                         .foregroundColor(.secondary)
                     }
                 }
-                .padding()
+                .padding(.bottom)
             }
         }
         .onAppear {
             currentStep = OnboardingStep(rawValue: onboardingState.currentStep) ?? .welcome
         }
-        .onChange(of: currentStep) { _, newValue in
-            onboardingState.currentStep = newValue.rawValue
+        .onChange(of: currentStep) { oldValue, newValue in
+            // 檢查是否可以切換到下一步
+            let oldCanProceed: Bool
+            switch oldValue {
+            case .welcome, .features, .complete:
+                oldCanProceed = true
+            case .basicInfo:
+                oldCanProceed = !onboardingState.weight.isEmpty
+            case .goals:
+                oldCanProceed = true // 目標頁面都是選填
+            }
+            
+            // 如果從需要驗證的頁面切換且資料未填完，則阻止切換
+            if !oldCanProceed && newValue.rawValue > oldValue.rawValue {
+                // 切換回原來的步驟
+                DispatchQueue.main.async {
+                    currentStep = oldValue
+                }
+            } else {
+                // 更新狀態
+                onboardingState.currentStep = newValue.rawValue
+            }
         }
     }
 }
@@ -280,24 +232,15 @@ struct OnboardingStepView: View {
                 )
             }
             
+        case .basicInfo:
+            EmptyView() // 將在 OnboardingView 中直接處理表單
+            
+        case .goals:
+            EmptyView() // 將在 OnboardingView 中直接處理表單
+            
         case .features:
             VStack(spacing: 20) {
                 FeatureGrid()
-            }
-            
-        case .workout:
-            VStack(spacing: 20) {
-                WorkoutDemoView()
-            }
-            
-        case .tracking:
-            VStack(spacing: 20) {
-                TrackingDemoView()
-            }
-            
-        case .goals:
-            VStack(spacing: 20) {
-                GoalsDemoView()
             }
             
         case .complete:
@@ -560,6 +503,222 @@ struct OnboardingModifier: ViewModifier {
 extension View {
     func onboarding() -> some View {
         modifier(OnboardingModifier())
+    }
+}
+
+// MARK: - Form Views
+
+struct BasicInfoFormView: View {
+    @EnvironmentObject private var onboardingState: OnboardingState
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @FocusState private var focusedField: Field?
+    
+    enum Field {
+        case weight, height, age
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                // 圖標
+                Image(systemName: "person.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(.purple)
+                
+                // 標題和描述
+                VStack(spacing: 16) {
+                    Text("基本資訊")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("請輸入你的基本資訊，幫助我們提供更好的訓練建議")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                }
+                
+                // 表單
+                VStack(spacing: 20) {
+                    // 體重（必填）
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("當前體重")
+                                .font(.headline)
+                            Text("*")
+                                .foregroundColor(.red)
+                        }
+                        
+                        HStack {
+                            TextField("請輸入體重", text: $onboardingState.weight)
+                                .keyboardType(.decimalPad)
+                                .focused($focusedField, equals: .weight)
+                                .padding()
+                                .background(Color(.secondarySystemBackground))
+                                .cornerRadius(12)
+                            
+                            Text(globalSettings.weightUnit.symbol)
+                                .foregroundColor(.secondary)
+                                .padding(.trailing)
+                        }
+                    }
+                    
+                    // 身高（選填）
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("身高")
+                            .font(.headline)
+                        
+                        HStack {
+                            TextField("請輸入身高（選填）", text: $onboardingState.height)
+                                .keyboardType(.decimalPad)
+                                .focused($focusedField, equals: .height)
+                                .padding()
+                                .background(Color(.secondarySystemBackground))
+                                .cornerRadius(12)
+                            
+                            Text("cm")
+                                .foregroundColor(.secondary)
+                                .padding(.trailing)
+                        }
+                    }
+                    
+                    // 性別
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("性別")
+                            .font(.headline)
+                        
+                        Picker("性別", selection: $onboardingState.gender) {
+                            Text("不指定").tag("不指定")
+                            Text("男性").tag("男性")
+                            Text("女性").tag("女性")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    
+                    // 年齡（選填）
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("年齡")
+                            .font(.headline)
+                        
+                        TextField("請輸入年齡（選填）", text: $onboardingState.age)
+                            .keyboardType(.numberPad)
+                            .focused($focusedField, equals: .age)
+                            .padding()
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(12)
+                    }
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .padding(.horizontal, 32)
+        }
+        .dismissOnTap {
+            focusedField = nil
+        }
+    }
+}
+
+struct GoalsFormView: View {
+    @EnvironmentObject private var onboardingState: OnboardingState
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @FocusState private var focusedField: Bool
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 40) {
+                Spacer()
+                
+                // 圖標
+                Image(systemName: "target")
+                    .font(.system(size: 80))
+                    .foregroundColor(.orange)
+                
+                // 標題和描述
+                VStack(spacing: 16) {
+                    Text("設定目標")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("設定你的健身目標，讓訓練更有方向")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                }
+                
+                // 表單
+                VStack(spacing: 20) {
+                    // 目標體重（選填）
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("目標體重")
+                            .font(.headline)
+                        
+                        HStack {
+                            TextField("請輸入目標體重（選填）", text: $onboardingState.targetWeight)
+                                .keyboardType(.decimalPad)
+                                .focused($focusedField)
+                                .padding()
+                                .background(Color(.secondarySystemBackground))
+                                .cornerRadius(12)
+                            
+                            Text(globalSettings.weightUnit.symbol)
+                                .foregroundColor(.secondary)
+                                .padding(.trailing)
+                        }
+                    }
+                    
+                    // 每週訓練次數
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("每週訓練目標")
+                            .font(.headline)
+                        
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("每週訓練")
+                                Spacer()
+                                Text("\(onboardingState.weeklyGoal) 次")
+                                    .foregroundColor(.blue)
+                                    .fontWeight(.semibold)
+                            }
+                            
+                            Stepper("", value: $onboardingState.weeklyGoal, in: 1...7)
+                                .labelsHidden()
+                        }
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
+                    }
+                    
+                    // 提示訊息
+                    VStack(spacing: 8) {
+                        Text("💡 小提示")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        Text("這些目標可以之後在設定中修改，不用擔心！")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .padding(.horizontal, 32)
+        }
+        .dismissOnTap {
+            focusedField = false
+        }
     }
 }
 

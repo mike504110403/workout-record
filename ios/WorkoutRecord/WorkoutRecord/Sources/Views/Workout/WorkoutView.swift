@@ -3,22 +3,30 @@ import SwiftUI
 struct WorkoutView: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @StateObject private var restTimerManager = RestTimerManager()
     @State private var showExercisePicker = false
     @State private var showAddSetSheet = false
-    @State private var showRestTimer = false
     @State private var showTemplatePicker = false
+    @State private var showRestCompleteAlert = false
     @State private var selectedExercise: WorkoutExerciseViewModel?
-    @State private var restTimerExerciseName = ""
-    @State private var restTimerSeconds = 90
+    
+    // 傳遞 restTimerManager 給子視圖使用
     
     var body: some View {
         NavigationStack {
-            VStack {
+            VStack(spacing: 0) {
+                // Rest Timer Header (只在計時時顯示)
+                if restTimerManager.isRunning {
+                    RestTimerHeaderView(timerManager: restTimerManager)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                
                 if viewModel.isWorkoutInProgress {
                     // Show workout in progress view
                     WorkoutInProgressView(
                         viewModel: viewModel,
                         globalSettings: globalSettings,
+                        restTimerManager: restTimerManager,
                         showExercisePicker: $showExercisePicker,
                         showAddSetSheet: $showAddSetSheet,
                         selectedExercise: $selectedExercise
@@ -48,26 +56,19 @@ struct WorkoutView: View {
                         setNumber: exercise.sets.count + 1,
                         previousWeight: lastSet?.weight,
                         previousReps: lastSet?.reps,
-                        onSave: { weight, reps, rpe in
+                        onSave: { weight, reps, rpe, restSeconds in
                             viewModel.addSet(to: exercise, weight: weight, reps: reps, rpe: rpe)
                             selectedExercise = nil
                             
-                            // Show rest timer
-                            restTimerExerciseName = exercise.exerciseName
-                            restTimerSeconds = 90 // TODO: Get from settings or last set
-                            showRestTimer = true
+                            // Start rest timer with user-selected duration
+                            restTimerManager.setup(seconds: restSeconds, exerciseName: exercise.exerciseName)
+                            restTimerManager.start()
                         }
                     )
                     .dismissOnTapSheet {
                         showAddSetSheet = false
                     }
                 }
-            }
-            .fullScreenCover(isPresented: $showRestTimer) {
-                RestTimerView(
-                    seconds: restTimerSeconds,
-                    exerciseName: restTimerExerciseName
-                )
             }
             .sheet(isPresented: $showTemplatePicker) {
                 TemplatePickerSheet { template in
@@ -83,6 +84,23 @@ struct WorkoutView: View {
                         .dismissOnTapSheet {
                             viewModel.showWorkoutReport = false
                         }
+                }
+            }
+            .alert("休息時間結束", isPresented: $showRestCompleteAlert) {
+                Button("知道了", role: .cancel) { }
+            } message: {
+                if let exerciseName = restTimerManager.exerciseName {
+                    Text("準備好進行下一組 \(exerciseName) 了嗎？")
+                } else {
+                    Text("準備好進行下一組了嗎？")
+                }
+            }
+            .onChange(of: restTimerManager.remainingSeconds) { oldValue, newValue in
+                if newValue == 0 && oldValue > 0 {
+                    // 時間結束，彈出提示
+                    showRestCompleteAlert = true
+                    // 播放提示音
+                    restTimerManager.playCompletionSound()
                 }
             }
         }
@@ -146,6 +164,7 @@ struct StartWorkoutView: View {
 struct WorkoutInProgressView: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @ObservedObject var globalSettings: GlobalSettingsManager
+    @ObservedObject var restTimerManager: RestTimerManager
     @Binding var showExercisePicker: Bool
     @Binding var showAddSetSheet: Bool
     @Binding var selectedExercise: WorkoutExerciseViewModel?
@@ -193,7 +212,12 @@ struct WorkoutInProgressView: View {
                             },
                             onDeleteSet: { set in viewModel.deleteSet(set, from: activeExercise) },
                             onCompleteExercise: {
+                                // 完成動作時停止休息計時器
+                                restTimerManager.stop()
                                 viewModel.completeExercise(activeExercise)
+                            },
+                            onDeleteExercise: {
+                                viewModel.deleteExercise(activeExercise)
                             }
                         )
                     }
@@ -234,9 +258,11 @@ struct WorkoutInProgressView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.green)
+                        .background(viewModel.canCompleteWorkout ? Color.green : Color.gray)
                         .cornerRadius(12)
                 }
+                .disabled(!viewModel.canCompleteWorkout)
+                .opacity(viewModel.canCompleteWorkout ? 1.0 : 0.6)
             }
             .padding()
             .background(Color(.systemBackground))
@@ -290,6 +316,7 @@ struct WorkoutExerciseCard: View {
     let onAddSet: () -> Void
     let onDeleteSet: (WorkoutSetViewModel) -> Void
     let onCompleteExercise: () -> Void  // 新增：完成動作回調
+    let onDeleteExercise: () -> Void  // 新增：刪除動作回調
     @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     var body: some View {
@@ -319,8 +346,6 @@ struct WorkoutExerciseCard: View {
                         .frame(maxWidth: .infinity)
                     Text("容量")
                         .frame(maxWidth: .infinity)
-                    Text("")
-                        .frame(width: 30)
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -339,17 +364,15 @@ struct WorkoutExerciseCard: View {
                         Text(globalSettings.formatWeight(set.volume))
                             .frame(maxWidth: .infinity)
                             .foregroundColor(.blue)
-                        
-                        Button {
-                            onDeleteSet(set)
-                        } label: {
-                            Image(systemName: "trash")
-                                .foregroundColor(.red)
-                                .font(.caption)
-                        }
-                        .frame(width: 30)
                     }
                     .font(.subheadline)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            onDeleteSet(set)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
+                        }
+                    }
                 }
             }
             
@@ -405,6 +428,13 @@ struct WorkoutExerciseCard: View {
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
         .padding(.horizontal)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                onDeleteExercise()
+            } label: {
+                Label("刪除", systemImage: "trash")
+            }
+        }
     }
 }
 

@@ -9,6 +9,7 @@ class OnboardingState: ObservableObject {
     
     // 用戶輸入的資料
     @Published var weight: String = ""
+    @Published var height: String = ""
     @Published var gender: String = "不指定"
     @Published var age: String = ""
     @Published var targetWeight: String = ""
@@ -32,6 +33,10 @@ class OnboardingState: ObservableObject {
         
         if let weightValue = Double(weight) {
             profile.currentWeight = weightValue
+        }
+        
+        if let heightValue = Double(height) {
+            profile.height = heightValue
         }
         
         profile.gender = gender

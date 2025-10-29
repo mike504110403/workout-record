@@ -11,7 +11,6 @@ struct StatsView: View {
                     Text("體重").tag(0)
                     Text("訓練").tag(1)
                     Text("三項").tag(2)
-                    Text("成就").tag(3)
                 }
                 .pickerStyle(.segmented)
                 .padding()
@@ -28,10 +27,6 @@ struct StatsView: View {
                     // 經典三項力量訓練
                     PowerliftingView()
                         .tag(2)
-                    
-                    // 成就系統
-                    AchievementsView()
-                        .tag(3)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }

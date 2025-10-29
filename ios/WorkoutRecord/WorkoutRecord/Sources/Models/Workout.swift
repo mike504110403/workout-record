@@ -55,6 +55,7 @@ struct WorkoutExercise: Identifiable, Codable {
     var orderIndex: Int
     var totalVolume: Double  // ⭐
     var totalSets: Int  // ⭐
+    var durationSeconds: Int?  // 新增：動作執行時間（秒）
     var note: String?
     var sets: [WorkoutSet]
     var isCustomExercise: Bool  // 新增：標識是否為自定義動作
@@ -71,6 +72,7 @@ struct WorkoutExercise: Identifiable, Codable {
         orderIndex: Int,
         totalVolume: Double = 0,
         totalSets: Int = 0,
+        durationSeconds: Int? = nil,
         note: String? = nil,
         sets: [WorkoutSet] = [],
         isCustomExercise: Bool = false,
@@ -86,6 +88,7 @@ struct WorkoutExercise: Identifiable, Codable {
         self.orderIndex = orderIndex
         self.totalVolume = totalVolume
         self.totalSets = totalSets
+        self.durationSeconds = durationSeconds
         self.note = note
         self.sets = sets
         self.isCustomExercise = isCustomExercise

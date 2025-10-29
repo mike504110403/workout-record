@@ -64,7 +64,7 @@ struct AboutView: View {
                         Label("新手教學", systemImage: "book")
                     }
                     
-                    Link(destination: URL(string: "mailto:support@workoutrecord.app")!) {
+                    Link(destination: URL(string: "mailto:mike504110403@gmail.com")!) {
                         Label("聯絡我們", systemImage: "envelope")
                     }
                     
@@ -188,7 +188,7 @@ struct AboutPrivacyPolicyView: View {
                     Text("聯絡我們")
                         .font(.headline)
                     
-                    Text("如有任何隱私相關問題，請聯絡：support@workoutrecord.app")
+                    Text("如有任何隱私相關問題，請聯絡：mike504110403@gmail.com")
                 }
             }
             .padding()
@@ -236,7 +236,7 @@ struct TermsOfServiceView: View {
                     Text("聯絡我們")
                         .font(.headline)
                     
-                    Text("如有任何問題，請聯絡：support@workoutrecord.app")
+                    Text("如有任何問題，請聯絡：mike504110403@gmail.com")
                 }
             }
             .padding()

@@ -1,12 +1,24 @@
 import Foundation
 import SwiftUI
 import Combine
+import FirebaseAnalytics
 
 /// 使用者行為分析服務
+/// 整合 Firebase Analytics 追蹤用戶行為
 class AnalyticsService: ObservableObject {
     static let shared = AnalyticsService()
     
-    private init() {}
+    private var isDebugMode: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+    
+    private init() {
+        print("📊 Analytics Service 初始化 (\(isDebugMode ? "DEBUG" : "RELEASE"))")
+    }
     
     // MARK: - Event Tracking
     
@@ -108,7 +120,8 @@ class AnalyticsService: ObservableObject {
     
     // MARK: - Private Methods
     
-    private func logEvent(_ eventName: String, parameters: [String: Any]) {
+    func logEvent(_ eventName: String, parameters: [String: Any]) {
+        // 1. 本地記錄（用於開發和調試）
         let event = StandardAnalyticsEvent(
             name: eventName,
             parameters: parameters,
@@ -125,10 +138,45 @@ class AnalyticsService: ObservableObject {
         
         saveEvents(events)
         
+        // 2. Firebase Analytics 記錄
+        var firebaseParams: [String: Any] = parameters
+        firebaseParams["environment"] = isDebugMode ? "debug" : "production"
+        if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            firebaseParams["app_version"] = appVersion
+        }
+        
+        // 轉換參數為 Firebase 支援的類型
+        let convertedParams = convertParametersForFirebase(firebaseParams)
+        Analytics.logEvent(eventName, parameters: convertedParams)
+        
         // 在開發模式下打印事件
         #if DEBUG
         print("📊 Analytics: \(eventName) - \(parameters)")
         #endif
+    }
+    
+    /// 轉換參數為 Firebase 支援的類型
+    private func convertParametersForFirebase(_ parameters: [String: Any]) -> [String: Any] {
+        var converted: [String: Any] = [:]
+        
+        for (key, value) in parameters {
+            switch value {
+            case let stringValue as String:
+                converted[key] = stringValue
+            case let intValue as Int:
+                converted[key] = intValue
+            case let doubleValue as Double:
+                converted[key] = doubleValue
+            case let boolValue as Bool:
+                converted[key] = boolValue
+            case let dateValue as Date:
+                converted[key] = dateValue.timeIntervalSince1970
+            default:
+                converted[key] = String(describing: value)
+            }
+        }
+        
+        return converted
     }
     
     private func loadEvents() -> [StandardAnalyticsEvent] {

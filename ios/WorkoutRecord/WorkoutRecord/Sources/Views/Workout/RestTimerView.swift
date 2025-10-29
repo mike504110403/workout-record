@@ -154,6 +154,7 @@ class RestTimerManager: ObservableObject {
     @Published var remainingSeconds: Int = 0
     @Published var totalSeconds: Int = 0
     @Published var isRunning: Bool = false
+    @Published var exerciseName: String?
     
     private var timer: Timer?
     
@@ -162,9 +163,10 @@ class RestTimerManager: ObservableObject {
         return Double(remainingSeconds) / Double(totalSeconds)
     }
     
-    func setup(seconds: Int) {
+    func setup(seconds: Int, exerciseName: String? = nil) {
         self.totalSeconds = seconds
         self.remainingSeconds = seconds
+        self.exerciseName = exerciseName
     }
     
     func start() {
@@ -213,7 +215,91 @@ class RestTimerManager: ObservableObject {
     }
 }
 
+// MARK: - Rest Timer Header View (Compact)
+struct RestTimerHeaderView: View {
+    @ObservedObject var timerManager: RestTimerManager
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // 時間顯示
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                    .foregroundColor(timerColor)
+                Text(timeString)
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(timerColor)
+            }
+            
+            // 動作名稱
+            if let exerciseName = timerManager.exerciseName {
+                Text(exerciseName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+            
+            // 快進按鈕
+            Button {
+                timerManager.stop()
+                timerManager.remainingSeconds = 0
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.body)
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                Color(.systemBackground)
+                
+                // 進度條
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(timerColor.opacity(0.2))
+                        .frame(width: geometry.size.width * timerManager.progress)
+                }
+            }
+        )
+        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+    
+    private var timeString: String {
+        let minutes = timerManager.remainingSeconds / 60
+        let seconds = timerManager.remainingSeconds % 60
+        
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            return String(format: "%ds", seconds)
+        }
+    }
+    
+    private var timerColor: Color {
+        if timerManager.remainingSeconds <= 10 {
+            return .red
+        } else if timerManager.remainingSeconds <= 30 {
+            return .orange
+        } else {
+            return .green
+        }
+    }
+}
+
 #Preview {
     RestTimerView(seconds: 90, exerciseName: "槓鈴臥推")
+}
+
+#Preview("Header") {
+    @StateObject var manager = RestTimerManager()
+    RestTimerHeaderView(timerManager: manager)
+        .onAppear {
+            manager.setup(seconds: 90, exerciseName: "槓鈴臥推")
+            manager.start()
+        }
 }
 

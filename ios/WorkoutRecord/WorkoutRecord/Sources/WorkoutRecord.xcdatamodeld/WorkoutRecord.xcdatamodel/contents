@@ -158,10 +158,25 @@
         <attribute name="weeklyWorkoutGoal" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
     </entity>
     
+    <!-- PowerLiftRecord Entity -->
+    <entity name="PowerLiftRecordEntity" representedClassName="PowerLiftRecordEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="achievedAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lift" attributeType="String"/>
+        <attribute name="note" optional="YES" attributeType="String"/>
+        <attribute name="oneRepMax" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="reps" attributeType="Integer 32" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="updatedAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="userId" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="weight" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+    </entity>
+    
     <elements>
         <element name="BodyWeightEntity" positionX="0" positionY="0" width="128" height="178"/>
         <element name="ExerciseEntity" positionX="0" positionY="0" width="128" height="298"/>
         <element name="PersonalRecordEntity" positionX="0" positionY="0" width="128" height="223"/>
+        <element name="PowerLiftRecordEntity" positionX="0" positionY="0" width="128" height="223"/>
         <element name="TemplateEntity" positionX="0" positionY="0" width="128" height="178"/>
         <element name="TemplateExerciseEntity" positionX="0" positionY="0" width="128" height="148"/>
         <element name="UserEntity" positionX="0" positionY="0" width="128" height="178"/>

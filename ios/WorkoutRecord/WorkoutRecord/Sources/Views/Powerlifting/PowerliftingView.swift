@@ -4,7 +4,8 @@ import Charts
 /// 經典三項力量訓練視圖
 struct PowerliftingView: View {
     @StateObject private var viewModel = PowerliftingViewModel()
-    @State private var showAddPR = false
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @State private var showAddRecord = false
     
     var body: some View {
         ScrollView {
@@ -15,16 +16,8 @@ struct PowerliftingView: View {
                 // 動作選擇器
                 liftPicker
                 
-                // 1RM 趨勢圖
-                oneRMChart
-                
-                // 當前 PR 卡片
-                if let pr = viewModel.currentPR {
-                    currentPRCard(pr: pr)
-                }
-                
-                // 歷史記錄
-                recordsList
+                // 手動記錄（三項表）
+                manualRecordsSection
             }
             .padding()
         }
@@ -32,14 +25,24 @@ struct PowerliftingView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    showAddPR = true
+                    showAddRecord = true
                 } label: {
                     Image(systemName: "plus")
                 }
             }
         }
-        .sheet(isPresented: $showAddPR) {
-            AddPRSheet(viewModel: viewModel)
+        .sheet(isPresented: $showAddRecord) {
+            AddPowerLiftRecordSheet(
+                lift: viewModel.selectedLift,
+                onSave: { record in
+                    viewModel.addManualRecord(
+                        weight: record.weight,
+                        reps: record.reps,
+                        date: record.achievedAt,
+                        note: record.note
+                    )
+                }
+            )
         }
         .onAppear {
             viewModel.refresh()
@@ -55,11 +58,11 @@ struct PowerliftingView: View {
                 .foregroundColor(.secondary)
             
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(String(format: "%.1f", viewModel.totalLifts))
+                Text(WeightFormatter.shared.formatValue(viewModel.totalLifts))
                     .font(.system(size: 48, weight: .bold))
                     .foregroundColor(.blue)
                 
-                Text("kg")
+                Text(globalSettings.weightUnit.symbol)
                     .font(.title2)
                     .foregroundColor(.secondary)
             }
@@ -67,15 +70,25 @@ struct PowerliftingView: View {
             // 各項 PR
             HStack(spacing: 20) {
                 ForEach(PowerLift.allCases) { lift in
-                    if let pr = viewModel.records.filter({ $0.lift == lift }).max(by: { $0.oneRepMax < $1.oneRepMax }) {
+                    if let pr = viewModel.manualRecords.filter({ $0.lift == lift }).max(by: { $0.oneRepMax < $1.oneRepMax }) {
                         VStack(spacing: 4) {
                             Text(lift.rawValue)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
-                            Text(String(format: "%.1f", pr.oneRepMax))
+                            Text(WeightFormatter.shared.formatValue(pr.oneRepMax))
                                 .font(.headline)
                                 .fontWeight(.bold)
+                        }
+                    } else {
+                        VStack(spacing: 4) {
+                            Text(lift.rawValue)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Text("--")
+                                .font(.headline)
+                                .foregroundColor(.gray)
                         }
                     }
                 }
@@ -104,15 +117,31 @@ struct PowerliftingView: View {
         .pickerStyle(.segmented)
     }
     
-    // MARK: - 1RM Chart
+    // MARK: - Manual Records Section (三項表)
     
-    private var oneRMChart: some View {
+    private var manualRecordsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("1RM 趨勢")
-                .font(.headline)
+            HStack {
+                Text("三項表記錄")
+                    .font(.headline)
+                
+                Spacer()
+                
+                if let pr = viewModel.currentManualPR {
+                    Text("PR: \(String(format: "%.1f", pr.oneRepMax)) kg")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(8)
+                }
+            }
             
+            // 1RM 趨勢圖（僅顯示手動記錄）
             if viewModel.chartData.isEmpty {
-                emptyChartView
+                emptyChartView(message: "尚無三項表記錄\n點擊右上角 + 開始記錄")
             } else {
                 Chart(viewModel.chartData) { point in
                     LineMark(
@@ -120,16 +149,15 @@ struct PowerliftingView: View {
                         y: .value("1RM", point.oneRepMax)
                     )
                     .foregroundStyle(.blue)
-                    .symbol(Circle())
                     
                     PointMark(
                         x: .value("日期", point.date),
                         y: .value("1RM", point.oneRepMax)
                     )
-                    .foregroundStyle(point.isManualEntry ? .orange : .blue)
-                    .symbolSize(60)
+                    .foregroundStyle(.blue)
+                    .symbolSize(80)
                 }
-                .frame(height: 250)
+                .frame(height: 200)
                 .chartXAxis {
                     AxisMarks(values: .automatic) { value in
                         if let date = value.as(Date.self) {
@@ -144,45 +172,38 @@ struct PowerliftingView: View {
                     AxisMarks(position: .leading)
                 }
             }
+            
+            // 歷史記錄列表
+            if !viewModel.currentManualRecords.isEmpty {
+                ForEach(viewModel.currentManualRecords.prefix(5)) { record in
+                    ManualRecordRow(
+                        record: record,
+                        onDelete: {
+                            viewModel.deleteManualRecord(record)
+                        }
+                    )
+                }
+            }
         }
         .padding()
-        .background(Color(.systemBackground))
+        .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
     }
     
-    private var emptyChartView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 40))
-                .foregroundColor(.gray)
-            
-            Text("尚無 1RM 記錄")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            Text("完成訓練或手動新增 PR")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .frame(height: 250)
-    }
+    // MARK: - System Estimated Section (系統推估)
     
-    // MARK: - Current PR Card
-    
-    private func currentPRCard(pr: PowerLiftRecord) -> some View {
+    private var systemEstimatedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "trophy.fill")
-                    .foregroundColor(.orange)
-                
-                Text("當前 PR")
+                Text("訓練推估")
                     .font(.headline)
                 
                 Spacer()
                 
-                if pr.isManualEntry {
-                    Text("手動輸入")
+                if let pr = viewModel.currentSystemPR {
+                    Text("推估: \(WeightFormatter.shared.formatValue(pr.oneRepMax)) \(globalSettings.weightUnit.symbol)")
                         .font(.caption)
+                        .fontWeight(.semibold)
                         .foregroundColor(.orange)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -191,75 +212,48 @@ struct PowerliftingView: View {
                 }
             }
             
-            HStack(spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("1RM")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text(String(format: "%.1f kg", pr.oneRepMax))
-                        .font(.title2)
-                        .fontWeight(.bold)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("重量 × 次數")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text("\(String(format: "%.1f", pr.weight)) kg × \(pr.reps)")
-                        .font(.headline)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("達成日期")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text(pr.achievedAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption)
+            Text("根據您的訓練記錄推算")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            if viewModel.currentSystemRecords.isEmpty {
+                emptyChartView(message: "尚無訓練數據\n開始訓練後系統會自動計算")
+            } else {
+                // 系統推估記錄列表（最多顯示3筆最佳記錄）
+                ForEach(viewModel.currentSystemRecords.prefix(3)) { record in
+                    SystemRecordRow(record: record)
                 }
             }
         }
         .padding()
-        .background(
-            LinearGradient(
-                colors: [Color.orange.opacity(0.1), Color.yellow.opacity(0.1)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
+        .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
     }
     
-    // MARK: - Records List
+    // MARK: - Empty Chart View
     
-    private var recordsList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("歷史記錄")
-                .font(.headline)
+    private func emptyChartView(message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 40))
+                .foregroundColor(.gray)
             
-            if viewModel.currentRecords.isEmpty {
-                Text("尚無記錄")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
-            } else {
-                ForEach(viewModel.currentRecords.prefix(10)) { record in
-                    RecordRow(record: record)
-                }
-            }
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
+        .frame(height: 200)
     }
 }
 
-// MARK: - Record Row
+// MARK: - Manual Record Row
 
-struct RecordRow: View {
+struct ManualRecordRow: View {
     let record: PowerLiftRecord
+    let onDelete: () -> Void
+    
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     
     var body: some View {
         HStack {
@@ -268,9 +262,16 @@ struct RecordRow: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                 
-                Text("\(String(format: "%.1f", record.weight)) kg × \(record.reps) 次")
+                Text("\(WeightFormatter.shared.format(record.weight, unit: globalSettings.weightUnit)) × \(record.reps) 次")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                if let note = record.note, !note.isEmpty {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
             
             Spacer()
@@ -280,15 +281,59 @@ struct RecordRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                Text(String(format: "%.1f kg", record.oneRepMax))
+                Text(WeightFormatter.shared.format(record.oneRepMax, unit: globalSettings.weightUnit))
                     .font(.headline)
                     .fontWeight(.semibold)
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("刪除", systemImage: "trash")
+            }
+        }
+    }
+}
+
+// MARK: - System Record Row
+
+struct SystemRecordRow: View {
+    let record: PowerLiftRecord
+    
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.achievedAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Text("\(WeightFormatter.shared.format(record.weight, unit: globalSettings.weightUnit)) × \(record.reps) 次")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             
-            if record.isManualEntry {
-                Image(systemName: "pencil.circle.fill")
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.caption2)
+                    Text("推估")
+                }
+                .font(.caption)
+                .foregroundColor(.orange)
+                
+                Text(WeightFormatter.shared.format(record.oneRepMax, unit: globalSettings.weightUnit))
+                    .font(.headline)
+                    .fontWeight(.semibold)
                     .foregroundColor(.orange)
-                    .font(.caption)
             }
         }
         .padding()
@@ -297,91 +342,8 @@ struct RecordRow: View {
     }
 }
 
-// MARK: - Add PR Sheet
-
-struct AddPRSheet: View {
-    @ObservedObject var viewModel: PowerliftingViewModel
-    @Environment(\.dismiss) var dismiss
-    
-    @State private var weight: String = ""
-    @State private var reps: Int = 1
-    @State private var date = Date()
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("動作") {
-                    Picker("選擇動作", selection: $viewModel.selectedLift) {
-                        ForEach(PowerLift.allCases) { lift in
-                            Text(lift.rawValue).tag(lift)
-                        }
-                    }
-                }
-                
-                Section("重量與次數") {
-                    HStack {
-                        TextField("重量", text: $weight)
-                            .keyboardType(.decimalPad)
-                        
-                        Text("kg")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Stepper("次數: \(reps)", value: $reps, in: 1...20)
-                    
-                    if let w = Double(weight) {
-                        let oneRM = w * (1 + Double(reps) / 30)
-                        HStack {
-                            Text("預估 1RM")
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            Text(String(format: "%.1f kg", oneRM))
-                                .fontWeight(.semibold)
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-                
-                Section("日期") {
-                    DatePicker(
-                        "達成日期",
-                        selection: $date,
-                        displayedComponents: .date
-                    )
-                }
-            }
-            .navigationTitle("新增 PR")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("儲存") {
-                        savePR()
-                    }
-                    .disabled(weight.isEmpty)
-                }
-            }
-        }
-    }
-    
-    private func savePR() {
-        guard let weightValue = Double(weight) else { return }
-        
-        viewModel.addManualPR(weight: weightValue, reps: reps, date: date)
-        dismiss()
-    }
-}
-
 #Preview {
     NavigationStack {
         PowerliftingView()
     }
 }
-

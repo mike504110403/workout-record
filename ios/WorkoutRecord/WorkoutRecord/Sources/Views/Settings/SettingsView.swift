@@ -62,13 +62,6 @@ struct SettingsView: View {
                 // App Settings
                 Section("應用設定") {
                     NavigationLink {
-                        CloudKitSettingsView()
-                    } label: {
-                        Label("iCloud 同步", systemImage: "icloud")
-                    }
-                    
-                    
-                    NavigationLink {
                         AppSettingsView()
                     } label: {
                         Label("偏好設定", systemImage: "gear")
@@ -269,39 +262,42 @@ struct ExerciseCategoryView: View {
 }
 
 struct AppSettingsView: View {
-    @StateObject private var settings = AppSettings.shared
+    @StateObject private var globalSettings = GlobalSettingsManager.shared
     @State private var showResetAlert = false
     
     var body: some View {
         Form {
-            Section("單位系統") {
-                Picker("重量單位", selection: $settings.weightUnit) {
-                    Text("公斤 (kg)").tag("kg")
-                    Text("磅 (lb)").tag("lb")
-                }
-            }
-            
             Section("外觀") {
-                Picker("主題", selection: $settings.theme) {
-                    Text("淺色").tag("light")
-                    Text("深色").tag("dark")
-                    Text("跟隨系統").tag("system")
+                Picker("主題", selection: $globalSettings.theme) {
+                    Text("淺色").tag(User.AppTheme.light)
+                    Text("深色").tag(User.AppTheme.dark)
+                    Text("跟隨系統").tag(User.AppTheme.system)
+                }
+                .onChange(of: globalSettings.theme) { _, _ in
+                    globalSettings.saveSettings()
                 }
             }
             
             Section("訓練設定") {
-                Stepper("預設休息時間: \(settings.defaultRestTime) 秒", value: $settings.defaultRestTime, in: 30...300, step: 15)
+                Stepper("預設休息時間: \(globalSettings.defaultRestTime) 秒", value: $globalSettings.defaultRestTime, in: 30...300, step: 15)
+                    .onChange(of: globalSettings.defaultRestTime) { _, _ in
+                        globalSettings.saveSettings()
+                    }
                 
-                Toggle("自動開始休息計時", isOn: $settings.enableAutoRestTimer)
-                
-                Toggle("震動回饋", isOn: $settings.enableHapticFeedback)
+                Toggle("震動回饋", isOn: $globalSettings.enableHapticFeedback)
+                    .onChange(of: globalSettings.enableHapticFeedback) { _, _ in
+                        globalSettings.saveSettings()
+                    }
             }
             
             Section("進階設定") {
-                Picker("1RM 計算公式", selection: $settings.oneRMFormula) {
-                    Text("Epley").tag("epley")
-                    Text("Brzycki").tag("brzycki")
-                    Text("Lander").tag("lander")
+                Picker("1RM 計算公式", selection: $globalSettings.oneRMFormula) {
+                    Text("Epley").tag(User.OneRMFormula.epley)
+                    Text("Brzycki").tag(User.OneRMFormula.brzycki)
+                    Text("Lander").tag(User.OneRMFormula.lander)
+                }
+                .onChange(of: globalSettings.oneRMFormula) { _, _ in
+                    globalSettings.saveSettings()
                 }
                 
                 NavigationLink {
@@ -324,7 +320,7 @@ struct AppSettingsView: View {
         .alert("重置設定", isPresented: $showResetAlert) {
             Button("取消", role: .cancel) { }
             Button("重置", role: .destructive) {
-                settings.resetToDefaults()
+                globalSettings.resetToDefaults()
             }
         } message: {
             Text("確定要將所有設定恢復為預設值嗎？")

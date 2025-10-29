@@ -26,5 +26,11 @@
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
 	<string>1:128440928271:ios:175e9419fa9aa2c008fb7a</string>
+	<key>CLIENT_ID</key>
+	<string>128440928271-175e9419fa9aa2c008fb7a.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.128440928271-175e9419fa9aa2c008fb7a</string>
+	<key>DATABASE_URL</key>
+	<string>https://work-it-out-6409d.firebaseio.com</string>
 </dict>
 </plist>
