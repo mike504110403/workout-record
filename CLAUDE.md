@@ -2,7 +2,15 @@
 
 SwiftUI 健身紀錄 app,已上架 App Store。
 
-**專案方向(2026-07-22 定):以 Flutter 改寫並新增 Android 版;現有 iOS 版進入維護模式——只修 bug、不加新功能、不做重構美化。** 重大決策見 `.claude/decisions/`。
+**專案方向(2026-07-22 定):以 Flutter 完全改寫並新增 Android 版;現有 iOS 版進入維護模式——只修 bug、不加新功能、不做重構美化。** 重大決策見 `.claude/decisions/`。
+
+## Flutter 版(app/,開發中)
+
+- 選型:Riverpod + Drift(SQLite)+ fl_chart + go_router;**第一版不接 Firebase**(登入用 sign_in_with_apple 本機狀態、版本檢查用 iTunes Lookup API)
+- Bundle ID / applicationId:`com.mikelin.workitout`(接手現有 App Store app,自 1.1(5) 之後)
+- 硬性驗收:首次啟動須把舊 CoreData SQLite 資料無縫匯入 Drift,升級不得遺失訓練歷史
+- 功能對等基準:`docs/FEATURE_MAP.md` + `ios/` 現行程式碼;`ios/` 保留至 Flutter 版上架穩定後才刪
+- 驗證:`flutter analyze` 零 error + `flutter test` + `flutter build ios --simulator` 成功
 
 ## 現況架構(iOS 版)
 
