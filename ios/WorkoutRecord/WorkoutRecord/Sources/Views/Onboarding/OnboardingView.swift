@@ -290,7 +290,7 @@ struct FeatureGrid: View {
         ("calendar", "計劃安排", "規劃訓練計劃"),
         ("trophy.fill", "成就系統", "解鎖各種成就"),
         ("target", "目標設定", "設定健身目標"),
-        ("icloud.fill", "雲端同步", "跨設備同步數據")
+        ("internaldrive.fill", "本機儲存", "資料僅存於您的裝置")
     ]
     
     var body: some View {
@@ -617,9 +617,7 @@ struct BasicInfoFormView: View {
             }
             .padding(.horizontal, 32)
         }
-        .dismissOnTap {
-            focusedField = nil
-        }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 
@@ -716,9 +714,7 @@ struct GoalsFormView: View {
             }
             .padding(.horizontal, 32)
         }
-        .dismissOnTap {
-            focusedField = false
-        }
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 

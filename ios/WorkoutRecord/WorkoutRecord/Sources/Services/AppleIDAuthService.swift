@@ -157,30 +157,6 @@ class AppleIDAuthService: NSObject, ObservableObject {
         print("✅ 用戶資料已更新")
     }
     
-    /// 同步到 Firebase
-    private func syncToFirebase(userID: String, fullName: PersonNameComponents?, email: String?) {
-        Task {
-            do {
-                let firebaseService = FirebaseConfigService.shared
-                
-                // 設置用戶 ID
-                firebaseService.setUserId(userID)
-                
-                // 設置自定義屬性
-                if let fullName = fullName {
-                    firebaseService.setCustomValue(fullName.formatted(), forKey: "user_name")
-                }
-                
-                if let email = email {
-                    firebaseService.setCustomValue(email, forKey: "user_email")
-                }
-                
-                print("✅ 用戶資料已同步到 Firebase")
-            } catch {
-                print("❌ Firebase 同步失敗: \(error.localizedDescription)")
-            }
-        }
-    }
 }
 
 // MARK: - ASAuthorizationControllerDelegate
@@ -212,11 +188,10 @@ extension AppleIDAuthService: ASAuthorizationControllerDelegate {
             
             // 更新用戶資料到 UserProfile
             updateUserProfile(userID: userID, fullName: fullName, email: email)
-            
-            // 同步到 Firebase
-            syncToFirebase(userID: userID, fullName: fullName, email: email)
-            
+
+            #if DEBUG
             print("✅ Apple ID 登入成功: \(userName)")
+            #endif
         }
     }
     

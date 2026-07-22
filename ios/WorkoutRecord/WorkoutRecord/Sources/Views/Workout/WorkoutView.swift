@@ -44,9 +44,6 @@ struct WorkoutView: View {
                 ExercisePickerView { exercise in
                     viewModel.addExercise(exercise)
                 }
-                .dismissOnTapSheet {
-                    showExercisePicker = false
-                }
             }
             .sheet(isPresented: $showAddSetSheet) {
                 if let exercise = selectedExercise {
@@ -65,25 +62,16 @@ struct WorkoutView: View {
                             restTimerManager.start()
                         }
                     )
-                    .dismissOnTapSheet {
-                        showAddSetSheet = false
-                    }
                 }
             }
             .sheet(isPresented: $showTemplatePicker) {
                 TemplatePickerSheet { template in
                     viewModel.startWorkoutFromTemplate(template)
                 }
-                .dismissOnTapSheet {
-                    showTemplatePicker = false
-                }
             }
             .sheet(isPresented: $viewModel.showWorkoutReport) {
                 if let workout = viewModel.completedWorkout {
                     WorkoutSummaryReportView(workout: workout)
-                        .dismissOnTapSheet {
-                            viewModel.showWorkoutReport = false
-                        }
                 }
             }
             .alert("休息時間結束", isPresented: $showRestCompleteAlert) {
@@ -168,6 +156,8 @@ struct WorkoutInProgressView: View {
     @Binding var showExercisePicker: Bool
     @Binding var showAddSetSheet: Bool
     @Binding var selectedExercise: WorkoutExerciseViewModel?
+    @State private var editingExercise: WorkoutExerciseViewModel?
+    @State private var showEditExerciseSheet = false
     
     // 檢查是否有未完成的動作
     private var hasIncompleteExercises: Bool {
@@ -180,61 +170,104 @@ struct WorkoutInProgressView: View {
             workoutHeader
             
             // Exercises list
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Add exercise button - only show when no incomplete exercises
-                    if !hasIncompleteExercises {
-                        Button {
-                            showExercisePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "plus.circle.fill")
-                                Text("新增動作")
-                            }
-                            .font(.headline)
-                            .foregroundColor(.blue)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(12)
+            List {
+                // Add exercise button - only show when no incomplete exercises
+                if !hasIncompleteExercises {
+                    Button {
+                        showExercisePicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("新增動作")
                         }
-                        .padding(.horizontal)
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(12)
                     }
-                    
-                    // Current active exercise (larger)
-                    if let activeExercise = viewModel.currentWorkoutExercises.first(where: { !$0.isCompleted }) {
-                        WorkoutExerciseCard(
-                            exercise: activeExercise,
-                            isActive: true,
-                            onAddSet: {
-                                selectedExercise = activeExercise
-                                showAddSetSheet = true
-                            },
-                            onDeleteSet: { set in viewModel.deleteSet(set, from: activeExercise) },
-                            onCompleteExercise: {
-                                // 完成動作時停止休息計時器
-                                restTimerManager.stop()
-                                viewModel.completeExercise(activeExercise)
-                            },
-                            onDeleteExercise: {
-                                viewModel.deleteExercise(activeExercise)
-                            }
-                        )
-                    }
-                    
-                    // Completed exercises (collapsed, clickable to expand)
-                    ForEach(viewModel.currentWorkoutExercises.filter { $0.isCompleted }) { exercise in
-                        CompletedExerciseRow(
-                            exercise: exercise,
-                            onTap: {
-                                // Toggle expansion state
-                                viewModel.toggleExerciseExpansion(exercise)
-                            }
-                        )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+                
+                // Current active exercise (larger)
+                if let activeExercise = viewModel.currentWorkoutExercises.first(where: { !$0.isCompleted }) {
+                    WorkoutExerciseCard(
+                        exercise: activeExercise,
+                        isActive: true,
+                        onAddSet: {
+                            selectedExercise = activeExercise
+                            showAddSetSheet = true
+                        },
+                        onDeleteSet: { set in viewModel.deleteSet(set, from: activeExercise) },
+                        onUpdateSet: { set, weight, reps, rpe in
+                            viewModel.updateSet(set, from: activeExercise, weight: weight, reps: reps, rpe: rpe)
+                        },
+                        onCompleteExercise: {
+                            // 完成動作時停止休息計時器
+                            restTimerManager.stop()
+                            viewModel.completeExercise(activeExercise)
+                        },
+                        onDeleteExercise: {
+                            viewModel.deleteExercise(activeExercise)
+                        }
+                    )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            restTimerManager.stop() // 停止計時器
+                            viewModel.deleteExercise(activeExercise)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
+                        }
                     }
                 }
-                .padding(.vertical)
+                
+                // Completed exercises (collapsed, clickable to expand)
+                ForEach(viewModel.currentWorkoutExercises.filter { $0.isCompleted }) { exercise in
+                    CompletedExerciseRow(
+                        exercise: exercise,
+                        onTap: {
+                            // Toggle expansion state
+                            viewModel.toggleExerciseExpansion(exercise)
+                        },
+                        onDeleteExercise: {
+                            viewModel.deleteExercise(exercise)
+                        },
+                        onEditExercise: {
+                            editingExercise = exercise
+                            showEditExerciseSheet = true
+                        },
+                        onDeleteSet: { set in viewModel.deleteSet(set, from: exercise) },
+                        onUpdateSet: { set, weight, reps, rpe in
+                            viewModel.updateSet(set, from: exercise, weight: weight, reps: reps, rpe: rpe)
+                        }
+                    )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            viewModel.deleteExercise(exercise)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
+                        }
+                        
+                        Button {
+                            editingExercise = exercise
+                            showEditExerciseSheet = true
+                        } label: {
+                            Label("編輯", systemImage: "pencil")
+                        }
+                        .tint(.blue)
+                    }
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             
             // Bottom action buttons
             HStack(spacing: 12) {
@@ -267,6 +300,13 @@ struct WorkoutInProgressView: View {
             .padding()
             .background(Color(.systemBackground))
             .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: -2)
+        }
+        .sheet(isPresented: $showEditExerciseSheet) {
+            if let exercise = editingExercise {
+                EditExerciseSheet(exercise: exercise) { editedSets in
+                    viewModel.updateExerciseSets(exercise, with: editedSets)
+                }
+            }
         }
     }
     
@@ -315,9 +355,16 @@ struct WorkoutExerciseCard: View {
     let isActive: Bool
     let onAddSet: () -> Void
     let onDeleteSet: (WorkoutSetViewModel) -> Void
+    let onUpdateSet: (WorkoutSetViewModel, Double, Int, Double?) -> Void
     let onCompleteExercise: () -> Void  // 新增：完成動作回調
     let onDeleteExercise: () -> Void  // 新增：刪除動作回調
     @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @State private var showNoSetsAlert = false
+    @State private var editingSet: WorkoutSetViewModel?
+    
+    private var hasAtLeastOneSet: Bool {
+        !exercise.sets.isEmpty
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -351,28 +398,12 @@ struct WorkoutExerciseCard: View {
                 .foregroundColor(.secondary)
                 
                 ForEach(exercise.sets) { set in
-                    HStack {
-                        Text("\(set.setNumber)")
-                            .frame(width: 30)
-                        
-                        Text(globalSettings.formatWeight(set.weight))
-                            .frame(maxWidth: .infinity)
-                        
-                        Text("\(set.reps)")
-                            .frame(maxWidth: .infinity)
-                        
-                        Text(globalSettings.formatWeight(set.volume))
-                            .frame(maxWidth: .infinity)
-                            .foregroundColor(.blue)
-                    }
-                    .font(.subheadline)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            onDeleteSet(set)
-                        } label: {
-                            Label("刪除", systemImage: "trash")
-                        }
-                    }
+                    SetRow(
+                        set: set,
+                        globalSettings: globalSettings,
+                        onEdit: { editingSet = set },
+                        onDelete: { onDeleteSet(set) }
+                    )
                 }
             }
             
@@ -393,21 +424,28 @@ struct WorkoutExerciseCard: View {
                         .background(Color.blue.opacity(0.05))
                         .cornerRadius(8)
                     }
+                    .buttonStyle(.plain)
                     
                     Button {
-                        onCompleteExercise()
+                        if hasAtLeastOneSet {
+                            onCompleteExercise()
+                        } else {
+                            showNoSetsAlert = true
+                        }
                     } label: {
                         HStack {
                             Image(systemName: "checkmark.circle")
                             Text("完成動作")
                         }
                         .font(.subheadline)
-                        .foregroundColor(.green)
+                        .foregroundColor(hasAtLeastOneSet ? .green : .gray)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(Color.green.opacity(0.05))
+                        .background((hasAtLeastOneSet ? Color.green : Color.gray).opacity(0.05))
                         .cornerRadius(8)
                     }
+                    .buttonStyle(.plain)
+                    .opacity(hasAtLeastOneSet ? 1.0 : 0.5)
                 } else {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
@@ -428,11 +466,14 @@ struct WorkoutExerciseCard: View {
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
         .padding(.horizontal)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                onDeleteExercise()
-            } label: {
-                Label("刪除", systemImage: "trash")
+        .alert("無法完成動作", isPresented: $showNoSetsAlert) {
+            Button("確定", role: .cancel) { }
+        } message: {
+            Text("請至少記錄一組訓練後再完成動作")
+        }
+        .sheet(item: $editingSet) { set in
+            EditSetSheet(set: set) { weight, reps, rpe in
+                onUpdateSet(set, weight, reps, rpe)
             }
         }
     }
@@ -603,11 +644,117 @@ struct TemplatePickerCard: View {
     }
 }
 
+// MARK: - Set Row (with swipe gesture for edit/delete)
+struct SetRow: View {
+    let set: WorkoutSetViewModel
+    let globalSettings: GlobalSettingsManager
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    
+    @State private var offset: CGFloat = 0
+    @State private var isSwipedOpen = false
+    @GestureState private var dragState: CGFloat = 0
+    
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // 背景的編輯/刪除按鈕
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        offset = 0
+                        isSwipedOpen = false
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        onEdit()
+                    }
+                } label: {
+                    Image(systemName: "pencil")
+                        .foregroundColor(.white)
+                        .frame(width: 70, height: 44)
+                        .background(Color.blue)
+                }
+                
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        offset = 0
+                        isSwipedOpen = false
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        onDelete()
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.white)
+                        .frame(width: 70, height: 44)
+                        .background(Color.red)
+                }
+            }
+            
+            // 前景的組數內容
+            HStack {
+                Text("\(set.setNumber)")
+                    .frame(width: 30)
+                
+                Text(globalSettings.formatWeight(set.weight))
+                    .frame(maxWidth: .infinity)
+                
+                Text("\(set.reps)")
+                    .frame(maxWidth: .infinity)
+                
+                Text(globalSettings.formatWeight(set.volume))
+                    .frame(maxWidth: .infinity)
+                    .foregroundColor(.blue)
+            }
+            .font(.subheadline)
+            .padding(.vertical, 8)
+            .background(Color(.systemBackground))
+            .offset(x: offset + dragState)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 15)
+                    .updating($dragState) { value, state, _ in
+                        if value.translation.width < 0 {
+                            // 左滑
+                            state = max(value.translation.width, -140 - offset)
+                        } else if isSwipedOpen {
+                            // 右滑關閉
+                            state = value.translation.width
+                        }
+                    }
+                    .onEnded { value in
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            if value.translation.width < -50 && !isSwipedOpen {
+                                // 打開
+                                offset = -140
+                                isSwipedOpen = true
+                            } else if value.translation.width > 50 && isSwipedOpen {
+                                // 關閉
+                                offset = 0
+                                isSwipedOpen = false
+                            } else if isSwipedOpen {
+                                // 維持打開
+                                offset = -140
+                            } else {
+                                // 維持關閉
+                                offset = 0
+                            }
+                        }
+                    }
+            )
+        }
+        .clipped()
+    }
+}
+
 struct CompletedExerciseRow: View {
     let exercise: WorkoutExerciseViewModel
     let onTap: () -> Void
+    let onDeleteExercise: () -> Void
+    let onEditExercise: () -> Void
+    let onDeleteSet: (WorkoutSetViewModel) -> Void
+    let onUpdateSet: (WorkoutSetViewModel, Double, Int, Double?) -> Void
     @StateObject private var globalSettings = GlobalSettingsManager.shared
     @State private var isExpanded = false
+    @State private var editingSet: WorkoutSetViewModel?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -647,35 +794,26 @@ struct CompletedExerciseRow: View {
             if isExpanded {
                 VStack(spacing: 8) {
                     ForEach(exercise.sets) { set in
-                        HStack {
-                            Text("\(set.setNumber)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 20, alignment: .leading)
-                            
-                            Text(globalSettings.formatWeight(set.weight))
-                                .font(.caption)
-                                .foregroundColor(.primary)
-                            
-                            Text("\(set.reps)次")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            Spacer()
-                            
-                            Text(globalSettings.formatWeight(set.volume))
-                                .font(.caption)
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.horizontal, 16)
+                        SetRow(
+                            set: set,
+                            globalSettings: globalSettings,
+                            onEdit: { editingSet = set },
+                            onDelete: { onDeleteSet(set) }
+                        )
                     }
                 }
                 .padding(.top, 8)
+                .padding(.bottom, 8)
                 .background(Color(.quaternarySystemFill))
                 .cornerRadius(8)
             }
         }
         .padding(.horizontal)
+        .sheet(item: $editingSet) { set in
+            EditSetSheet(set: set) { weight, reps, rpe in
+                onUpdateSet(set, weight, reps, rpe)
+            }
+        }
     }
 }
 

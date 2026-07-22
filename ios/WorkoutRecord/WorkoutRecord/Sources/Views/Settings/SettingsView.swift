@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var appleIDAuth: AppleIDAuthService
     @State private var showSignOutAlert = false
+    @StateObject private var versionService = VersionCheckService.shared
     
     var body: some View {
         NavigationStack {
@@ -79,12 +80,17 @@ struct SettingsView: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text("1.0.0")
-                            .foregroundColor(.secondary)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(versionService.getCurrentAppVersion())
+                                .foregroundColor(.secondary)
+                            Text("Build \(versionService.getCurrentBuildVersion())")
+                                .font(.caption2)
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
                     }
                     
                     NavigationLink {
-                        Text("使用教學")
+                        TutorialView()
                     } label: {
                         Label("使用教學", systemImage: "book")
                     }
@@ -154,6 +160,13 @@ struct ProfileView: View {
                         Text(appleIDAuth.userEmail ?? "未提供電子郵件")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: "apple.logo")
+                                .font(.caption2)
+                            Text("Apple ID")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.blue)
                     }
                     .padding(.leading, 8)
                 }
@@ -198,6 +211,7 @@ struct ProfileView: View {
         }
         .navigationTitle("個人資料")
         .navigationBarTitleDisplayMode(.inline)
+        .dismissKeyboardOnInteraction()
         .alert("儲存成功", isPresented: $showSaveAlert) {
             Button("確定", role: .cancel) { }
         } message: {

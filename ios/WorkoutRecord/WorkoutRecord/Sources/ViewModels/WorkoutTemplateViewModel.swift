@@ -55,8 +55,39 @@ class WorkoutTemplateViewModel: ObservableObject {
         }
     }
     
+    @Published var editingTemplate: TemplateInfo?
+    @Published var showEditSheet = false
+    
     func editTemplate(_ template: TemplateInfo) {
-        // TODO: Show edit sheet
+        editingTemplate = template
+        showEditSheet = true
+    }
+    
+    func updateTemplate(id: UUID, name: String, description: String?, exercises: [Exercise]) {
+        let templateExercises = exercises.map { exercise in
+            TemplateInfo.TemplateExercise(
+                id: exercise.id,
+                exercise: exercise,
+                suggestedSets: 4,
+                suggestedReps: 10
+            )
+        }
+        
+        let updatedTemplate = TemplateInfo(
+            id: id,
+            name: name,
+            description: description,
+            exercises: templateExercises,
+            isSystem: false
+        )
+        
+        do {
+            try repository.update(template: updatedTemplate)
+            loadTemplates() // 重新加載
+        } catch {
+            errorMessage = "更新模板失敗: \(error.localizedDescription)"
+            print("❌ 更新模板失敗: \(error)")
+        }
     }
     
     func deleteTemplate(_ template: TemplateInfo) {

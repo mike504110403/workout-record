@@ -13,6 +13,7 @@ struct WorkoutRecordApp: App {
     @StateObject private var privacyService = PrivacyConsentService.shared
     @StateObject private var appleIDAuth = AppleIDAuthService.shared
     @StateObject private var globalSettings = GlobalSettingsManager.shared
+    @StateObject private var versionService = VersionCheckService.shared
     
     init() {
         // 初始化 Firebase
@@ -26,28 +27,41 @@ struct WorkoutRecordApp: App {
     
     var body: some Scene {
         WindowGroup {
-            if !appleIDAuth.isSignedIn {
-                // 強制 Apple ID 登入
-                AppleIDLoginView()
-                    .environmentObject(appleIDAuth)
-            } else if onboardingState.hasCompleted {
-                MainTabView()
-                    .environmentObject(appState)
-                    .environmentObject(cloudKitAuth)
-                    .environmentObject(analyticsService)
-                    .environmentObject(firebaseService)
-                    .environmentObject(privacyService)
-                    .environmentObject(appleIDAuth)
-                    .checkPrivacyConsent()
-            } else {
-                OnboardingView()
-                    .environmentObject(onboardingState)
-                    .environmentObject(cloudKitAuth)
-                    .environmentObject(analyticsService)
-                    .environmentObject(firebaseService)
-                    .environmentObject(privacyService)
-                    .environmentObject(appleIDAuth)
-                    .checkPrivacyConsent()
+            ZStack {
+                if !appleIDAuth.isSignedIn {
+                    // 強制 Apple ID 登入
+                    AppleIDLoginView()
+                        .environmentObject(appleIDAuth)
+                } else if onboardingState.hasCompleted {
+                    MainTabView()
+                        .environmentObject(appState)
+                        .environmentObject(cloudKitAuth)
+                        .environmentObject(analyticsService)
+                        .environmentObject(firebaseService)
+                        .environmentObject(privacyService)
+                        .environmentObject(appleIDAuth)
+                        .checkPrivacyConsent()
+                } else {
+                    OnboardingView()
+                        .environmentObject(onboardingState)
+                        .environmentObject(cloudKitAuth)
+                        .environmentObject(analyticsService)
+                        .environmentObject(firebaseService)
+                        .environmentObject(privacyService)
+                        .environmentObject(appleIDAuth)
+                        .checkPrivacyConsent()
+                }
+                
+                // 強制更新視圖（覆蓋在最上層）
+                if versionService.shouldForceUpdate {
+                    ForceUpdateView(versionService: versionService)
+                }
+            }
+            .onAppear {
+                // App 啟動時檢查版本
+                Task {
+                    await versionService.checkForUpdate()
+                }
             }
         }
     }

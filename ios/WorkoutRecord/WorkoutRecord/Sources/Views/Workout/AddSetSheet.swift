@@ -127,6 +127,7 @@ struct AddSetSheet: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("記錄組數")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -156,9 +157,6 @@ struct AddSetSheet: View {
             }
             .onAppear {
                 focusedField = .weight
-            }
-            .dismissOnTapSheet {
-                dismiss()
             }
         }
     }

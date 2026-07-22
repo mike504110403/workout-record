@@ -169,6 +169,7 @@ struct AddBodyWeightSheet: View {
             }
             .navigationTitle("記錄體重")
             .navigationBarTitleDisplayMode(.inline)
+            .dismissKeyboardOnInteraction()
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("取消") {

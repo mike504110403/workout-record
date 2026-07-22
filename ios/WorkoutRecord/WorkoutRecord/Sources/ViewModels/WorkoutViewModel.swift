@@ -144,11 +144,57 @@ class WorkoutViewModel: ObservableObject {
         }
     }
     
+    func updateSet(_ set: WorkoutSetViewModel, from exercise: WorkoutExerciseViewModel, weight: Double, reps: Int, rpe: Double?) {
+        if let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }),
+           let setIndex = currentWorkoutExercises[exerciseIndex].sets.firstIndex(where: { $0.id == set.id }) {
+            
+            // 更新組數資料
+            currentWorkoutExercises[exerciseIndex].sets[setIndex].weight = weight
+            currentWorkoutExercises[exerciseIndex].sets[setIndex].reps = reps
+            currentWorkoutExercises[exerciseIndex].sets[setIndex].volume = weight * Double(reps)
+            currentWorkoutExercises[exerciseIndex].sets[setIndex].rpe = rpe
+            
+            updateTotals()
+            objectWillChange.send()
+        }
+    }
+    
     func completeExercise(_ exercise: WorkoutExerciseViewModel) {
         if let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) {
             currentWorkoutExercises[exerciseIndex].isCompleted = true
             objectWillChange.send() // 觸發視圖更新，確保 canCompleteWorkout 重新計算
         }
+    }
+    
+    func uncompleteExercise(_ exercise: WorkoutExerciseViewModel) {
+        if let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) {
+            currentWorkoutExercises[exerciseIndex].isCompleted = false
+            objectWillChange.send() // 觸發視圖更新
+        }
+    }
+    
+    func updateExerciseSets(_ exercise: WorkoutExerciseViewModel, with editedSets: [EditExerciseSheet.EditedSet]) {
+        guard let exerciseIndex = currentWorkoutExercises.firstIndex(where: { $0.id == exercise.id }) else { return }
+        
+        // 更新每一組
+        for (index, editedSet) in editedSets.enumerated() {
+            guard index < currentWorkoutExercises[exerciseIndex].sets.count else { continue }
+            guard let weight = Double(editedSet.weight),
+                  let reps = Int(editedSet.reps) else { continue }
+            
+            let rpe = Double(editedSet.rpe)
+            
+            // 如果單位是磅，需要轉換回公斤
+            let weightInKg = WeightFormatter.shared.convertToKg(weight, from: GlobalSettingsManager.shared.weightUnit)
+            
+            currentWorkoutExercises[exerciseIndex].sets[index].weight = weightInKg
+            currentWorkoutExercises[exerciseIndex].sets[index].reps = reps
+            currentWorkoutExercises[exerciseIndex].sets[index].volume = weightInKg * Double(reps)
+            currentWorkoutExercises[exerciseIndex].sets[index].rpe = rpe
+        }
+        
+        updateTotals()
+        objectWillChange.send()
     }
     
     func toggleExerciseExpansion(_ exercise: WorkoutExerciseViewModel) {

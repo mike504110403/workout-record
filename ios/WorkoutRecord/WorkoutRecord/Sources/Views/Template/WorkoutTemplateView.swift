@@ -26,6 +26,11 @@ struct WorkoutTemplateView: View {
             .sheet(isPresented: $showCreateSheet) {
                 CreateTemplateSheet(viewModel: viewModel)
             }
+            .sheet(isPresented: $viewModel.showEditSheet) {
+                if let template = viewModel.editingTemplate {
+                    EditTemplateSheet(viewModel: viewModel, template: template)
+                }
+            }
         }
     }
     
@@ -297,6 +302,99 @@ struct CreateTemplateSheet: View {
     
     private func saveTemplate() {
         viewModel.createTemplate(
+            name: name,
+            description: description.isEmpty ? nil : description,
+            exercises: selectedExercises
+        )
+        dismiss()
+    }
+}
+
+// MARK: - Edit Template Sheet
+struct EditTemplateSheet: View {
+    @ObservedObject var viewModel: WorkoutTemplateViewModel
+    let template: TemplateInfo
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var name: String
+    @State private var description: String
+    @State private var selectedExercises: [Exercise]
+    @State private var showExercisePicker = false
+    
+    init(viewModel: WorkoutTemplateViewModel, template: TemplateInfo) {
+        self.viewModel = viewModel
+        self.template = template
+        
+        // 預先填入現有資料
+        self._name = State(initialValue: template.name)
+        self._description = State(initialValue: template.description ?? "")
+        self._selectedExercises = State(initialValue: template.exercises.map { $0.exercise })
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("模板資訊") {
+                    TextField("模板名稱", text: $name)
+                    TextField("描述（選填）", text: $description)
+                }
+                
+                Section {
+                    Button {
+                        showExercisePicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("新增動作")
+                        }
+                        .foregroundColor(.blue)
+                    }
+                    
+                    ForEach(selectedExercises) { exercise in
+                        HStack {
+                            Text(exercise.name)
+                            Spacer()
+                            Button {
+                                selectedExercises.removeAll { $0.id == exercise.id }
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("動作列表")
+                }
+            }
+            .navigationTitle("編輯模板")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("儲存") {
+                        saveTemplate()
+                    }
+                    .disabled(name.isEmpty || selectedExercises.isEmpty)
+                }
+            }
+            .sheet(isPresented: $showExercisePicker) {
+                ExercisePickerView { exercise in
+                    if !selectedExercises.contains(where: { $0.id == exercise.id }) {
+                        selectedExercises.append(exercise)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func saveTemplate() {
+        viewModel.updateTemplate(
+            id: template.id,
             name: name,
             description: description.isEmpty ? nil : description,
             exercises: selectedExercises
