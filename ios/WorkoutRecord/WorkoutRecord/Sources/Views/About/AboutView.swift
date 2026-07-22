@@ -3,6 +3,33 @@ import SwiftUI
 struct AboutView: View {
     @State private var showingTutorial = false
     
+    // 從 Bundle 取得版本資訊
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+    
+    private var buildVersion: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
+    
+    private var buildDate: String {
+        // 從 Build 檔案取得建置時間
+        if let infoPath = Bundle.main.path(forResource: "Info", ofType: "plist"),
+           let infoAttr = try? FileManager.default.attributesOfItem(atPath: infoPath),
+           let infoDate = infoAttr[.modificationDate] as? Date {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy年MM月dd日"
+            formatter.locale = Locale(identifier: "zh_TW")
+            return formatter.string(from: infoDate)
+        }
+        
+        // 如果無法取得，返回當前日期
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy年MM月dd日"
+        formatter.locale = Locale(identifier: "zh_TW")
+        return formatter.string(from: Date())
+    }
+    
     var body: some View {
         NavigationStack {
             List {
@@ -18,7 +45,7 @@ struct AboutView: View {
                                 .font(.title)
                                 .fontWeight(.bold)
                             
-                            Text("版本 1.0")
+                            Text("版本 \(appVersion)")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             
@@ -67,10 +94,6 @@ struct AboutView: View {
                     Link(destination: URL(string: "mailto:mike504110403@gmail.com")!) {
                         Label("聯絡我們", systemImage: "envelope")
                     }
-                    
-                    Link(destination: URL(string: "https://workoutrecord.app/feedback")!) {
-                        Label("意見回饋", systemImage: "bubble.left")
-                    }
                 }
                 
                 Section("法律") {
@@ -98,14 +121,14 @@ struct AboutView: View {
                     HStack {
                         Text("建置版本")
                         Spacer()
-                        Text("1.0 (2)")
+                        Text("\(appVersion) (\(buildVersion))")
                             .foregroundColor(.secondary)
                     }
                     
                     HStack {
                         Text("最後更新")
                         Spacer()
-                        Text("2024年10月22日")
+                        Text(buildDate)
                             .foregroundColor(.secondary)
                     }
                 }

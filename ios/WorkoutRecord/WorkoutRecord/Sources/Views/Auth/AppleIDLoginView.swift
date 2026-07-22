@@ -17,10 +17,6 @@ struct AppleIDLoginView: View {
                 
                 // 標題區域
                 VStack(spacing: 16) {
-                    Image(systemName: "applelogo")
-                        .font(.system(size: 64))
-                        .foregroundColor(.primary)
-                    
                     Text("歡迎使用 WorkoutRecord")
                         .font(.largeTitle)
                         .fontWeight(.bold)
@@ -88,7 +84,7 @@ struct AppleIDLoginView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                                 .font(.caption)
-                            Text("我們不會收集您的個人資訊")
+                            Text("使用 Apple ID 安全登入")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -97,7 +93,7 @@ struct AppleIDLoginView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                                 .font(.caption)
-                            Text("所有數據僅用於改善 App 體驗")
+                            Text("訓練記錄僅儲存於您的裝置本機")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -106,7 +102,16 @@ struct AppleIDLoginView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                                 .font(.caption)
-                            Text("您可以隨時登出")
+                            Text("僅收集必要的帳號資訊")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack(alignment: .top) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("不用於廣告或第三方分享")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }

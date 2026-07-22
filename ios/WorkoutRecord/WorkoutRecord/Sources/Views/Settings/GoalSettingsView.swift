@@ -50,37 +50,37 @@ struct GoalSettingsView: View {
                 Section {
                     VolumeGoalRow(
                         muscleGroup: "胸部",
-                        icon: "💪",
+                        icon: "",
                         value: $viewModel.chestVolumeGoal
                     )
                     
                     VolumeGoalRow(
                         muscleGroup: "背部",
-                        icon: "🏋️",
+                        icon: "",
                         value: $viewModel.backVolumeGoal
                     )
                     
                     VolumeGoalRow(
                         muscleGroup: "腿部",
-                        icon: "🦵",
+                        icon: "",
                         value: $viewModel.legsVolumeGoal
                     )
                     
                     VolumeGoalRow(
                         muscleGroup: "肩部",
-                        icon: "💪",
+                        icon: "",
                         value: $viewModel.shouldersVolumeGoal
                     )
                     
                     VolumeGoalRow(
                         muscleGroup: "手臂",
-                        icon: "💪",
+                        icon: "",
                         value: $viewModel.armsVolumeGoal
                     )
                     
                     VolumeGoalRow(
                         muscleGroup: "核心",
-                        icon: "🧘",
+                        icon: "",
                         value: $viewModel.coreVolumeGoal
                     )
                 } header: {
@@ -155,7 +155,9 @@ private struct VolumeGoalRow: View {
     
     var body: some View {
         HStack {
-            Text(icon)
+            if !icon.isEmpty {
+                Text(icon)
+            }
             Text(muscleGroup)
             Spacer()
             TextField("未設定", text: $value)
