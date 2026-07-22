@@ -487,3 +487,15 @@ Android 沒有舊資料，4.1 的檔案存在性判斷會自然回傳 false，�
 ---
 
 最後更新：2026-07-22
+
+## 附錄 B:真實 fixture 驗證結果(2026-07-22,大腦親自抽取)
+
+以 Debug build 在 iPhone 17 Pro 模擬器首啟後抽出真實 DB,存於 `app/test/fixtures/`(WorkoutRecord.sqlite + -wal/-shm + schema_dump.sql)。首啟 seed:66 個內建動作、4 個系統模板(20 個模板動作)、1 測試用戶、1 體重、3 PR、3 powerlift 紀錄。
+
+實測確認(以 `schema_dump.sql` 為最終基準,取代第 2 節的推測):
+- 11 張 Z 前綴 entity 表,表名/多數欄名與推測一致
+- **UUID 屬性一律是 BLOB**(16 bytes),匯入時需轉為標準 UUID 字串
+- **ordered 關聯排序欄位為 `Z_FOK_TEMPLATE` / `Z_FOK_WORKOUT` / `Z_FOK_WORKOUTEXERCISE`**;另有 `ZORDERINDEX` 屬性可用,兩者以 ZORDERINDEX 為準、Z_FOK 為備援
+- 日期欄型別標記 TIMESTAMP,值為 Core Data epoch(2001-01-01)秒數,+978307200 轉 Unix
+- 關聯同時存在 Z_PK 整數外鍵(ZUSER/ZWORKOUT/…)與反正規化 UUID BLOB(ZUSERID/ZWORKOUTID/…),**匯入以 UUID BLOB 欄 join**
+- 隱藏表 Z_PRIMARYKEY / Z_METADATA / Z_MODELCACHE 匯入時跳過
