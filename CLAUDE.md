@@ -10,6 +10,7 @@ SwiftUI 健身紀錄 app,已上架 App Store。
 - Bundle ID / applicationId:`com.mikelin.workitout`(接手現有 App Store app,自 1.1(5) 之後)
 - 硬性驗收:首次啟動須把舊 CoreData SQLite 資料無縫匯入 Drift,升級不得遺失訓練歷史
 - 功能對等基準:`docs/FEATURE_MAP.md` + `ios/` 現行程式碼;`ios/` 保留至 Flutter 版上架穩定後才刪
+- 資料模型基準:`docs/COREDATA_MIGRATION_SPEC.md`(以 `Sources/WorkoutRecord.xcdatamodeld` 為準;**`docs/DATABASE_SCHEMA.md` 是舊後端規劃版,與實際不符勿當基準**;repo 根目錄那份 xcdatamodeld 是孤兒舊檔)
 - 驗證:`flutter analyze` 零 error + `flutter test` + `flutter build ios --simulator` 成功
 
 ## 現況架構(iOS 版)

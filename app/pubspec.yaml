@@ -39,6 +39,7 @@ dependencies:
   go_router: ^17.3.0
   drift: 2.31.0
   path_provider: ^2.1.6
+  path: ^1.9.0
   fl_chart: ^1.2.0
   intl: ^0.20.3
   sign_in_with_apple: ^7.0.1
