@@ -141,7 +141,13 @@ class WorkoutRepository {
     }
 
     final exercises = await _fetchExercisesForWorkout(workoutId);
-    final totalVolume = exercises.fold<double>(0, (sum, e) => sum + e.totalVolume);
+    // totalVolume 從 sets 現算(weight × reps),不信任 WorkoutExercise.totalVolume
+    // 欄位——該欄位沒有任何寫入路徑會即時維護,與 totalSets/totalExercises 的現算行為一致。
+    final totalVolume = exercises.fold<double>(
+      0,
+      (sum, e) =>
+          sum + e.sets.fold<double>(0, (s, set) => s + set.weight * set.reps),
+    );
     final totalSetsCount = exercises.fold<int>(0, (sum, e) => sum + e.sets.length);
     final resolvedEndedAt = endedAt ?? DateTime.now();
     final duration = resolvedEndedAt.difference(workoutRow.startedAt).inMinutes;
