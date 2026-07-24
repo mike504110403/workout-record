@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# dart compile js 副產物(web/drift_worker.js 本體要進版控,副產物不用)
+web/drift_worker.js.deps
+web/drift_worker.js.map

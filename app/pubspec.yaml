@@ -46,6 +46,7 @@ dependencies:
   shared_preferences: ^2.5.5
   sqlite3_flutter_libs: 0.5.42
   sqlite3: 2.9.4
+  drift_flutter: ^0.2.8
 
 dev_dependencies:
   flutter_test:
