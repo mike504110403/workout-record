@@ -2,11 +2,13 @@
 
 SwiftUI 健身紀錄 app,已上架 App Store。
 
-**專案方向(2026-07-22 定):以 Flutter 完全改寫並新增 Android 版;現有 iOS 版進入維護模式——只修 bug、不加新功能、不做重構美化。** 重大決策見 `.claude/decisions/`。
+**專案方向(2026-07-22 定 Flutter 改寫;2026-07-24 擴為 iOS/Android/Web 三平台 + 跨裝置同步):現有 iOS 版進入維護模式——只修 bug、不加新功能、不做重構美化。** 重大決策見 `.claude/decisions/`;領域語言見 `CONTEXT.md`,技術術語見 `docs/GLOSSARY.md`。
 
 ## Flutter 版(app/,開發中)
 
-- 選型:Riverpod + Drift(SQLite)+ fl_chart + go_router;**第一版不接 Firebase**(登入用 sign_in_with_apple 本機狀態、版本檢查用 iTunes Lookup API)
+- 選型:Riverpod + Drift(SQLite)+ fl_chart + go_router;三平台(iOS/Android/Web)一起首發
+- **同步與後端(2026-07-24 定)**:完全自建 Go REST API + SQLite + Litestream(部署 Mike 自有伺服器);同步協定 = updatedAt 增量拉推 + LWW + 刪除墓碑;帳號 = Apple + Google 雙登入。**開發順序鐵律:UI 依使用者操作順序垂直切片先行、每波可在模擬器/瀏覽器驗看,後端/同步排最後(掛同步波),之前一律純本機 Drift**
+- 升 Flutter 至最新 stable(Dart ≥3.11)已拍板未執行;升完重訂依賴 pin(現況因 meta 1.17.0 牆釘 drift 2.31 等)
 - Bundle ID / applicationId:`com.mikelin.workitout`(接手現有 App Store app,自 1.1(5) 之後)
 - 硬性驗收:首次啟動須把舊 CoreData SQLite 資料無縫匯入 Drift,升級不得遺失訓練歷史
 - 功能對等基準:`docs/FEATURE_MAP.md` + `ios/` 現行程式碼;`ios/` 保留至 Flutter 版上架穩定後才刪
