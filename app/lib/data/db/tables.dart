@@ -41,6 +41,7 @@ class Workouts extends Table {
   IntColumn get totalSets => integer().withDefault(const Constant(0))();
   IntColumn get totalExercises => integer().withDefault(const Constant(0))();
   TextColumn get note => text().nullable()();
+  // 故意不加 FK——舊資料的 denormalized UUID 會懸空(fixture 已實證),照抄保留原值。
   TextColumn get templateId => text().nullable()();
   BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime()();
@@ -150,6 +151,7 @@ class PersonalRecords extends Table {
   RealColumn get weight => real().withDefault(const Constant(0.0))();
   IntColumn get reps => integer().withDefault(const Constant(0))();
   DateTimeColumn get achievedAt => dateTime()();
+  // 故意不加 FK——舊資料的 denormalized UUID 會懸空(fixture 已實證),照抄保留原值。
   TextColumn get workoutId => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
