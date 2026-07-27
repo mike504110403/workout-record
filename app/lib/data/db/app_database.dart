@@ -1,7 +1,5 @@
-import 'dart:io';
-
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
+import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -10,13 +8,26 @@ import 'tables.dart';
 
 part 'app_database.g.dart';
 
-/// 手動 NativeDatabase(不能用 drift_flutter,見 app/lib/data/db/README.md 版本限制)。
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, 'workout_record.db'));
-    return NativeDatabase.createInBackground(file);
-  });
+/// `drift_flutter` 用 conditional export 在 native 平台接 NativeDatabase、
+/// web 平台接 WasmDatabase(見 app/lib/data/db/README.md web 支援章節),
+/// 上層(AppDatabase / repositories)不需要為平台分流寫任何 if/else。
+///
+/// native 端沿用原本檔名/路徑(`<Application Support>/workout_record.db`),
+/// 不影響既有(開發中)資料庫檔案位置。
+QueryExecutor _openConnection() {
+  return driftDatabase(
+    name: 'workout_record',
+    native: DriftNativeOptions(
+      databasePath: () async {
+        final dir = await getApplicationSupportDirectory();
+        return p.join(dir.path, 'workout_record.db');
+      },
+    ),
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+      driftWorker: Uri.parse('drift_worker.js'),
+    ),
+  );
 }
 
 @DriftDatabase(

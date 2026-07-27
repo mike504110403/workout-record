@@ -2,9 +2,11 @@
 
 ## 現況
 
-- 分支 `feature/flutter-coredata-import`:CoreData→Drift 匯入完成、大腦驗收過,但 **review chain 打回(共同 blocker:結構層 FK workoutId/workoutExerciseId/templateId/exerciseId 無孤兒防護,一筆懸空→整批 rollback→永久匯不進)**。已派 `coredata-fixfk-worker`(sonnet)修復:父列不存在 skip+warn、exerciseId 對不上補建佔位動作、AppDelegate channel 移到 super 後、補孤兒測試 ≥6。修完**重跑 review chain** 才 commit + merge。
-- Review 剩餘 minor(下一波再修,勿忘):匯入失敗持久化 log(spec 4.6)、連續失敗 3 次標記 permanently + UI 手動重試(4.6)、匯入統計持久化(4.5)、legacy_prefs_importer 零測試。
-- develop 已含:v1.2 Swift 修正、docs/Claude 系統、Flutter scaffold、完整資料層(49 測試)。develop 領先 origin,未推(推前要問 Mike)。
+- **CoreData→Drift 匯入已完成並 merge 回 develop**(fixfk 修復 + review chain 通過,commit d481904 / merge 30b993e)。
+- **波 0(升 Flutter + web 平台)已完成,在 `feature/wave0-flutter-upgrade`,review chain 通過、已 commit,待 Mike 驗看 + 決定 pin 方案後 merge**:Flutter 3.38.5→3.44.8(Dart 3.12.2)、web 平台啟用(drift WasmDatabase + checked-in sqlite3.wasm / drift_worker.js,見 app/lib/data/db/README.md)、DB 連線層改 drift_flutter(native 路徑不變)、CoreData 匯入器 io/web conditional export 分流、iOS 部分 pods 遷 SwiftPM。驗證:analyze 零 issue、test 68/68、build web + build ios --simulator 全過。
+- **波 0 待決(A/B 已提給 Mike)**:依賴 pin 重訂深度——A = pin 維持現狀(驗證過的版本),sqlite3_flutter_libs EOL 遷移另開波次;B = 一步升 drift 2.34 + sqlite3 3.5(native assets)+ 移除 EOL 套件 + 換 wasm + 重編 worker。
+- Review 剩餘 minor(Mike 已准併入下一波,勿忘):匯入失敗持久化 log(spec 4.6)、連續失敗 3 次標記 permanently + UI 手動重試(4.6)、匯入統計持久化(4.5)、legacy_prefs_importer 零測試、template_exercises 的 exerciseId 孤兒 skip 無專屬測試、tableCounts=讀取量非落地量(有孤兒時偏高,要當零遺失證據需另計)。
+- develop 已含:v1.2 Swift 修正、docs/Claude 系統、Flutter scaffold、完整資料層、CoreData 匯入(68 測試)。develop 領先 origin,未推(推前要問 Mike)。
 
 ## 決策狀態(全部定案 ✅,2026-07-24)
 
@@ -40,6 +42,5 @@
 
 ## 下一步
 
-1. 收 `coredata-fixfk-worker` → 驗收 → 重跑 review chain → commit → merge --no-ff 回 develop
-2. 執行波 0(升 Flutter),回報驗證結果
-3. 波 1 起逐波派工
+1. Mike 驗看波 0(模擬器 / 瀏覽器)+ 選 pin 方案 A/B → `feature/wave0-flutter-upgrade` merge --no-ff 回 develop(選 B 則先在同分支補升級再重驗證 + review)
+2. 波 1 起逐波派工(登入 + Onboarding)
