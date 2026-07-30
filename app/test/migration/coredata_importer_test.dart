@@ -138,6 +138,19 @@ void main() {
       expect(await db.select(db.powerLiftRecords).get(), hasLength(3));
     });
 
+    test('成功匯入後,coredata_imported_user_id 寫入實際落地的使用者 id(血緣誤判修正)', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      final importedUser = (await db.select(db.users).get()).single;
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kCoreDataImportedUserIdKey), importedUser.id);
+    });
+
     test('抽樣:體重的 weight/measuredAt 轉換正確', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
@@ -240,6 +253,12 @@ void main() {
       expect(result.skipped, isTrue);
       expect(result.errorMessage, isNull);
       expect(await db.select(db.workouts).get(), isEmpty);
+
+      // skip 分支(舊檔不存在)不寫 coredata_imported_user_id——只有真正跑過
+      // 匯入才算有血緣,不能跟 kCoreDataImportCompletedKey 混為一談(見
+      // coredata_importer_result.dart 欄位註解)。
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kCoreDataImportedUserIdKey), isNull);
     });
 
     test('壞檔(隨機 bytes 冒充 .sqlite)→ 匯入失敗但不拋未捕捉例外', () async {
@@ -450,6 +469,11 @@ void main() {
         result.warnings.any((w) => w.contains('舊庫也沒有任何 UserEntity') && w.contains('已補建佔位使用者')),
         isTrue,
       );
+
+      // 惰性補建的佔位使用者也算「這次匯入實際落地的使用者」,同樣要寫入
+      // coredata_imported_user_id。
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kCoreDataImportedUserIdKey), users.single.id);
     });
   });
 }
