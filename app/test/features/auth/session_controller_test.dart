@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/onboarding/onboarding_status.dart';
 
 Future<ProviderContainer> _containerWithPrefs(Map<String, Object> values) async {
   SharedPreferences.setMockInitialValues(values);
@@ -42,28 +43,46 @@ void main() {
   });
 
   group('signInTest', () {
-    test('寫入固定的測試登入身分到 SharedPreferences 並更新 state', () async {
+    test('首次測試登入時產生 UUID 身分,寫入 SharedPreferences 並更新 state', () async {
       final container = await _containerWithPrefs({});
       await container.read(sessionControllerProvider.notifier).signInTest();
 
       final state = container.read(sessionControllerProvider);
       expect(state.isLoggedIn, isTrue);
-      expect(state.appleUserId, kTestLoginUserId);
+      expect(state.appleUserId, isNotNull);
+      expect(state.appleUserId, isNotEmpty);
       expect(state.appleUserName, kTestLoginUserName);
       expect(state.isLoading, isFalse);
 
       final prefs = container.read(sharedPreferencesProvider);
-      expect(prefs.getString(kAppleUserIdKey), kTestLoginUserId);
+      expect(prefs.getString(kAppleUserIdKey), state.appleUserId);
+      expect(prefs.getString(kTestLoginUserIdPrefsKey), state.appleUserId);
+    });
+
+    test('第二次測試登入沿用同一個 UUID 身分,不重新生成', () async {
+      final container = await _containerWithPrefs({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+
+      await notifier.signInTest();
+      final firstId = container.read(sessionControllerProvider).appleUserId;
+
+      await notifier.signOut();
+      await notifier.signInTest();
+      final secondId = container.read(sessionControllerProvider).appleUserId;
+
+      expect(secondId, firstId);
     });
   });
 
   group('signOut', () {
-    test('清掉三個 session key,onboarding 完成旗標不受影響', () async {
+    test('清掉三個 session key、所有 user_ 前綴的 Onboarding 個資 key 與完成旗標', () async {
       final container = await _containerWithPrefs({
         kAppleUserIdKey: 'existing-user',
         kAppleUserNameKey: 'Existing User',
         kAppleUserEmailKey: 'existing@example.com',
-        'has_completed_onboarding': true,
+        kHasCompletedOnboardingKey: true,
+        'user_gender': '男性',
+        'user_current_weight': 70.0,
       });
 
       await container.read(sessionControllerProvider.notifier).signOut();
@@ -74,12 +93,42 @@ void main() {
 
       final prefs = container.read(sharedPreferencesProvider);
       expect(prefs.containsKey(kAppleUserIdKey), isFalse);
-      expect(prefs.getBool('has_completed_onboarding'), isTrue);
+      expect(prefs.containsKey('user_gender'), isFalse);
+      expect(prefs.containsKey('user_current_weight'), isFalse);
+      expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+    });
+
+    test('隱私同意三個 key 是裝置層級,登出不清', () async {
+      final container = await _containerWithPrefs({
+        kAppleUserIdKey: 'existing-user',
+        'has_agreed_to_analytics': true,
+        'has_agreed_to_privacy': true,
+        'privacy_consent_date': 1234567890,
+      });
+
+      await container.read(sessionControllerProvider.notifier).signOut();
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getBool('has_agreed_to_analytics'), isTrue);
+      expect(prefs.getBool('has_agreed_to_privacy'), isTrue);
+      expect(prefs.getInt('privacy_consent_date'), 1234567890);
+    });
+
+    test('測試登入 UUID(test_login_user_id)是裝置層級,登出不清', () async {
+      final container = await _containerWithPrefs({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+      await notifier.signInTest();
+      final testId = container.read(sessionControllerProvider).appleUserId;
+
+      await notifier.signOut();
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kTestLoginUserIdPrefsKey), testId);
     });
   });
 
   group('signInWithApple', () {
-    test('測試環境沒有原生 Apple 登入管道時,優雅失敗並記錄錯誤訊息', () async {
+    test('測試環境沒有原生 Apple 登入管道時,優雅失敗並記錄一般化錯誤訊息', () async {
       final container = await _containerWithPrefs({});
       await container.read(sessionControllerProvider.notifier).signInWithApple();
 
@@ -87,6 +136,19 @@ void main() {
       expect(state.isLoggedIn, isFalse);
       expect(state.isLoading, isFalse);
       expect(state.errorMessage, isNotNull);
+    });
+  });
+
+  group('clearError', () {
+    test('清掉目前的錯誤訊息', () async {
+      final container = await _containerWithPrefs({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+      await notifier.signInWithApple();
+      expect(container.read(sessionControllerProvider).errorMessage, isNotNull);
+
+      notifier.clearError();
+
+      expect(container.read(sessionControllerProvider).errorMessage, isNull);
     });
   });
 }

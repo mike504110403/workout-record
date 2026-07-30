@@ -1,32 +1,35 @@
 // 登入頁。文案逐字對照 iOS
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Auth/AppleIDLoginView.swift`。
 //
-// 三平台按鈕邏輯(對等 iOS `#if targetEnvironment(simulator)`):
-// - iOS 真機:sign_in_with_apple 的真 Apple ID 登入按鈕。
-// - 模擬器 / Android / Web:「測試登入」fallback 按鈕。
+// 三平台按鈕邏輯(對等 iOS `#if targetEnvironment(simulator)`,但涵蓋範圍
+// 更廣,見 [showTestLoginProvider] 開頭註解):
+// - iOS release build:sign_in_with_apple 的真 Apple ID 登入按鈕。
+// - iOS debug/profile build、Android、Web:「測試登入」fallback 按鈕。
 // - Google 登入:占位、disabled,標示「即將推出」——真 OAuth 掛同步波,
 //   本波不接,不得新增 google_sign_in 依賴。
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'session_controller.dart';
 
-/// iOS 模擬器把 `SIMULATOR_DEVICE_NAME` 塞進 process 環境變數,原生 Swift
-/// 用 `#if targetEnvironment(simulator)` 編譯期判斷,Flutter 沒有對應的編譯期
-/// 旗標,改用這個執行期訊號對等判斷。
-bool _isIosSimulator() {
-  if (kIsWeb || !Platform.isIOS) return false;
-  return Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
-}
-
-bool _showRealAppleSignIn() {
-  if (kIsWeb || !Platform.isIOS) return false;
-  return !_isIosSimulator();
-}
+/// 是否顯示測試登入 fallback 按鈕。對等 iOS `#if targetEnvironment(simulator)`
+/// 的精神,但改用「是不是 release build」判斷(`kReleaseMode` 是編譯期常數,
+/// iOS release build 這段程式碼會被直接消去,不像原本依賴
+/// `Platform.environment['SIMULATOR_DEVICE_NAME']` 只是執行期訊號、且僅涵蓋
+/// 模擬器):
+/// - debug / profile build(含 iOS 模擬器與真機):一律顯示。
+/// - Web:一律顯示(沒有 release/debug 的 App Store 上架顧慮)。
+/// - Android:同步波前還沒有真 OAuth,一律顯示。
+/// - iOS release build:不顯示,只能用真 Apple ID 登入。
+///
+/// 抽成 provider 是為了讓測試可以覆寫這個條件,不用真的切換編譯模式。
+final showTestLoginProvider = Provider<bool>((ref) {
+  return !kReleaseMode || kIsWeb || Platform.isAndroid;
+});
 
 class LoginPage extends ConsumerWidget {
   const LoginPage({super.key});
@@ -34,6 +37,8 @@ class LoginPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionControllerProvider);
+    final showTestLogin = ref.watch(showTestLoginProvider);
+    final showRealAppleSignIn = !kIsWeb && Platform.isIOS && !showTestLogin;
 
     ref.listen<SessionState>(sessionControllerProvider, (previous, next) {
       if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
@@ -50,6 +55,9 @@ class LoginPage extends ConsumerWidget {
             ],
           ),
         );
+        // 錯誤是一次性事件:彈完立刻清掉,讓下一次即使是同一則錯誤訊息也能
+        // 再次觸發 ref.listen 的 previous != next 比較。
+        ref.read(sessionControllerProvider.notifier).clearError();
       }
     });
 
@@ -78,7 +86,7 @@ class LoginPage extends ConsumerWidget {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
-                if (_showRealAppleSignIn())
+                if (showRealAppleSignIn)
                   SignInWithAppleButton(
                     onPressed: () =>
                         ref.read(sessionControllerProvider.notifier).signInWithApple(),

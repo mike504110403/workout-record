@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/auth/session_controller.dart';
-import 'features/onboarding/privacy_consent_controller.dart';
-import 'features/onboarding/privacy_consent_page.dart';
+import 'features/privacy/privacy_consent_controller.dart';
+import 'features/privacy/privacy_consent_page.dart';
 import 'router.dart';
 
 class WorkItOutApp extends ConsumerWidget {
@@ -24,8 +24,8 @@ class WorkItOutApp extends ConsumerWidget {
       // sheet,不管目前停在 Onboarding 還是主畫面,登入後未同意就強制擋下)。
       builder: (context, child) {
         final isLoggedIn = ref.watch(sessionControllerProvider).isLoggedIn;
-        final hasFullyAgreed = ref.watch(privacyConsentControllerProvider).isFullyAgreed;
-        if (isLoggedIn && !hasFullyAgreed) {
+        final hasAgreed = ref.watch(privacyConsentControllerProvider).isAgreed;
+        if (isLoggedIn && !hasAgreed) {
           return const PrivacyConsentPage();
         }
         return child ?? const SizedBox.shrink();

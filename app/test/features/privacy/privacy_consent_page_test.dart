@@ -1,12 +1,13 @@
 // PrivacyConsentPage widget seam:兩勾選框皆勾之前「同意並繼續」是
-// disabled,勾完才 enabled;文案逐字對照 iOS PrivacyConsentView。
+// disabled,勾完才 enabled;文案逐字對照 iOS PrivacyConsentView。勾選框是
+// 頁面本地狀態,不透過 controller。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
-import 'package:workout_record/features/onboarding/privacy_consent_page.dart';
+import 'package:workout_record/features/privacy/privacy_consent_page.dart';
 
 Future<void> _pumpPage(WidgetTester tester) async {
   SharedPreferences.setMockInitialValues({});

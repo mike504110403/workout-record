@@ -2,6 +2,9 @@
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Privacy/PrivacyConsentView.swift`
 // (該文案已符合「資料存本機」現狀,不得自行改寫)。
 //
+// 兩個勾選框是這個頁面的本地狀態(對等 iOS `@State`),按下「同意並繼續」才
+// 一次寫入 controller(見 privacy_consent_controller.dart 開頭註解)。
+//
 // 「不同意」:mobile 用 SystemNavigator.pop() 結束 App(對等 iOS
 // `exit(0)`);web 沒有「結束網頁」這種操作,改顯示阻斷頁,不可用 exit(0)
 // (dart:io Process.exit 在 web 也不存在)。
@@ -21,6 +24,10 @@ class PrivacyConsentPage extends ConsumerStatefulWidget {
 
 class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
   bool _declined = false;
+  bool _analyticsAgreed = false;
+  bool _privacyAgreed = false;
+
+  bool get _bothAgreed => _analyticsAgreed && _privacyAgreed;
 
   void _handleDecline() {
     if (kIsWeb) {
@@ -30,14 +37,15 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
     }
   }
 
+  Future<void> _handleAgreeAndContinue() async {
+    await ref.read(privacyConsentControllerProvider.notifier).agreeAndContinue();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_declined) {
       return const _DeclinedBlockingPage();
     }
-
-    final consent = ref.watch(privacyConsentControllerProvider);
-    final notifier = ref.read(privacyConsentControllerProvider.notifier);
 
     return Scaffold(
       body: SafeArea(
@@ -112,15 +120,15 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                 children: [
                   _CheckboxRow(
                     key: const Key('analyticsConsentCheckbox'),
-                    value: consent.hasAgreedToAnalytics,
+                    value: _analyticsAgreed,
                     text: '我同意收集匿名使用數據以改善服務',
-                    onChanged: notifier.setAnalyticsAgreed,
+                    onChanged: (value) => setState(() => _analyticsAgreed = value),
                   ),
                   _CheckboxRow(
                     key: const Key('privacyConsentCheckbox'),
-                    value: consent.hasAgreedToPrivacy,
+                    value: _privacyAgreed,
                     text: '我已閱讀並同意隱私政策',
-                    onChanged: notifier.setPrivacyAgreed,
+                    onChanged: (value) => setState(() => _privacyAgreed = value),
                   ),
                 ],
               ),
@@ -133,7 +141,7 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                     width: double.infinity,
                     child: FilledButton(
                       key: const Key('agreeAndContinueButton'),
-                      onPressed: consent.isFullyAgreed ? notifier.agreeAndContinue : null,
+                      onPressed: _bothAgreed ? _handleAgreeAndContinue : null,
                       child: const Text('同意並繼續'),
                     ),
                   ),

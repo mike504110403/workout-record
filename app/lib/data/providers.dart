@@ -7,6 +7,7 @@ import 'repositories/personal_record_repository.dart';
 import 'repositories/power_lift_record_repository.dart';
 import 'repositories/template_repository.dart';
 import 'repositories/user_goal_repository.dart';
+import 'repositories/user_repository.dart';
 import 'repositories/workout_repository.dart';
 
 /// App 唯一的 Drift 資料庫實例。
@@ -51,4 +52,8 @@ final userGoalRepositoryProvider = Provider<UserGoalRepository>((ref) {
 
 final powerLiftRecordRepositoryProvider = Provider<PowerLiftRecordRepository>((ref) {
   return PowerLiftRecordRepository(ref.watch(appDatabaseProvider));
+});
+
+final userRepositoryProvider = Provider<UserRepository>((ref) {
+  return UserRepository(ref.watch(appDatabaseProvider));
 });

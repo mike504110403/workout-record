@@ -16,7 +16,7 @@ import 'package:workout_record/app.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
-import 'package:workout_record/features/onboarding/privacy_consent_controller.dart';
+import 'package:workout_record/features/privacy/privacy_consent_controller.dart';
 
 void main() {
   testWidgets('5-tab shell shows all tabs and switches pages', (
@@ -29,6 +29,7 @@ void main() {
       kHasCompletedOnboardingKey: true,
       kHasAgreedToAnalyticsKey: true,
       kHasAgreedToPrivacyKey: true,
+      kPrivacyConsentDateKey: DateTime.now().millisecondsSinceEpoch,
     });
     final prefs = await SharedPreferences.getInstance();
 

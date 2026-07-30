@@ -43,8 +43,8 @@ Future<void> autoCompleteOnboardingForUpgradedUsersIfNeeded(
   final coreDataImportCompleted = prefs.getBool(kCoreDataImportCompletedKey) ?? false;
   if (!coreDataImportCompleted) return;
 
-  final db = container.read(appDatabaseProvider);
-  final anyUser = await (db.select(db.users)..limit(1)).getSingleOrNull();
+  final userRepo = container.read(userRepositoryProvider);
+  final anyUser = await userRepo.getFirst();
   if (anyUser == null) return;
 
   await container.read(onboardingStatusProvider.notifier).markCompleted();
