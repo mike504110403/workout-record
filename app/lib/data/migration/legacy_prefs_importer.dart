@@ -57,13 +57,23 @@ class LegacyPrefsResult {
       'errorMessage: $errorMessage, migratedKeys: $migratedKeys)';
 }
 
+bool _defaultIsIOS() => Platform.isIOS;
+
 class LegacyPrefsImporter {
-  const LegacyPrefsImporter();
+  /// [isIOSCheck] 預設就是真正的 `Platform.isIOS`;測試時可以換成回傳固定
+  /// 布林值的函式,跟 [CoreDataImporter] 建構子上可覆寫的
+  /// directoryProvider 是同一套模式——`dart:io` 的 `Platform.isIOS` 本身
+  /// 不可覆寫(沒有 setter),沒有這層間接就無法在非 iOS 的測試主機上驗證
+  /// 「假裝自己在 iOS」的匯入邏輯。
+  const LegacyPrefsImporter({bool Function() isIOSCheck = _defaultIsIOS})
+      : _isIOSCheck = isIOSCheck;
+
+  final bool Function() _isIOSCheck;
 
   static const MethodChannel _channel = MethodChannel(_channelName);
 
   Future<LegacyPrefsResult> importIfNeeded() async {
-    if (!Platform.isIOS) {
+    if (!_isIOSCheck()) {
       return const LegacyPrefsResult.skipped();
     }
 
