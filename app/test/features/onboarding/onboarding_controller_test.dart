@@ -2,9 +2,9 @@
 // `OnboardingState.complete()` 的行為:
 // - 不論體重欄位有沒有效,complete() 都會確保有一筆 Users row——Users row
 //   跟體重是否有效是兩件獨立的事(見 onboarding_controller.dart 開頭註解)。
-// - 有效體重且是「本次新建」的使用者 row 時,才另外寫入
-//   user_current_weight + 建立初始 BodyWeight(重複初始體重回歸修正,見
-//   review 2026-07-30);體重無效(例如透過「跳過教學」在還沒填體重時就
+// - 有效體重時一律寫入 user_current_weight(當前體重本來就該更新);但初始
+//   BodyWeight 只在「本次新建」使用者 row 時才建立(重複初始體重回歸修正,
+//   見 review 2026-07-30)。體重無效(例如透過「跳過教學」在還沒填體重時就
 //   完成)一樣能完成 Onboarding,只是不建體重資料——這是刻意對齊 iOS 的
 //   寬鬆規則。
 // - 完成後一定會標記 has_completed_onboarding = true。
@@ -18,7 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/data/migration/coredata_importer_result.dart'
-    show kCoreDataImportedUserIdKey;
+    show kCoreDataImportCompletedKey, kCoreDataImportedUserIdKey;
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
@@ -32,6 +32,7 @@ const _loggedInUserId = 'apple-user-onboarding-test';
 Future<ProviderContainer> _container({
   bool seedExistingUser = false,
   String? importedUserId,
+  bool coreDataImportCompleted = false,
 }) async {
   final prefsValues = <String, Object>{
     kAppleUserIdKey: _loggedInUserId,
@@ -40,6 +41,9 @@ Future<ProviderContainer> _container({
   };
   if (importedUserId != null) {
     prefsValues[kCoreDataImportedUserIdKey] = importedUserId;
+  }
+  if (coreDataImportCompleted) {
+    prefsValues[kCoreDataImportCompletedKey] = true;
   }
   SharedPreferences.setMockInitialValues(prefsValues);
   final prefs = await SharedPreferences.getInstance();
@@ -129,9 +133,14 @@ void main() {
       expect(bodyWeights, isEmpty);
     });
 
-    test('Drift Users 表已有資料但沒有 coredata_imported_user_id 時,不沿用,改用登入身分新建一筆並寫初始體重',
-        () async {
-      final container = await _container(seedExistingUser: true);
+    test(
+        'Drift Users 表已有資料、coredata_import_completed=true(真機常態)但沒有 '
+        'coredata_imported_user_id 時,不沿用,改用登入身分新建一筆並寫初始體重。'
+        '修正前(誤用 completed 當血緣訊號)此測試會失敗', () async {
+      final container = await _container(
+        seedExistingUser: true,
+        coreDataImportCompleted: true,
+      );
       final notifier = container.read(onboardingControllerProvider.notifier);
       notifier.setWeightText('80');
 

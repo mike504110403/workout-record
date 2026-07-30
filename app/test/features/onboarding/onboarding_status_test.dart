@@ -89,10 +89,12 @@ void main() {
     });
 
     test(
-        '全新安裝(舊檔不存在,coredata_import_completed 仍會被設為 true,但沒有 '
-        'coredata_imported_user_id)→ 不沿用、不自動跳過', () async {
+        '無血緣裝置的真機常態(coredata_import_completed=true 且 Users 表非空,'
+        '但沒有 coredata_imported_user_id)→ 不沿用、不自動跳過。'
+        '此組合是修正前 bug 的觸發條件,修正前此測試會失敗', () async {
       final container = await _container(
         prefsValues: {kCoreDataImportCompletedKey: true},
+        seedUser: true,
       );
 
       await autoCompleteOnboardingForUpgradedUsersIfNeeded(container);

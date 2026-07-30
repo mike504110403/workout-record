@@ -12,8 +12,8 @@
 // key 命名對齊 app/lib/data/migration/legacy_prefs_importer.dart 已在寫的
 // `legacy_user_*` / `legacy_weekly_workout_goal` 慣例,但去掉 `legacy_`
 // 前綴——這裡寫的是「現在」的使用者資料,不是搬移舊資料,語意不同,不能共用
-// 同一把 key(避免跟舊資料匯入互相覆蓋)。統一 `user_` 前綴也讓
-// SessionController.signOut() 能用前綴掃描一次清掉所有 Onboarding 個資。
+// 同一把 key(避免跟舊資料匯入互相覆蓋)。統一 `user_` 前綴便於辨識;實際
+// 清除由下方 [kOnboardingPersonalDataKeys] 顯式列舉,不做前綴掃描。
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/uuid.dart';
