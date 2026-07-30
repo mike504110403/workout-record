@@ -1,6 +1,8 @@
-// 產生 UUID v4,給 Onboarding 完成時新建的 Users / BodyWeights 資料列當主鍵。
-// 刻意不引入 uuid 套件依賴,寫法對齊
-// app/lib/data/migration/coredata_importer_io.dart 內部的 `_generateUuidV4`。
+// 產生 UUID v4,給需要新建主鍵(Users / BodyWeights 等)的呼叫端共用。
+// 刻意不引入 uuid 套件依賴——原本 features/onboarding/uuid.dart 與
+// features/auth/session_controller.dart 各自抄了一份相同實作,收斂成這一份
+// 共用工具(migration/coredata_importer_io.dart 的 `_generateUuidV4` 是禁區,
+// 不搬,見該檔案開頭註解)。
 import 'dart:math';
 
 final _uuidRandom = Random.secure();

@@ -75,7 +75,7 @@ void main() {
   });
 
   group('signOut', () {
-    test('清掉三個 session key、所有 user_ 前綴的 Onboarding 個資 key 與完成旗標', () async {
+    test('清掉三個 session key、顯式列舉的 Onboarding 個資 key 與完成旗標', () async {
       final container = await _containerWithPrefs({
         kAppleUserIdKey: 'existing-user',
         kAppleUserNameKey: 'Existing User',
@@ -96,6 +96,21 @@ void main() {
       expect(prefs.containsKey('user_gender'), isFalse);
       expect(prefs.containsKey('user_current_weight'), isFalse);
       expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+    });
+
+    test('顯式契約:不在 kOnboardingPersonalDataKeys 清單內的 user_ 前綴 key 不會被清除', () async {
+      // 對照舊行為(掃描所有 user_ 前綴 key)——改成顯式列舉清單後,清單外的
+      // key(即使剛好也是 user_ 前綴)不再被隱式掃到,見
+      // onboarding_controller.dart 的 kOnboardingPersonalDataKeys 註解。
+      final container = await _containerWithPrefs({
+        kAppleUserIdKey: 'existing-user',
+        'user_not_an_onboarding_key': 'should survive',
+      });
+
+      await container.read(sessionControllerProvider.notifier).signOut();
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString('user_not_an_onboarding_key'), 'should survive');
     });
 
     test('隱私同意三個 key 是裝置層級,登出不清', () async {

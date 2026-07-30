@@ -23,10 +23,6 @@ class PrivacyConsentState {
 
   /// 對等 App 的隱私同意 gate 條件:同意結果已經落地才算數。
   bool get isAgreed => consentDate != null;
-
-  PrivacyConsentState copyWith({DateTime? consentDate}) {
-    return PrivacyConsentState(consentDate: consentDate ?? this.consentDate);
-  }
 }
 
 class PrivacyConsentController extends Notifier<PrivacyConsentState> {
@@ -50,7 +46,7 @@ class PrivacyConsentController extends Notifier<PrivacyConsentState> {
     await prefs.setBool(kHasAgreedToPrivacyKey, true);
     await prefs.setInt(kPrivacyConsentDateKey, now.millisecondsSinceEpoch);
 
-    state = state.copyWith(consentDate: now);
+    state = PrivacyConsentState(consentDate: now);
   }
 }
 

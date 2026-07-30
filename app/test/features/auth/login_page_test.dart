@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:workout_record/features/auth/login_page.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
@@ -39,6 +40,29 @@ void main() {
   testWidgets('測試環境(非 iOS 真機)顯示測試登入 fallback 按鈕', (tester) async {
     await _pumpLoginPage(tester);
     expect(find.byKey(const Key('testLoginButton')), findsOneWidget);
+  });
+
+  testWidgets('showTestLoginProvider 覆寫為 false 時,顯示真 Apple 登入按鈕而非測試登入按鈕',
+      (tester) async {
+    // 讓 provider 抽象的理由成立(見 login_page.dart showTestLoginProvider
+    // 開頭註解):不用真的切到 iOS release build,直接覆寫這個 provider 就能
+    // 驗證「不顯示測試登入時,走真 Apple 登入按鈕」這條路徑。
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          showTestLoginProvider.overrideWithValue(false),
+        ],
+        child: const MaterialApp(home: LoginPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SignInWithAppleButton), findsOneWidget);
+    expect(find.byKey(const Key('testLoginButton')), findsNothing);
   });
 
   testWidgets('Google 登入是 disabled 的佔位按鈕', (tester) async {

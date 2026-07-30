@@ -6,11 +6,11 @@
 // key 命名對應 iOS 的 AppleIDUserID/UserName/UserEmail(UserDefaults),但
 // 刻意換成新的 snake_case key(`apple_user_id` 等),不是同一份——舊資料
 // 匯入(legacy_prefs_importer.dart)刻意不搬登入身分,見該檔案開頭註解。
-import 'dart:math';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../core/utils/uuid.dart';
+import '../onboarding/onboarding_controller.dart' show kOnboardingPersonalDataKeys;
 import '../onboarding/onboarding_status.dart' show kHasCompletedOnboardingKey;
 import 'shared_preferences_provider.dart';
 
@@ -28,20 +28,6 @@ const kTestLoginUserEmail = 'test@example.com';
 const kTestLoginUserIdPrefsKey = 'test_login_user_id';
 
 const _genericLoginErrorMessage = '登入失敗,請稍後再試';
-
-final _uuidRandom = Random.secure();
-
-/// 產生 UUID v4。刻意不引入 uuid 套件依賴,寫法對齊
-/// app/lib/features/onboarding/uuid.dart(兩處是刻意保留的小型重複,見該檔案
-/// 開頭註解——跨 feature 共用工具的整併留待後波)。
-String _generateUuidV4() {
-  final bytes = List<int>.generate(16, (_) => _uuidRandom.nextInt(256));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xxxxxx
-  final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
-      '${hex.substring(16, 20)}-${hex.substring(20, 32)}';
-}
 
 class SessionState {
   const SessionState({
@@ -140,7 +126,7 @@ class SessionController extends Notifier<SessionState> {
       final prefs = ref.read(sharedPreferencesProvider);
       var testUserId = prefs.getString(kTestLoginUserIdPrefsKey);
       if (testUserId == null || testUserId.isEmpty) {
-        testUserId = _generateUuidV4();
+        testUserId = generateUuidV4();
         await prefs.setString(kTestLoginUserIdPrefsKey, testUserId);
       }
 
@@ -178,21 +164,27 @@ class SessionController extends Notifier<SessionState> {
     );
   }
 
-  /// 登出:清 session 三個 key,並清掉 onboarding 個人資料(所有 `user_`
-  /// 前綴 prefs key,見 features/onboarding/onboarding_controller.dart)與
+  /// 登出:清 session 三個 key,並清掉 onboarding 個人資料(顯式列舉的
+  /// [kOnboardingPersonalDataKeys],見 features/onboarding/onboarding_controller.dart
+  /// ——不再用 `user_` 前綴掃描 prefs 全部 key,避免隱式契約:哪些 key 算
+  /// 「Onboarding 個資」由 onboarding 那側明確列出,這裡照單清除)與
   /// `has_completed_onboarding` 旗標,避免下一個換上來的帳號(不同 Apple ID
   /// 或重新測試登入)直接吃到前一個人的 Onboarding 資料。
   ///
   /// 刻意偏離 iOS 現況(iOS 版登出不清 Onboarding 資料)——iOS 是單帳號本機
   /// App,沒有換帳號吃到別人資料的疑慮,Flutter 版三平台 + 未來多帳號同步
   /// 才需要這層保護。隱私同意三個 key 是裝置層級的同意紀錄,不受影響。
+  ///
+  /// DB 層帳號隔離(換帳號時清掉 Drift 裡屬於其他 userId 的資料,或查詢一律
+  /// 帶 userId 篩選)待決策(見 review 2026-07-30),本次不做——目前僅清
+  /// prefs 側的個資,Drift 資料表本身不受 signOut 影響。
   Future<void> signOut() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(kAppleUserIdKey);
     await prefs.remove(kAppleUserNameKey);
     await prefs.remove(kAppleUserEmailKey);
 
-    for (final key in prefs.getKeys().where((k) => k.startsWith('user_')).toList()) {
+    for (final key in kOnboardingPersonalDataKeys) {
       await prefs.remove(key);
     }
     await prefs.remove(kHasCompletedOnboardingKey);

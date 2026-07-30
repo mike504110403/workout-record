@@ -73,7 +73,7 @@ class CoreDataImporter {
     File? copiedDbFile;
     try {
       copiedDbFile = await _copyToTemp(supportDir);
-      final result = await _importFromFile(db, copiedDbFile);
+      final result = await _importFromFile(db, copiedDbFile, prefs);
       if (result.success) {
         await prefs.setBool(kCoreDataImportCompletedKey, true);
       }
@@ -126,7 +126,16 @@ class CoreDataImporter {
 
   /// 用真正的匯入邏輯跑一次,回傳結果。丟出的例外由呼叫端 catch 並轉成
   /// 失敗的 [ImportResult](不寫完成旗標,下次重試)。
-  Future<ImportResult> _importFromFile(AppDatabase db, File dbFile) async {
+  ///
+  /// 成功時額外把這次匯入實際落地的主要使用者 id 寫進
+  /// [kCoreDataImportedUserIdKey](血緣誤判修正,見 review 2026-07-30)——
+  /// 取 [_importUsers] 回傳的 userIds(已含 [_resolveUserId] 惰性補建的佔位
+  /// 使用者)的第一筆,單一使用者 App 下就是唯一或最先讀到的那筆。
+  Future<ImportResult> _importFromFile(
+    AppDatabase db,
+    File dbFile,
+    SharedPreferences prefs,
+  ) async {
     final oldDb = sqlite3lib.sqlite3.open(
       dbFile.path,
       mode: sqlite3lib.OpenMode.readOnly,
@@ -134,11 +143,12 @@ class CoreDataImporter {
     try {
       final counts = <String, int>{};
       final warnings = <String>[];
+      var userIds = <String>{};
 
       await db.transaction(() async {
         final usersImport = await _importUsers(db, oldDb);
         counts['users'] = usersImport.sourceCount;
-        final userIds = usersImport.ids;
+        userIds = usersImport.ids;
 
         final exercisesImport =
             await _importExercises(db, oldDb, userIds, warnings);
@@ -192,6 +202,10 @@ class CoreDataImporter {
         counts['power_lift_records'] =
             await _importPowerLiftRecords(db, oldDb, userIds, warnings);
       });
+
+      if (userIds.isNotEmpty) {
+        await prefs.setString(kCoreDataImportedUserIdKey, userIds.first);
+      }
 
       return ImportResult(
         success: true,

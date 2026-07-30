@@ -16,13 +16,14 @@
 // SessionController.signOut() 能用前綴掃描一次清掉所有 Onboarding 個資。
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/migration/coredata_importer_result.dart' show kCoreDataImportCompletedKey;
+import '../../core/utils/uuid.dart';
+import '../../data/migration/coredata_importer_result.dart'
+    show kCoreDataImportedUserIdKey;
 import '../../data/models/body_weight.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import '../auth/shared_preferences_provider.dart';
 import 'onboarding_status.dart';
-import 'uuid.dart';
 
 const kUserGenderKey = 'user_gender';
 const kUserAgeKey = 'user_age';
@@ -31,6 +32,19 @@ const kUserCurrentWeightKey = 'user_current_weight';
 const kUserTargetWeightKey = 'user_target_weight';
 const kWeeklyWorkoutGoalKey = 'user_weekly_goal';
 const kUserWeightUnitKey = 'user_weight_unit';
+
+/// SessionController.signOut() 用來精準清除 Onboarding 個資的 key 清單——
+/// 顯式列舉取代原本「掃描所有 `user_` 前綴 key」的隱式假設,哪些 key 算
+/// Onboarding 個資由這裡明確定義。
+const kOnboardingPersonalDataKeys = <String>[
+  kUserGenderKey,
+  kUserAgeKey,
+  kUserHeightKey,
+  kUserCurrentWeightKey,
+  kUserTargetWeightKey,
+  kWeeklyWorkoutGoalKey,
+  kUserWeightUnitKey,
+];
 
 enum OnboardingWeightUnit {
   kg('kg'),
@@ -119,7 +133,13 @@ class OnboardingController extends Notifier<OnboardingDraft> {
   void setWeeklyGoal(int value) => state = state.copyWith(weeklyGoal: value);
 
   /// 完成 Onboarding:寫入 prefs 個人資料、確保 Drift Users 表有使用者
-  /// row、有體重值才記一筆初始 BodyWeight,最後標記完成旗標。
+  /// row、只有本次新建的使用者才記一筆初始 BodyWeight,最後標記完成旗標。
+  ///
+  /// 「只有新建才寫初始體重」是重複初始體重回歸修正(review
+  /// 2026-07-30)——同帳號登出後 `has_completed_onboarding` 旗標被清掉,
+  /// 重新登入再跑一次 Onboarding 精靈時,`_ensureUserRow` 會沿用既有 row
+  /// (不是新建),此時不該再補一筆「初始體重」,那筆體重紀錄的語意是
+  /// 「這個使用者第一次被建立時的體重」,沿用既有帳號不成立這個語意。
   Future<void> complete() async {
     final draft = state;
     final prefs = ref.read(sharedPreferencesProvider);
@@ -150,14 +170,14 @@ class OnboardingController extends Notifier<OnboardingDraft> {
     await prefs.setString(kUserWeightUnitKey, draft.weightUnit.symbol);
 
     final session = ref.read(sessionControllerProvider);
-    final userId = await _ensureUserRow(session);
+    final (:id, :isNewUser) = await _ensureUserRow(session);
 
-    if (weightKg != null) {
+    if (weightKg != null && isNewUser) {
       final now = DateTime.now();
       await ref.read(bodyWeightRepositoryProvider).create(
             BodyWeight(
               id: generateUuidV4(),
-              userId: userId,
+              userId: id,
               weight: weightKg,
               measuredAt: now,
               note: '初始體重',
@@ -170,34 +190,37 @@ class OnboardingController extends Notifier<OnboardingDraft> {
     await ref.read(onboardingStatusProvider.notifier).markCompleted();
   }
 
-  /// 確保 Drift Users 表有使用者 row,回傳其 id:
-  /// - 優先用登入身分(Apple / 測試登入 user id)找既有 row,有就沿用。
-  /// - 找不到時,只有在「這台裝置有跑過 CoreData 匯入」(coredata 匯入血緣)
-  ///   才允許沿用表裡既有的第一筆——這是升級用戶的防禦性回退,理論上他們
-  ///   在 Onboarding 前就會被 [autoCompleteOnboardingForUpgradedUsersIfNeeded]
-  ///   自動跳過,這裡只是保險。沒有 CoreData 匯入血緣時絕不能沿用陌生的
-  ///   既有 row——否則換一個帳號登入、或測試環境殘留舊資料時會直接吃到
-  ///   上一個人的資料。
-  /// - 兩者都沒有,以登入身分(或新 UUID)新建一筆。
-  Future<String> _ensureUserRow(SessionState session) async {
+  /// 確保 Drift Users 表有使用者 row,回傳其 id 與「是否為本次新建」:
+  /// - 優先用登入身分(Apple / 測試登入 user id)找既有 row,有就沿用
+  ///   (isNewUser = false)。
+  /// - 找不到時,只有在「這台裝置有 CoreData 匯入血緣」——`getById` 查
+  ///   [kCoreDataImportedUserIdKey] 對應的 row,而且那筆 row 真的存在——
+  ///   才允許沿用它(isNewUser = false)。這是升級用戶的防禦性回退,理論
+  ///   上他們在 Onboarding 前就會被
+  ///   [autoCompleteOnboardingForUpgradedUsersIfNeeded] 自動跳過,這裡只是
+  ///   保險。沒有這個明確血緣訊號時絕不能沿用陌生的既有 row——否則換一個
+  ///   帳號登入、或測試環境殘留舊資料時會直接吃到上一個人的資料。
+  /// - 兩者都沒有,以登入身分(或新 UUID)新建一筆(isNewUser = true)。
+  Future<({String id, bool isNewUser})> _ensureUserRow(SessionState session) async {
     final userRepo = ref.read(userRepositoryProvider);
     final desiredId = session.appleUserId;
 
     if (desiredId != null && desiredId.isNotEmpty) {
       final existing = await userRepo.getById(desiredId);
-      if (existing != null) return existing.id;
+      if (existing != null) return (id: existing.id, isNewUser: false);
     }
 
     final prefs = ref.read(sharedPreferencesProvider);
-    final hasCoreDataLineage = prefs.getBool(kCoreDataImportCompletedKey) ?? false;
-    if (hasCoreDataLineage) {
-      final anyExisting = await userRepo.getFirst();
-      if (anyExisting != null) return anyExisting.id;
+    final importedUserId = prefs.getString(kCoreDataImportedUserIdKey);
+    if (importedUserId != null && importedUserId.isNotEmpty) {
+      final imported = await userRepo.getById(importedUserId);
+      if (imported != null) return (id: imported.id, isNewUser: false);
     }
 
     final id = (desiredId != null && desiredId.isNotEmpty) ? desiredId : generateUuidV4();
-    await userRepo.ensure(id, name: session.appleUserName, email: session.appleUserEmail);
-    return id;
+    final isNewUser =
+        await userRepo.ensure(id, name: session.appleUserName, email: session.appleUserEmail);
+    return (id: id, isNewUser: isNewUser);
   }
 }
 

@@ -17,16 +17,24 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'session_controller.dart';
 
 /// 是否顯示測試登入 fallback 按鈕。對等 iOS `#if targetEnvironment(simulator)`
-/// 的精神,但改用「是不是 release build」判斷(`kReleaseMode` 是編譯期常數,
-/// iOS release build 這段程式碼會被直接消去,不像原本依賴
-/// `Platform.environment['SIMULATOR_DEVICE_NAME']` 只是執行期訊號、且僅涵蓋
-/// 模擬器):
+/// 的精神,但改用「是不是 release build」判斷:
 /// - debug / profile build(含 iOS 模擬器與真機):一律顯示。
 /// - Web:一律顯示(沒有 release/debug 的 App Store 上架顧慮)。
 /// - Android:同步波前還沒有真 OAuth,一律顯示。
-/// - iOS release build:不顯示,只能用真 Apple ID 登入。
+/// - iOS release build:不顯示,只能用真 Apple ID 登入——`kReleaseMode` 是
+///   編譯期常數,但 `Platform.isAndroid` 是執行期訊號,不是編譯期就被消去
+///   的死碼,所以整個 `||` 運算式不是編譯期常數。實際效果是:iOS release
+///   build 執行到這裡時,`!kReleaseMode` 恆為 false、`kIsWeb` 恆為 false、
+///   `Platform.isAndroid` 在 iOS 裝置上恆為 false,三者都不成立,沒有其他
+///   觸發路徑會讓這個 provider 在 iOS release build 回傳 true。
 ///
-/// 抽成 provider 是為了讓測試可以覆寫這個條件,不用真的切換編譯模式。
+/// 抽成 provider 是為了讓測試可以覆寫這個條件,不用真的切換編譯模式——見
+/// [LoginPage.build] 的 `showRealAppleSignIn`:它直接用這個 provider 的值
+/// 決定要不要顯示真 Apple 登入按鈕,不額外疊加 `Platform.isIOS` 判斷(那個
+/// 判斷在 `flutter test` host 上恆為 false,會讓這個 provider 的覆寫失去
+/// 意義——`showTestLoginProvider` 的 false 分支本來就只在 iOS release
+/// build 成立,`!kIsWeb && !Platform.isAndroid` 已經蘊含 iOS,重複檢查
+/// `Platform.isIOS` 是多餘且不可測的)。
 final showTestLoginProvider = Provider<bool>((ref) {
   return !kReleaseMode || kIsWeb || Platform.isAndroid;
 });
@@ -38,7 +46,7 @@ class LoginPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionControllerProvider);
     final showTestLogin = ref.watch(showTestLoginProvider);
-    final showRealAppleSignIn = !kIsWeb && Platform.isIOS && !showTestLogin;
+    final showRealAppleSignIn = !showTestLogin;
 
     ref.listen<SessionState>(sessionControllerProvider, (previous, next) {
       if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
