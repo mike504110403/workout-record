@@ -17,4 +17,11 @@ class CoreDataImporter {
   Future<ImportResult> importIfNeeded(AppDatabase db) async {
     return const ImportResult.skippedNoOldDb();
   }
+
+  /// web 平台天然不可能有連續失敗達上限的狀態(importIfNeeded 一律直接
+  /// skippedNoOldDb),ImportRetryTile 也不會在 web 上渲染出重試按鈕——這裡
+  /// 只是維持跟 io 版相同的介面(見檔案開頭註解),實際上不會被呼叫到。
+  Future<ImportResult> retryAfterPermanentFailure(AppDatabase db) async {
+    return const ImportResult.skippedNoOldDb();
+  }
 }

@@ -4,7 +4,11 @@
 // checkPermanentlyFailed / importAction 覆寫真正的 SharedPreferences /
 // CoreDataImporter,不需要搭一整棵 provider tree 或 mock platform channel
 // (ImportRetryTile 本身的預設路徑——真正讀 SharedPreferences、真正呼叫
-// CoreDataImporter——已經被 coredata_importer_test.dart 間接覆蓋)。
+// CoreDataImporter——已經被 coredata_importer_test.dart 間接覆蓋;那邊也是
+// CoreDataImporter.retryAfterPermanentFailure 本身狀態機邏輯的權威測試,
+// 這裡不重複跑一份真正的檔案 I/O + sqlite3 FFI——曾經試過在 widget test
+// 裡跑真正的 CoreDataImporter,穩定卡死,懷疑是 FFI 阻塞呼叫與
+// TestWidgetsFlutterBinding 的 pump 機制衝突)。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,4 +117,75 @@ void main() {
 
     expect(find.text('重新匯入仍失敗:boom'), findsOneWidget);
   });
+
+  testWidgets('重試結果是 skippedNoOldDb 時顯示對應訊息,不是籠統的成功/'
+      '未知錯誤', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        ImportRetryTile(
+          checkPermanentlyFailed: () async => true,
+          importAction: () async => const ImportResult.skippedNoOldDb(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tapRetryAndDrain(tester);
+
+    expect(find.text('沒有舊資料可匯入,已標記完成'), findsOneWidget);
+  });
+
+  testWidgets(
+    '不注入 checkPermanentlyFailed(走真實 SharedPreferences 檢查):重試'
+    '失敗後 tile 仍然可見,不會因為 _visibleFuture 重新檢查時讀到中間狀態'
+    '而消失或卡住(major 1 回歸測試的 widget 層部分——'
+    'CoreDataImporter.retryAfterPermanentFailure 本身「失敗後旗標/計數'
+    '復原為已達上限」的狀態機邏輯,由 coredata_importer_test.dart 的'
+    '「retryAfterPermanentFailure ... 重試仍失敗」測試直接覆蓋且更快;'
+    '這裡的 importAction 內聯重現同一段 prefs 操作,只用來驗證 widget 對'
+    '真實 prefs 的重新檢查行為)',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        kCoreDataImportFailedPermanentlyKey: true,
+        kCoreDataImportAttemptsKey: 3,
+      });
+
+      Future<ImportResult> failingRetryThatRestoresRealPrefs() async {
+        final prefs = await SharedPreferences.getInstance();
+        // 重現 CoreDataImporter.retryAfterPermanentFailure 對真實 prefs
+        // 的操作順序:先清旗標與計數、「嘗試」匯入、失敗後立刻復原成
+        // 已達上限,不吃掉自動重試的 3 次額度。
+        await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
+        await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+        await prefs.setBool(kCoreDataImportFailedPermanentlyKey, true);
+        await prefs.setInt(kCoreDataImportAttemptsKey, 3);
+        return const ImportResult(
+          success: false,
+          skipped: false,
+          errorMessage: 'boom',
+          permanentlyFailed: true,
+        );
+      }
+
+      await tester.pumpWidget(
+        wrap(
+          ImportRetryTile(importAction: failingRetryThatRestoresRealPrefs),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('舊資料匯入失敗'), findsOneWidget);
+
+      await tapRetryAndDrain(tester);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 3);
+      // tile 沒有因為重試失敗而消失或卡在中間狀態——_visibleFuture 重新
+      // 檢查真實 prefs(沒有注入 checkPermanentlyFailed),讀到旗標已經被
+      // 復原為 true,所以仍然顯示。
+      expect(find.text('舊資料匯入失敗'), findsOneWidget);
+      expect(find.text('重新匯入仍失敗:boom'), findsOneWidget);
+    },
+  );
 }

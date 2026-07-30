@@ -13,24 +13,72 @@ const kCoreDataImportAttemptsKey = 'coredata_import_attempts';
 
 /// SharedPreferences 旗標:連續失敗達重試上限(3 次)後標記 true,
 /// `importIfNeeded` 之後會直接 skip,不再自動重試,需使用者手動點擊
-/// Settings 頁的重試按鈕(清掉本旗標與 [kCoreDataImportAttemptsKey])才會
-/// 再跑一次。
+/// Settings 頁的重試按鈕(呼叫 [CoreDataImporter.retryAfterPermanentFailure])
+/// 才會再跑一次。
 const kCoreDataImportFailedPermanentlyKey = 'coredata_import_failed_permanently';
 
-/// SharedPreferences:成功匯入後的各表落地筆數,以 JSON 字串存放,供之後
+/// SharedPreferences:成功匯入後的各表**落地筆數**,以 JSON 字串存放,供之後
 /// debug / 跟使用者核對「東西是不是都搬過來了」(spec 4.5 節)。
 const kCoreDataImportTableCountsKey = 'coredata_import_table_counts';
 
-/// 匯入結果:各表**落地筆數**([tableCounts],實際成功寫入 Drift 的筆數;
-/// 孤兒防護略過的列不計入,另見 [skippedCounts])+ 是否成功 + 非致命警告,
+/// SharedPreferences:成功匯入後的各表**結構層孤兒略過筆數**,以 JSON 字串
+/// 存放,搭配 [kCoreDataImportTableCountsKey] 才能還原完整帳式(見
+/// [ImportResult] 類別文件的落地量公式)。
+const kCoreDataImportSkippedCountsKey = 'coredata_import_skipped_counts';
+
+/// SharedPreferences:成功匯入後因「對映到既有種子,不重複 insert」而未落地
+/// 的筆數(目前只有 exercises 表有此概念),以 JSON 字串存放。
+const kCoreDataImportDedupedCountsKey = 'coredata_import_deduped_counts';
+
+/// SharedPreferences:成功匯入後,因舊資料的 FK 對不上任何已知列而惰性補建
+/// 的佔位列筆數(users / exercises 兩表),以 JSON 字串存放。這些是**額外
+/// 新增**的列,不對應任何一筆舊庫來源資料。
+const kCoreDataImportCreatedPlaceholdersKey = 'coredata_import_created_placeholders';
+
+/// 沒有實際跑匯入時,[ImportResult.skipped] = true 的具體原因,供 UI
+/// (見 app/lib/features/settings/widgets/import_retry_tile.dart)顯示對應
+/// 訊息,不要一律當成「未知錯誤」或籠統的「成功」。
+enum ImportSkipReason {
+  /// 舊 App 的 CoreData 檔不存在(全新安裝 / Android / 舊 App 從未初始化
+  /// 過),沒有東西可以匯入。
+  noOldDb,
+
+  /// 連續失敗已達重試上限,需使用者手動重試,見
+  /// [kCoreDataImportFailedPermanentlyKey]。
+  permanentlyFailed,
+
+  /// 「已 commit 未標旗」窗口:偵測到資料其實已經在 Drift 裡(先前的匯入
+  /// transaction 其實成功了,只是寫完成旗標前 App 被中斷),已補寫完成
+  /// 旗標,不重新跑一次匯入(避免撞主鍵)。見 [CoreDataImporter] 的
+  /// `_detectAlreadyLanded`。
+  alreadyLanded,
+}
+
+/// 匯入結果:各表**落地筆數**([tableCounts])+ 是否成功 + 非致命警告,
 /// 供之後 UI 顯示。
 ///
-/// [tableCounts] 的語意是「這次呼叫實際 insert 進 Drift 的筆數」,不是
-/// 「讀到的舊資料筆數」——兩者只在該表完全沒有孤兒略過時才相等。系統動作
-/// 對映到既有 seed(見 coredata_importer_io.dart `_importExercises`)不算
-/// 孤兒略過(資料本身沒有遺失,只是合併到既有列),因此 exercises 沒有對應
-/// 的 [skippedCounts] 概念;真正會略過整列的只有 template_exercises /
-/// workout_exercises / workout_sets 三張表的結構層孤兒防護。
+/// ## 落地量帳式(spec 4.5 節)
+///
+/// 對每一張來源表:`來源筆數(舊庫 SELECT COUNT(*))= 落地筆數([tableCounts])
+/// + 結構層孤兒略過筆數([skippedCounts])+ 去重筆數([dedupedCounts])`。
+///
+/// - **落地筆數([tableCounts])**:這次呼叫實際 insert 進 Drift 的筆數。
+///   users / exercises 兩表另外**加上**惰性補建的佔位列數
+///   ([createdPlaceholders])——這些是額外新增、不對應任何舊庫來源列的
+///   資料,因此不計入上面的帳式等號左邊(來源筆數),只計入右邊的落地量。
+/// - **略過筆數([skippedCounts])**:結構層孤兒防護略過整列,只有
+///   template_exercises / workout_exercises / workout_sets 三張表會有
+///   非零值。
+/// - **去重筆數([dedupedCounts])**:系統動作(isSystem = true)對映到
+///   `seedIfEmpty()` 已建立的內建種子,不重複 insert,只記住 id 對映
+///   (資料本身沒有遺失,只是合併到既有列)。目前只有 exercises 表有這個
+///   概念。
+/// - **補建佔位筆數([createdPlaceholders])**:舊資料的 FK(userId /
+///   exerciseId)對不上任何已匯入的列時,惰性補建的佔位列(見
+///   coredata_importer_io.dart `_resolveUserId` /
+///   `_resolveOrCreatePlaceholderExercise`)。只有 users / exercises 兩表
+///   會有非零值,且不是「來源」的一部分——是為了不讓子表資料(訓練歷史 /
+///   PR)因為孤兒 FK 而遺失才新增的列。
 class ImportResult {
   const ImportResult({
     required this.success,
@@ -38,8 +86,11 @@ class ImportResult {
     this.errorMessage,
     this.tableCounts = const {},
     this.skippedCounts = const {},
+    this.dedupedCounts = const {},
+    this.createdPlaceholders = const {},
     this.warnings = const [],
     this.permanentlyFailed = false,
+    this.skipReason,
   });
 
   const ImportResult.skippedNoOldDb()
@@ -48,8 +99,11 @@ class ImportResult {
         errorMessage = null,
         tableCounts = const {},
         skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
         warnings = const [],
-        permanentlyFailed = false;
+        permanentlyFailed = false,
+        skipReason = ImportSkipReason.noOldDb;
 
   /// 連續失敗達重試上限、已標記 [kCoreDataImportFailedPermanentlyKey] 時,
   /// `importIfNeeded` 直接回傳這個結果,不再嘗試開檔匯入。
@@ -60,34 +114,67 @@ class ImportResult {
             '需在設定頁手動重試。',
         tableCounts = const {},
         skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
         warnings = const [],
-        permanentlyFailed = true;
+        permanentlyFailed = true,
+        skipReason = ImportSkipReason.permanentlyFailed;
+
+  /// 「已 commit 未標旗」窗口命中(見 [ImportSkipReason.alreadyLanded]):
+  /// 資料其實已經在 Drift 裡,只是完成旗標沒寫,已補寫旗標,不重新匯入
+  /// (重新匯入會撞主鍵)。
+  const ImportResult.skippedAlreadyLanded()
+      : success = true,
+        skipped = true,
+        errorMessage = null,
+        tableCounts = const {},
+        skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
+        warnings = const [],
+        permanentlyFailed = false,
+        skipReason = ImportSkipReason.alreadyLanded;
 
   final bool success;
 
   /// true 代表沒有實際跑匯入(舊檔不存在,或先前已標記完成,或目前平台
-  /// 天然不可能有舊檔——例如 web,或連續失敗已達上限)。
+  /// 天然不可能有舊檔——例如 web,或連續失敗已達上限,或偵測到資料已落地
+  /// 只是旗標沒寫)。具體原因見 [skipReason]。
   final bool skipped;
 
   final String? errorMessage;
 
-  /// 各表**落地筆數**(實際 insert 筆數,見類別註解)。
+  /// 各表**落地筆數**(實際 insert 筆數,見類別文件的帳式說明)。
   final Map<String, int> tableCounts;
 
   /// 各表因結構層孤兒防護而略過的筆數(只有 template_exercises /
   /// workout_exercises / workout_sets 會有非零值)。
   final Map<String, int> skippedCounts;
 
+  /// 各表因對映到既有資料(目前只有 exercises 的系統動作對映到既有種子)
+  /// 而不重複 insert 的筆數。
+  final Map<String, int> dedupedCounts;
+
+  /// 各表因舊資料 FK 對不上任何已知列而惰性補建的佔位列筆數(只有 users /
+  /// exercises 會有非零值)。這些筆數已經計入 [tableCounts],這裡只是拆出
+  /// 「有多少是額外新增,不對應任何舊庫來源列」。
+  final Map<String, int> createdPlaceholders;
+
   final List<String> warnings;
 
   /// true 代表本次結果就是因為 [kCoreDataImportFailedPermanentlyKey] 已設置
-  /// 而直接 skip(見 [ImportResult.skippedPermanentlyFailed])。
+  /// (或本次呼叫剛好跨過重試上限)而直接 skip 或失敗。呼叫端不需要另外讀
+  /// prefs 判斷是否已達上限。
   final bool permanentlyFailed;
+
+  /// [skipped] 為 true 時的具體原因;[skipped] 為 false 時一律是 null。
+  final ImportSkipReason? skipReason;
 
   @override
   String toString() =>
       'ImportResult(success: $success, skipped: $skipped, '
       'errorMessage: $errorMessage, tableCounts: $tableCounts, '
-      'skippedCounts: $skippedCounts, warnings: $warnings, '
-      'permanentlyFailed: $permanentlyFailed)';
+      'skippedCounts: $skippedCounts, dedupedCounts: $dedupedCounts, '
+      'createdPlaceholders: $createdPlaceholders, warnings: $warnings, '
+      'permanentlyFailed: $permanentlyFailed, skipReason: $skipReason)';
 }

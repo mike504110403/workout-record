@@ -27,7 +27,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'import_log.dart';
 
 const _channelName = 'com.mikelin.workitout/legacy_prefs';
 const kLegacyPrefsImportCompletedKey = 'legacy_prefs_import_completed';
@@ -64,11 +67,17 @@ class LegacyPrefsImporter {
   /// 布林值的函式,跟 [CoreDataImporter] 建構子上可覆寫的
   /// directoryProvider 是同一套模式——`dart:io` 的 `Platform.isIOS` 本身
   /// 不可覆寫(沒有 setter),沒有這層間接就無法在非 iOS 的測試主機上驗證
-  /// 「假裝自己在 iOS」的匯入邏輯。
-  const LegacyPrefsImporter({bool Function() isIOSCheck = _defaultIsIOS})
-      : _isIOSCheck = isIOSCheck;
+  /// 「假裝自己在 iOS」的匯入邏輯。[supportDirectoryProvider] 同樣是給
+  /// [ImportLog] 用的間接層,預設是 path_provider 的真正實作。
+  const LegacyPrefsImporter({
+    bool Function() isIOSCheck = _defaultIsIOS,
+    Future<Directory> Function() supportDirectoryProvider =
+        getApplicationSupportDirectory,
+  })  : _isIOSCheck = isIOSCheck,
+        _supportDirectoryProvider = supportDirectoryProvider;
 
   final bool Function() _isIOSCheck;
+  final Future<Directory> Function() _supportDirectoryProvider;
 
   static const MethodChannel _channel = MethodChannel(_channelName);
 
@@ -82,6 +91,7 @@ class LegacyPrefsImporter {
       return const LegacyPrefsResult.skipped();
     }
 
+    final log = ImportLog(supportDirectoryProvider: _supportDirectoryProvider);
     try {
       final raw = await _channel.invokeMapMethod<String, dynamic>(
         'getLegacyPreferences',
@@ -233,7 +243,11 @@ class LegacyPrefsImporter {
       await prefs.setBool(kLegacyPrefsImportCompletedKey, true);
       return LegacyPrefsResult(success: true, skipped: false, migratedKeys: migrated);
     } catch (e, st) {
-      // 不寫完成旗標,下次啟動自動重試。
+      // 不寫完成旗標,下次啟動自動重試。失敗原因寫進本地 log(spec 4.6 節
+      // 「不要只靠 debugPrint」),跟 CoreDataImporter 共用同一套截斷規則。
+      await log.append(
+        'legacy prefs 匯入失敗:${truncateForImportLog('$e\n$st')}',
+      );
       return LegacyPrefsResult(
         success: false,
         skipped: false,

@@ -17,6 +17,19 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+/// log 訊息(尤其未預期例外的 stacktrace / sqlite3 錯誤,可能挾帶整包 SQL
+/// 繫結參數)超過這個長度就截斷,避免單行 log 塞爆磁碟或難以閱讀
+/// (spec 4.6 節)。
+const kImportLogMaxMessageLength = 500;
+
+/// 截斷過長的 log 訊息(見 [kImportLogMaxMessageLength])。CoreData /
+/// legacy prefs 兩邊的匯入失敗路徑共用這個工具,不各自實作一份。
+String truncateForImportLog(String message) {
+  if (message.length <= kImportLogMaxMessageLength) return message;
+  return '${message.substring(0, kImportLogMaxMessageLength)}'
+      '...(截斷,原始長度 ${message.length} 字元)';
+}
+
 class ImportLog {
   /// [supportDirectoryProvider] 預設是 path_provider 的真正實作;測試時可
   /// 換成回傳臨時目錄的函式,跟 [CoreDataImporter] 的建構子是同一套模式,

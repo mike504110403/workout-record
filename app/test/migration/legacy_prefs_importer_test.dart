@@ -9,8 +9,11 @@
 // [LegacyPrefsImporter] 新增了建構子參數 `isIOSCheck`(預設就是真正的
 // `Platform.isIOS`),測試用它注入固定值,跟 [CoreDataImporter] 可覆寫
 // directoryProvider 是同一套模式,不是額外重構匯入邏輯本身。
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/data/migration/legacy_prefs_importer.dart';
 
@@ -171,6 +174,38 @@ void main() {
 
     expect(first.skipped, isFalse);
     expect(second.skipped, isTrue);
+  });
+
+  test('MethodChannel 丟 PlatformException → success=false,不寫完成旗標,'
+      '失敗原因寫進 ImportLog(跟 CoreDataImporter 共用同一套 log,不是只靠'
+      'debugPrint)', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_channel, (call) async {
+      throw PlatformException(code: 'ERROR', message: 'boom');
+    });
+
+    final logDir =
+        await Directory.systemTemp.createTemp('legacy_prefs_log_test_');
+    addTearDown(() {
+      if (logDir.existsSync()) {
+        logDir.deleteSync(recursive: true);
+      }
+    });
+
+    final importer = LegacyPrefsImporter(
+      isIOSCheck: _alwaysIOS,
+      supportDirectoryProvider: () async => logDir,
+    );
+    final result = await importer.importIfNeeded();
+
+    expect(result.success, isFalse);
+    expect(result.errorMessage, contains('boom'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(kLegacyPrefsImportCompletedKey), isNull);
+
+    final logFile = File(p.join(logDir.path, 'logs', 'import.log'));
+    expect(logFile.existsSync(), isTrue);
+    expect(logFile.readAsStringSync(), contains('boom'));
   });
 }
 
