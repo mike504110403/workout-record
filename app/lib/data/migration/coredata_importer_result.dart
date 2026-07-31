@@ -35,6 +35,15 @@ const kCoreDataImportDedupedCountsKey = 'coredata_import_deduped_counts';
 /// 新增**的列,不對應任何一筆舊庫來源資料。
 const kCoreDataImportCreatedPlaceholdersKey = 'coredata_import_created_placeholders';
 
+/// SharedPreferences:匯入收工那一刻(成功匯入 transaction 剛 commit,或
+/// alreadyLanded 命中)對 Drift 各表下的 `SELECT COUNT(*)` 核帳快照,以 JSON
+/// 字串存放——跟 [kCoreDataImportTableCountsKey] 不同,這是「此刻 Drift 裡
+/// 實際有幾筆」的絕對數字(含既有種子動作等所有既存列),不是「這次呼叫落地
+/// 了幾筆」的相對數字,兩者搭配才能在事後核對「東西是不是都在」,不需要另外
+/// 記一份 seed 基準線。alreadyLanded 命中時沒有 tableCounts 可存,但這份快照
+/// 一定會有,補上那個缺口。
+const kCoreDataImportVerifiedCountsKey = 'coredata_import_verified_counts';
+
 /// 沒有實際跑匯入時,[ImportResult.skipped] = true 的具體原因,供 UI
 /// (見 app/lib/features/settings/widgets/import_retry_tile.dart)顯示對應
 /// 訊息,不要一律當成「未知錯誤」或籠統的「成功」。
@@ -52,6 +61,13 @@ enum ImportSkipReason {
   /// 旗標,不重新跑一次匯入(避免撞主鍵)。見 [CoreDataImporter] 的
   /// `_detectAlreadyLanded`。
   alreadyLanded,
+
+  /// 完成旗標([kCoreDataImportCompletedKey])已經設置——不論當初是因為
+  /// 真的成功匯入、確認舊檔不存在、還是偵測到 [alreadyLanded] 而補寫,
+  /// `importIfNeeded` 之後每次呼叫都會直接回這個,不冒用 [noOldDb](那個
+  /// 專指「這次呼叫發現舊檔案不存在」,語意上不該用來代表「這次呼叫根本
+  /// 沒去檢查舊檔案,因為早就標記完成了」)。
+  alreadyCompleted,
 }
 
 /// 匯入結果:各表**落地筆數**([tableCounts])+ 是否成功 + 非致命警告,
@@ -134,6 +150,21 @@ class ImportResult {
         warnings = const [],
         permanentlyFailed = false,
         skipReason = ImportSkipReason.alreadyLanded;
+
+  /// 完成旗標([kCoreDataImportCompletedKey])已設置,`importIfNeeded` 一
+  /// 開頭就短路回這個,不去檢查舊檔案是否存在(見 [ImportSkipReason.alreadyCompleted]
+  /// 的語意說明)。
+  const ImportResult.skippedAlreadyCompleted()
+      : success = true,
+        skipped = true,
+        errorMessage = null,
+        tableCounts = const {},
+        skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
+        warnings = const [],
+        permanentlyFailed = false,
+        skipReason = ImportSkipReason.alreadyCompleted;
 
   final bool success;
 

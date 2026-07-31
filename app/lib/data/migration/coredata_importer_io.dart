@@ -25,7 +25,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show GeneratedColumn, Table, TableInfo, Value;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,7 +68,7 @@ class CoreDataImporter {
   Future<ImportResult> importIfNeeded(AppDatabase db) async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(kCoreDataImportCompletedKey) ?? false) {
-      return const ImportResult.skippedNoOldDb();
+      return const ImportResult.skippedAlreadyCompleted();
     }
     if (prefs.getBool(kCoreDataImportFailedPermanentlyKey) ?? false) {
       return const ImportResult.skippedPermanentlyFailed();
@@ -93,12 +94,22 @@ class CoreDataImporter {
       if (result.success) {
         await prefs.setBool(kCoreDataImportCompletedKey, true);
         await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+        // 核帳快照:不管是正常匯入成功、還是 alreadyLanded 命中,收工那一刻
+        // Drift 各表實際有幾筆都要留痕——alreadyLanded 命中時沒有
+        // tableCounts 可存,這份快照補上那個缺口;exercises 這種混了既有
+        // 種子的表,也不需要另外記一份 seed 基準線才能核帳(見
+        // kCoreDataImportVerifiedCountsKey 的類別文件)。
+        final verifiedCounts = await _verifiedTableCounts(db);
+        await prefs.setString(
+          kCoreDataImportVerifiedCountsKey,
+          jsonEncode(verifiedCounts),
+        );
         if (result.skipped) {
           // 「已 commit 未標旗」窗口命中(見 _detectAlreadyLanded):資料
-          // 已經在,這裡只是補寫旗標,沒有新的統計數字可存。
+          // 已經在,這裡只是補寫旗標,沒有新的落地統計數字可存。
           await log.append(
             '偵測到資料已落地但完成旗標未設置(spec 4.6 節),已補寫完成旗標,'
-            '不重新跑一次匯入。',
+            '不重新跑一次匯入。核帳快照(各表現有筆數):$verifiedCounts',
           );
         } else {
           await prefs.setString(
@@ -122,7 +133,8 @@ class CoreDataImporter {
             'skippedCounts=${result.skippedCounts}, '
             'dedupedCounts=${result.dedupedCounts}, '
             'createdPlaceholders=${result.createdPlaceholders}, '
-            'warnings=${result.warnings.length} 則',
+            'warnings=${result.warnings.length} 則, '
+            '核帳快照(各表現有筆數):$verifiedCounts',
           );
         }
       }
@@ -172,10 +184,14 @@ class CoreDataImporter {
   ///
   /// 這是 one-shot 重試,不是把使用者導回自動重試佇列:清掉
   /// [kCoreDataImportFailedPermanentlyKey] 與 [kCoreDataImportAttemptsKey]
-  /// 後跑一次 [importIfNeeded]。若這一次仍然失敗,**立刻**把旗標與計數
-  /// 復原成「已達上限」的狀態(而不是讓它從 1 次重新累積到
+  /// 後跑一次 [importIfNeeded]。若這一次仍然失敗——**或 [importIfNeeded]
+  /// 本身丟出未預期例外**(理論上它自己會 catch 住大部分狀況,但防禦性地
+  /// 假設呼叫端不該永遠信任這一點)——**立刻**把旗標與計數復原成「已達
+  /// 上限」的狀態(而不是讓它停在「已清掉」,也不是讓它從 1 次重新累積到
   /// [_maxConsecutiveFailures] 次)——否則使用者得再連續失敗好幾次才會又
-  /// 看到手動重試按鈕,等於這次點擊的重試意圖平白被吃掉。回傳的
+  /// 看到手動重試按鈕,等於這次點擊的重試意圖平白被吃掉,甚至讓 App 卡在
+  /// 「兩個旗標都沒設、又不會自動重試」的無人之地。用 try/finally 而不是
+  /// 只在失敗分支手動寫回,就是為了讓例外路徑也一定會復原。回傳的
   /// [ImportResult.permanentlyFailed] 因此在失敗時一定是 true,呼叫端不需要
   /// 另外讀 prefs 判斷。
   Future<ImportResult> retryAfterPermanentFailure(AppDatabase db) async {
@@ -183,24 +199,30 @@ class CoreDataImporter {
     await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
     await prefs.setInt(kCoreDataImportAttemptsKey, 0);
 
-    final result = await importIfNeeded(db);
-    if (result.success || result.skipped) {
-      return result;
+    var recovered = false;
+    try {
+      final result = await importIfNeeded(db);
+      if (result.success || result.skipped) {
+        recovered = true;
+        return result;
+      }
+      return ImportResult(
+        success: false,
+        skipped: false,
+        errorMessage: result.errorMessage,
+        tableCounts: result.tableCounts,
+        skippedCounts: result.skippedCounts,
+        dedupedCounts: result.dedupedCounts,
+        createdPlaceholders: result.createdPlaceholders,
+        warnings: result.warnings,
+        permanentlyFailed: true,
+      );
+    } finally {
+      if (!recovered) {
+        await prefs.setBool(kCoreDataImportFailedPermanentlyKey, true);
+        await prefs.setInt(kCoreDataImportAttemptsKey, _maxConsecutiveFailures);
+      }
     }
-
-    await prefs.setBool(kCoreDataImportFailedPermanentlyKey, true);
-    await prefs.setInt(kCoreDataImportAttemptsKey, _maxConsecutiveFailures);
-    return ImportResult(
-      success: false,
-      skipped: false,
-      errorMessage: result.errorMessage,
-      tableCounts: result.tableCounts,
-      skippedCounts: result.skippedCounts,
-      dedupedCounts: result.dedupedCounts,
-      createdPlaceholders: result.createdPlaceholders,
-      warnings: result.warnings,
-      permanentlyFailed: true,
-    );
   }
 
   Future<File> _copyToTemp(Directory supportDir) async {
@@ -398,63 +420,158 @@ class CoreDataImporter {
 
   /// spec 4.6 節「已 commit 未標旗」窗口:匯入的 transaction 已成功寫入
   /// Drift,但寫入完成旗標前 App 被中斷(崩潰 / 被系統砍掉),導致下次啟動
-  /// 誤判成尚未匯入,重跑會撞主鍵。用抽樣一筆舊庫 id、查 Drift 是否已存在
-  /// 同一個 id 的方式偵測——命中就代表資料已經在,只是旗標沒寫。
+  /// 誤判成尚未匯入,重跑會撞主鍵。用抽樣舊庫 id、查 Drift 是否已存在同一批
+  /// id 的方式偵測——任一樣本命中就代表資料已經在,只是旗標沒寫。
   ///
-  /// 抽樣優先序:workouts(訓練紀錄的 UUID 由 CoreData 產生,使用者不可能
-  /// 手動創造出跟舊庫一模一樣的 id,命中幾乎必然代表曾經匯入過)→ 舊庫沒有
-  /// workouts 時退而求其次抽 users → 再退而求其次抽自訂動作
-  /// (isSystem = false)。
+  /// 抽樣範圍:所有「原樣保留舊庫 id」的表——workouts、users、自訂動作
+  /// (isSystem = false)、templates、body_weights、personal_records、
+  /// user_goals、power_lift_records。每張表最多抽 3 筆 id(LIMIT 3),逐表
+  /// 檢查,只要有任何一筆命中 Drift 就視為已落地;不像舊版「第一張非空表
+  /// 沒中就直接判定未匯入」——那樣只要抽樣到的那 1 筆剛好被使用者事後刪掉,
+  /// 就會誤判成未匯入,重跑撞上其餘資料的主鍵。要**全部**表的**全部**樣本
+  /// 都沒命中,才會判定為未匯入。
   ///
   /// **刻意不抽系統動作**:系統動作本來就會對映到既有種子(見
   /// [_importExercises]),Drift 有那筆資料是完全正常的現象,不代表曾經
   /// 匯入過,拿它當判準會產生大量偽陽性。也**刻意不用「Drift 有任何資料」
   /// 當判準**:使用者可能在匯入失敗後就已經開始用 App 記錄新訓練,那些新
   /// 資料跟舊庫毫無關係,誤判成「已匯入」會導致舊資料永久匯不進來。
+  ///
+  /// **殘餘窗口**:多表多樣本已經把誤判機率壓得很低,但不是零——理論上
+  /// 若使用者精準刪光「每一張抽樣表裡剛好被抽中的那 1~3 筆」(其餘資料仍
+  /// 保留),就還是會誤判成未匯入而重跑一次。這是抽樣型偵測的天生限制,
+  /// 發生機率極低,不追求用全表掃描把它壓到 0(那會讓每次啟動都多付出
+  /// 一次全表比對的成本)。
   Future<bool> _detectAlreadyLanded(
     AppDatabase db,
     sqlite3lib.Database oldDb,
   ) async {
-    final workoutId = _sampleOldId(oldDb, 'ZWORKOUTENTITY');
-    if (workoutId != null) {
-      final existing = await (db.select(db.workouts)
-            ..where((t) => t.id.equals(workoutId)))
-          .get();
-      return existing.isNotEmpty;
+    if (await _anySampleExists(
+      db,
+      db.workouts,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZWORKOUTENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.users,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZUSERENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.exercises,
+      (t) => t.id,
+      _sampleOldCustomExerciseIds(oldDb),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.templates,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZTEMPLATEENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.bodyWeights,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZBODYWEIGHTENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.personalRecords,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZPERSONALRECORDENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.userGoals,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZUSERGOALENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.powerLiftRecords,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZPOWERLIFTRECORDENTITY'),
+    )) {
+      return true;
     }
 
-    final userId = _sampleOldId(oldDb, 'ZUSERENTITY');
-    if (userId != null) {
-      final existing =
-          await (db.select(db.users)..where((t) => t.id.equals(userId))).get();
-      return existing.isNotEmpty;
-    }
-
-    final customExerciseId = _sampleOldCustomExerciseId(oldDb);
-    if (customExerciseId != null) {
-      final existing = await (db.select(db.exercises)
-            ..where((t) => t.id.equals(customExerciseId)))
-          .get();
-      return existing.isNotEmpty;
-    }
-
-    // 三個來源表都是空的(理論上只會出現在一個從未真正使用過的舊庫),沒有
-    // 樣本可查,視為未偵測到,照常往下跑正常匯入流程。
+    // 所有抽樣表都是空的,或抽到的樣本 Drift 裡都沒有,沒有更多樣本可查,
+    // 視為未偵測到,照常往下跑正常匯入流程。
     return false;
   }
 
-  String? _sampleOldId(sqlite3lib.Database oldDb, String table) {
-    final rows = oldDb.select('SELECT ZID FROM $table LIMIT 1');
-    if (rows.isEmpty) return null;
-    return _uuidFromBlob(rows.first['ZID']);
+  /// [_detectAlreadyLanded] 的共用檢查邏輯:[candidateIds] 任一筆存在於
+  /// [table] 就回傳 true。抽出成獨立方法而不是在呼叫端各自組 query——8 張
+  /// 表的檢查邏輯完全一樣,只有表跟 id 欄位不同。
+  Future<bool> _anySampleExists<Tbl extends Table, Row>(
+    AppDatabase db,
+    TableInfo<Tbl, Row> table,
+    GeneratedColumn<String> Function(Tbl) idColumn,
+    List<String> candidateIds,
+  ) async {
+    if (candidateIds.isEmpty) return false;
+    final rows = await (db.select(table)
+          ..where((t) => idColumn(t).isIn(candidateIds)))
+        .get();
+    return rows.isNotEmpty;
   }
 
-  String? _sampleOldCustomExerciseId(sqlite3lib.Database oldDb) {
+  /// 抽樣舊庫某張表最多 3 筆 id(見 [_detectAlreadyLanded] 的抽樣策略說明)。
+  List<String> _sampleOldIds(sqlite3lib.Database oldDb, String table) {
+    final rows = oldDb.select('SELECT ZID FROM $table LIMIT 3');
+    return [for (final row in rows) _uuidFromBlob(row['ZID'])];
+  }
+
+  /// 自訂動作(isSystem = false)專用抽樣——`ZISSYSTEM` 用 `COALESCE(...,0)`
+  /// 修正 NULL 語意(CoreData 的 optional Bool 屬性沒賦值時欄位本身可能是
+  /// NULL,不是 0,`ZISSYSTEM = 0` 會漏掉這種列)。
+  List<String> _sampleOldCustomExerciseIds(sqlite3lib.Database oldDb) {
     final rows = oldDb.select(
-      'SELECT ZID FROM ZEXERCISEENTITY WHERE ZISSYSTEM = 0 LIMIT 1',
+      'SELECT ZID FROM ZEXERCISEENTITY WHERE COALESCE(ZISSYSTEM, 0) = 0 LIMIT 3',
     );
-    if (rows.isEmpty) return null;
-    return _uuidFromBlob(rows.first['ZID']);
+    return [for (final row in rows) _uuidFromBlob(row['ZID'])];
+  }
+
+  /// 匯入收工那一刻(成功匯入或 alreadyLanded 命中)對 Drift 11 張表各下一次
+  /// `SELECT COUNT(*)` 的核帳快照(見 [kCoreDataImportVerifiedCountsKey] 的
+  /// 類別文件)。
+  Future<Map<String, int>> _verifiedTableCounts(AppDatabase db) async {
+    Future<int> countOf<Tbl extends Table, Row>(
+      TableInfo<Tbl, Row> table,
+    ) async {
+      final rows = await db.select(table).get();
+      return rows.length;
+    }
+
+    return {
+      'users': await countOf(db.users),
+      'exercises': await countOf(db.exercises),
+      'templates': await countOf(db.templates),
+      'template_exercises': await countOf(db.templateExercises),
+      'workouts': await countOf(db.workouts),
+      'workout_exercises': await countOf(db.workoutExercises),
+      'workout_sets': await countOf(db.workoutSets),
+      'body_weights': await countOf(db.bodyWeights),
+      'personal_records': await countOf(db.personalRecords),
+      'user_goals': await countOf(db.userGoals),
+      'power_lift_records': await countOf(db.powerLiftRecords),
+    };
   }
 
   Future<({int sourceCount, Set<String> ids})> _importUsers(

@@ -66,18 +66,24 @@ class _ImportRetryTileState extends ConsumerState<ImportRetryTile> {
   }
 
   Future<void> _retry() async {
-    // 在任何 await 之前先拿 db(若走預設路徑的話)——widget 有可能在
-    // await 期間被 dispose,dispose 後才呼叫 ref.read 會噴例外;越早拿越
-    // 安全,拿到之後全程只用這個區域變數,不再碰 ref。
-    final db = widget.importAction == null ? ref.read(appDatabaseProvider) : null;
+    // 只讀一次 widget.importAction,存成區域變數——後面判斷「走注入路徑
+    // 還是預設路徑」跟「實際呼叫哪個」都只看這一份,不會出現兩次讀取因為
+    // widget 狀態變化而看到不同結果的疑慮。
+    final action = widget.importAction;
     setState(() => _retrying = true);
 
     ImportResult result;
     try {
-      final action = widget.importAction;
-      result = action != null
-          ? await action()
-          : await const CoreDataImporter().retryAfterPermanentFailure(db!);
+      if (action != null) {
+        result = await action();
+      } else {
+        // 在任何 await 之前先拿 db——widget 有可能在 await 期間被
+        // dispose,dispose 後才呼叫 ref.read 會噴例外;越早拿越安全,拿到
+        // 之後全程只用這個區域變數,不再碰 ref。此時走到這裡都還沒有任何
+        // await 發生過,拿 db 依然安全。
+        final db = ref.read(appDatabaseProvider);
+        result = await const CoreDataImporter().retryAfterPermanentFailure(db);
+      }
     } catch (e) {
       result = ImportResult(success: false, skipped: false, errorMessage: '$e');
     }
@@ -107,9 +113,17 @@ class _ImportRetryTileState extends ConsumerState<ImportRetryTile> {
         return '沒有舊資料可匯入,已標記完成';
       case ImportSkipReason.alreadyLanded:
         return '偵測到資料已存在,已補標完成';
+      case ImportSkipReason.alreadyCompleted:
+        return '舊資料先前已匯入完成';
       case ImportSkipReason.permanentlyFailed:
+        // 防禦性分支:success = true 時 skipReason 理論上不會是
+        // permanentlyFailed(見 ImportResult.skippedPermanentlyFailed 的
+        // success = false),但真的落到這裡時也不能冒用「成功」蓋過去。
+        return '重新匯入結果異常(狀態顯示成功,但標記為已達重試上限),'
+            '請截圖回報此問題';
       case null:
-        return '舊資料重新匯入成功';
+        // 同上,success = true 但沒有具體 skip 原因理論上不該發生。
+        return '重新匯入完成,但沒有取得具體結果,建議手動確認資料是否完整';
     }
   }
 
