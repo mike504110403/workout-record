@@ -18,7 +18,7 @@
 - StatCard 抽共用(等波 4 Stats 第二個使用者出現)、GoalProgress 型別化、「首頁該刷新」知識搬 Dashboard 側(波 3 加詳情頁時回看)。
 - 全 repo dart format 專波(波 0 遺留,49/69 檔會動)。
 - `import_retry_tile._messageFor` 的 alreadyLanded 分支是唯一無測試的 skipReason 分支(死碼建構子已刪,補測要手組 ImportResult)。
-- **事實問題待 Mike 答**:舊 App 的 CoreData model 有沒有版本演進?若有,更早版本舊庫缺表(如 power_lift)在**正常匯入路徑**(`_import*` 裸查)仍會三次失敗判死(既有問題非波 2 引入);確定單一凍結版本則關掉此項。
+- ~~CoreData model 版本演進疑慮~~:Mike 確認(2026-08-04)無版本演進、單一凍結 schema,正常匯入路徑缺表情境不存在,關閉。
 
 ## Mike 待辦
 
