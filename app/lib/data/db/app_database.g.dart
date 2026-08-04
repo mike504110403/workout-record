@@ -3951,9 +3951,9 @@ class $TemplatesTable extends Templates
   late final GeneratedColumn<String> userId = GeneratedColumn<String>(
     'user_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
       'REFERENCES users (id)',
     ),
@@ -4047,8 +4047,6 @@ class $TemplatesTable extends Templates
         _userIdMeta,
         userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
       );
-    } else if (isInserting) {
-      context.missing(_userIdMeta);
     }
     if (data.containsKey('name')) {
       context.handle(
@@ -4105,7 +4103,7 @@ class $TemplatesTable extends Templates
       userId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}user_id'],
-      )!,
+      ),
       name: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}name'],
@@ -4137,7 +4135,7 @@ class $TemplatesTable extends Templates
 
 class Template extends DataClass implements Insertable<Template> {
   final String id;
-  final String userId;
+  final String? userId;
   final String name;
   final String? descriptionText;
   final bool isSystem;
@@ -4145,7 +4143,7 @@ class Template extends DataClass implements Insertable<Template> {
   final DateTime updatedAt;
   const Template({
     required this.id,
-    required this.userId,
+    this.userId,
     required this.name,
     this.descriptionText,
     required this.isSystem,
@@ -4156,7 +4154,9 @@ class Template extends DataClass implements Insertable<Template> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    map['user_id'] = Variable<String>(userId);
+    if (!nullToAbsent || userId != null) {
+      map['user_id'] = Variable<String>(userId);
+    }
     map['name'] = Variable<String>(name);
     if (!nullToAbsent || descriptionText != null) {
       map['description_text'] = Variable<String>(descriptionText);
@@ -4170,7 +4170,9 @@ class Template extends DataClass implements Insertable<Template> {
   TemplatesCompanion toCompanion(bool nullToAbsent) {
     return TemplatesCompanion(
       id: Value(id),
-      userId: Value(userId),
+      userId: userId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userId),
       name: Value(name),
       descriptionText: descriptionText == null && nullToAbsent
           ? const Value.absent()
@@ -4188,7 +4190,7 @@ class Template extends DataClass implements Insertable<Template> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Template(
       id: serializer.fromJson<String>(json['id']),
-      userId: serializer.fromJson<String>(json['userId']),
+      userId: serializer.fromJson<String?>(json['userId']),
       name: serializer.fromJson<String>(json['name']),
       descriptionText: serializer.fromJson<String?>(json['descriptionText']),
       isSystem: serializer.fromJson<bool>(json['isSystem']),
@@ -4201,7 +4203,7 @@ class Template extends DataClass implements Insertable<Template> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'userId': serializer.toJson<String>(userId),
+      'userId': serializer.toJson<String?>(userId),
       'name': serializer.toJson<String>(name),
       'descriptionText': serializer.toJson<String?>(descriptionText),
       'isSystem': serializer.toJson<bool>(isSystem),
@@ -4212,7 +4214,7 @@ class Template extends DataClass implements Insertable<Template> {
 
   Template copyWith({
     String? id,
-    String? userId,
+    Value<String?> userId = const Value.absent(),
     String? name,
     Value<String?> descriptionText = const Value.absent(),
     bool? isSystem,
@@ -4220,7 +4222,7 @@ class Template extends DataClass implements Insertable<Template> {
     DateTime? updatedAt,
   }) => Template(
     id: id ?? this.id,
-    userId: userId ?? this.userId,
+    userId: userId.present ? userId.value : this.userId,
     name: name ?? this.name,
     descriptionText: descriptionText.present
         ? descriptionText.value
@@ -4282,7 +4284,7 @@ class Template extends DataClass implements Insertable<Template> {
 
 class TemplatesCompanion extends UpdateCompanion<Template> {
   final Value<String> id;
-  final Value<String> userId;
+  final Value<String?> userId;
   final Value<String> name;
   final Value<String?> descriptionText;
   final Value<bool> isSystem;
@@ -4301,7 +4303,7 @@ class TemplatesCompanion extends UpdateCompanion<Template> {
   });
   TemplatesCompanion.insert({
     required String id,
-    required String userId,
+    this.userId = const Value.absent(),
     required String name,
     this.descriptionText = const Value.absent(),
     this.isSystem = const Value.absent(),
@@ -4309,7 +4311,6 @@ class TemplatesCompanion extends UpdateCompanion<Template> {
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
-       userId = Value(userId),
        name = Value(name),
        createdAt = Value(createdAt),
        updatedAt = Value(updatedAt);
@@ -4337,7 +4338,7 @@ class TemplatesCompanion extends UpdateCompanion<Template> {
 
   TemplatesCompanion copyWith({
     Value<String>? id,
-    Value<String>? userId,
+    Value<String?>? userId,
     Value<String>? name,
     Value<String?>? descriptionText,
     Value<bool>? isSystem,
@@ -10740,7 +10741,7 @@ typedef $$WorkoutSetsTableProcessedTableManager =
 typedef $$TemplatesTableCreateCompanionBuilder =
     TemplatesCompanion Function({
       required String id,
-      required String userId,
+      Value<String?> userId,
       required String name,
       Value<String?> descriptionText,
       Value<bool> isSystem,
@@ -10751,7 +10752,7 @@ typedef $$TemplatesTableCreateCompanionBuilder =
 typedef $$TemplatesTableUpdateCompanionBuilder =
     TemplatesCompanion Function({
       Value<String> id,
-      Value<String> userId,
+      Value<String?> userId,
       Value<String> name,
       Value<String?> descriptionText,
       Value<bool> isSystem,
@@ -10768,9 +10769,9 @@ final class $$TemplatesTableReferences
     $_aliasNameGenerator(db.templates.userId, db.users.id),
   );
 
-  $$UsersTableProcessedTableManager get userId {
-    final $_column = $_itemColumn<String>('user_id')!;
-
+  $$UsersTableProcessedTableManager? get userId {
+    final $_column = $_itemColumn<String>('user_id');
+    if ($_column == null) return null;
     final manager = $$UsersTableTableManager(
       $_db,
       $_db.users,
@@ -11066,7 +11067,7 @@ class $$TemplatesTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
-                Value<String> userId = const Value.absent(),
+                Value<String?> userId = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String?> descriptionText = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),
@@ -11086,7 +11087,7 @@ class $$TemplatesTableTableManager
           createCompanionCallback:
               ({
                 required String id,
-                required String userId,
+                Value<String?> userId = const Value.absent(),
                 required String name,
                 Value<String?> descriptionText = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),

@@ -118,7 +118,10 @@ class Exercises extends Table {
 @TableIndex(name: 'idx_templates_user_id', columns: {#userId})
 class Templates extends Table {
   TextColumn get id => text()();
-  TextColumn get userId => text().references(Users, #id)();
+  // nullable(schemaVersion 2 起,見 app_database.dart migration):系統模板
+  // (isSystem = true)沒有擁有者,userId = null,對齊 Exercises.userId 的
+  // 既有慣例(見 .claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md)。
+  TextColumn get userId => text().nullable().references(Users, #id)();
   TextColumn get name => text()();
   TextColumn get descriptionText => text().nullable()();
   BoolColumn get isSystem => boolean().withDefault(const Constant(false))();

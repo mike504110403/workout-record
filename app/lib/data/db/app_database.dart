@@ -51,13 +51,25 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.connection);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (Migrator m) async {
           await m.createAll();
           await seedIfEmpty();
+        },
+        // v1 -> v2:Templates.userId 從 NOT NULL 改 nullable(系統模板需要
+        // userId = null,見 tables.dart 的註解與
+        // .claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md)。
+        // 用 `alterTable(TableMigration(...))` 做官方建議的「12-step ALTER
+        // TABLE」表重建程序——只放鬆約束、沒有改欄名/型別,不需要
+        // columnTransformer,既有列逐欄原封複製,一列都不會丟。
+        onUpgrade: (Migrator m, int from, int to) async {
+          if (from < 2) {
+            // ignore: experimental_member_use
+            await m.alterTable(TableMigration(templates));
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -77,10 +89,44 @@ class AppDatabase extends _$AppDatabase {
           ..where((t) => t.isSystem.equals(true))
           ..limit(1))
         .getSingleOrNull();
-    if (hasSystemExercises != null) return;
+    if (hasSystemExercises == null) {
+      await batch((b) {
+        b.insertAll(exercises, buildSeedExerciseCompanions());
+      });
+    }
 
+    // 獨立於上面的 exercises 去重判斷之外呼叫——即使 exercises 已經種過
+    // (上面不會再插入),模板種子仍要照跑自己的去重檢查,兩者互不影響。
+    await _seedSystemTemplatesIfEmpty();
+  }
+
+  /// 內建訓練模板種子(5 個系統模板,對照 iOS mock,見 seed_data.dart 開頭
+  /// 的完整說明與對應假設申報)。去重邏輯同 exercises:只要已經有
+  /// isSystem = true 的模板就整批跳過,不重複插入。
+  Future<void> _seedSystemTemplatesIfEmpty() async {
+    final hasSystemTemplates = await (select(templates)
+          ..where((t) => t.isSystem.equals(true))
+          ..limit(1))
+        .getSingleOrNull();
+    if (hasSystemTemplates != null) return;
+
+    // 依 categoryId 排序:kSeedExercises 裡「硬舉」「臉拉」等名稱跨分類重複
+    // (見 seed_data.dart 開頭說明),用 categoryId 排序 + putIfAbsent 讓撞名
+    // 時穩定保留固定的那一筆(依 SeedCategoryIds 常數順序),不吃 SQL 查詢
+    // 順序這種未定義行為。
+    final systemExercises = await (select(exercises)
+          ..where((t) => t.isSystem.equals(true))
+          ..orderBy([(t) => OrderingTerm(expression: t.categoryId)]))
+        .get();
+    final exerciseIdByName = <String, String>{};
+    for (final exercise in systemExercises) {
+      exerciseIdByName.putIfAbsent(exercise.name, () => exercise.id);
+    }
+
+    final seedResult = buildSeedTemplateCompanions(exerciseIdByName);
     await batch((b) {
-      b.insertAll(exercises, buildSeedExerciseCompanions());
+      b.insertAll(templates, seedResult.templates);
+      b.insertAll(templateExercises, seedResult.templateExercises);
     });
   }
 

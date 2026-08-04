@@ -26,6 +26,21 @@ import 'package:workout_record/data/migration/import_log.dart';
 
 final String _fixtureDbPath = p.join('test', 'fixtures', 'WorkoutRecord.sqlite');
 
+/// 波 3 起,`AppDatabase.forTesting` 觸發的 onCreate 一律會種 5 個系統模板
+/// (見 lib/data/db/app_database.dart 的 `_seedSystemTemplatesIfEmpty`)——
+/// 這批種子跟 CoreData 匯入無關,但會混進 `db.select(db.templates)` /
+/// `db.select(db.templateExercises)` 的全表查詢裡。這個檔案的斷言只關心
+/// 「這次匯入實際落地了什麼」,所以一律排除 isSystem 的模板,不直接查全表。
+Future<List<Template>> _importedTemplates(AppDatabase db) {
+  return (db.select(db.templates)..where((t) => t.isSystem.equals(false))).get();
+}
+
+Future<List<TemplateExercise>> _importedTemplateExercises(AppDatabase db) async {
+  final importedTemplateIds = (await _importedTemplates(db)).map((t) => t.id).toSet();
+  final all = await db.select(db.templateExercises).get();
+  return all.where((te) => importedTemplateIds.contains(te.templateId)).toList();
+}
+
 void main() {
   late Directory tempDir;
 
@@ -141,8 +156,8 @@ void main() {
 
       await importer.importIfNeeded(db);
 
-      expect(await db.select(db.templates).get(), hasLength(4));
-      expect(await db.select(db.templateExercises).get(), hasLength(20));
+      expect(await _importedTemplates(db), hasLength(4));
+      expect(await _importedTemplateExercises(db), hasLength(20));
     });
 
     test('1 個用戶、1 筆體重、3 筆個人紀錄、3 筆三大項紀錄', () async {
@@ -268,7 +283,7 @@ void main() {
       // 後續動作正確①:誠實回報具體的 skip 原因,不是籠統的「skipped」。
       expect(second.skipReason, ImportSkipReason.alreadyCompleted);
       expect(second.success, isTrue);
-      expect(await db.select(db.templates).get(), hasLength(4));
+      expect(await _importedTemplates(db), hasLength(4));
       // 後續動作正確②:alreadyCompleted 是 importIfNeeded 開頭第一件事就
       // 短路回傳(見 coredata_importer_io.dart),連 ImportLog 物件都不會
       // 建立,不會對本地 log 多追加一行——跟真的執行一次匯入/alreadyLanded
@@ -411,7 +426,7 @@ void main() {
       final result = await importer.importIfNeeded(db);
 
       expect(result.success, isTrue, reason: result.errorMessage);
-      final templateExercises = await db.select(db.templateExercises).get();
+      final templateExercises = await _importedTemplateExercises(db);
       expect(templateExercises, hasLength(1));
       expect(templateExercises.single.suggestedSets, 3);
       expect(
@@ -543,7 +558,7 @@ void main() {
       final result = await importer.importIfNeeded(db);
 
       expect(result.success, isTrue, reason: result.errorMessage);
-      final templateExercises = await db.select(db.templateExercises).get();
+      final templateExercises = await _importedTemplateExercises(db);
       expect(templateExercises, isEmpty);
 
       // 不像 workout_exercises,這裡不會補建佔位動作——67 筆系統種子動作

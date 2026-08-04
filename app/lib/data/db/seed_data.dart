@@ -187,3 +187,171 @@ List<ExercisesCompanion> buildSeedExerciseCompanions() {
       )
       .toList();
 }
+
+// ============================================================================
+// 系統訓練模板種子(波 3 第一段,見
+// .claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md)
+// ============================================================================
+//
+// 5 個系統模板,名稱/動作/建議組次逐一對照 iOS
+// `WorkoutTemplateViewModel.swift:160-227` 的 DEBUG mock 資料(release 版該
+// 檔案原本看不到這批模板,這裡把它們轉正式種子,isSystem = true、
+// userId = null)。
+//
+// 動作一樣以「名稱」對應 [kSeedExercises](同一套穩定鍵策略,理由見檔案開頭)。
+//
+// **對應假設申報**:iOS mock 裡「臥推」「划船」「二頭彎舉」是通用泛稱,不在
+// 66 筆種子的精確名單裡(種子只有槓鈴臥推/啞鈴臥推/...等具體變化版本,沒有
+// 不帶前綴的裸名)。此檔案把它們對應到各自最通用的槓鈴變化版本——
+// 臥推 -> 槓鈴臥推、划船 -> 槓鈴划船、二頭彎舉 -> 槓鈴彎舉——這是本次實作
+// 的假設,不是 iOS 原始資料,已在完成回報中向 Mike 申報;如需改對應,
+// 直接改下面 kSeedTemplates 裡對應項目的 exerciseName 即可,不影響其他部分。
+//
+// 「硬舉」同時存在於背部與腿部分類(對照 kSeedExercises 開頭說明的跨分類
+// 重複)。[_seedSystemTemplatesIfEmpty](app_database.dart)用
+// `putIfAbsent` + 依 categoryId 排序來決定撞名時保留哪一筆(背部先於腿部,
+// 對齊 PPL-Pull 模板把「硬舉」歸在拉系動作的語意)——只影響哪一筆 Exercises
+// row 被連結,不影響動作名稱本身或任何測試斷言(TemplateExercises 的動作
+// 數量與名稱不受影響)。
+
+/// 單一模板動作的種子定義:動作名稱(對應 [kSeedExercises])+ 建議組數/次數。
+class SeedTemplateExercise {
+  final String exerciseName;
+  final int? suggestedSets;
+  final int? suggestedReps;
+
+  const SeedTemplateExercise({
+    required this.exerciseName,
+    this.suggestedSets,
+    this.suggestedReps,
+  });
+}
+
+/// 單一系統模板的種子定義。
+class SeedTemplate {
+  final String name;
+  final String? description;
+  final List<SeedTemplateExercise> exercises;
+
+  const SeedTemplate({
+    required this.name,
+    this.description,
+    required this.exercises,
+  });
+}
+
+/// 5 個系統模板,依 iOS mock 原始順序排列(PPL Push/Pull/Legs、上肢、全身)。
+const List<SeedTemplate> kSeedTemplates = [
+  SeedTemplate(
+    name: 'PPL - Push (推)',
+    description: '胸、肩、三頭訓練',
+    exercises: [
+      SeedTemplateExercise(exerciseName: '槓鈴臥推', suggestedSets: 4, suggestedReps: 8),
+      SeedTemplateExercise(exerciseName: '上斜啞鈴臥推', suggestedSets: 4, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '肩推', suggestedSets: 4, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '側平舉', suggestedSets: 3, suggestedReps: 12),
+      SeedTemplateExercise(exerciseName: '三頭下壓', suggestedSets: 3, suggestedReps: 12),
+    ],
+  ),
+  SeedTemplate(
+    name: 'PPL - Pull (拉)',
+    description: '背、二頭訓練',
+    exercises: [
+      SeedTemplateExercise(exerciseName: '硬舉', suggestedSets: 3, suggestedReps: 5),
+      SeedTemplateExercise(exerciseName: '引體向上', suggestedSets: 4, suggestedReps: 8),
+      SeedTemplateExercise(exerciseName: '槓鈴划船', suggestedSets: 4, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '坐姿划船', suggestedSets: 3, suggestedReps: 12),
+      SeedTemplateExercise(exerciseName: '槓鈴彎舉', suggestedSets: 3, suggestedReps: 10),
+    ],
+  ),
+  SeedTemplate(
+    name: 'PPL - Legs (腿)',
+    description: '腿部完整訓練',
+    exercises: [
+      SeedTemplateExercise(exerciseName: '深蹲', suggestedSets: 4, suggestedReps: 8),
+      SeedTemplateExercise(exerciseName: '羅馬尼亞硬舉', suggestedSets: 4, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '腿推機', suggestedSets: 4, suggestedReps: 12),
+      SeedTemplateExercise(exerciseName: '腿彎舉', suggestedSets: 3, suggestedReps: 12),
+      SeedTemplateExercise(exerciseName: '提踵', suggestedSets: 4, suggestedReps: 15),
+    ],
+  ),
+  SeedTemplate(
+    name: '上肢訓練',
+    description: '上半身完整訓練',
+    exercises: [
+      // iOS mock: 臥推(對應假設,見檔案開頭申報)
+      SeedTemplateExercise(exerciseName: '槓鈴臥推', suggestedSets: 4, suggestedReps: 8),
+      // iOS mock: 划船(對應假設,見檔案開頭申報)
+      SeedTemplateExercise(exerciseName: '槓鈴划船', suggestedSets: 4, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '肩推', suggestedSets: 3, suggestedReps: 10),
+      // iOS mock: 二頭彎舉(對應假設,見檔案開頭申報)
+      SeedTemplateExercise(exerciseName: '槓鈴彎舉', suggestedSets: 3, suggestedReps: 12),
+      SeedTemplateExercise(exerciseName: '三頭下壓', suggestedSets: 3, suggestedReps: 12),
+    ],
+  ),
+  SeedTemplate(
+    name: '全身訓練',
+    description: '適合初學者的全身訓練',
+    exercises: [
+      SeedTemplateExercise(exerciseName: '深蹲', suggestedSets: 3, suggestedReps: 10),
+      // iOS mock: 臥推(對應假設,見檔案開頭申報)
+      SeedTemplateExercise(exerciseName: '槓鈴臥推', suggestedSets: 3, suggestedReps: 10),
+      SeedTemplateExercise(exerciseName: '硬舉', suggestedSets: 3, suggestedReps: 8),
+      SeedTemplateExercise(exerciseName: '引體向上', suggestedSets: 3, suggestedReps: 8),
+      SeedTemplateExercise(exerciseName: '肩推', suggestedSets: 3, suggestedReps: 10),
+    ],
+  ),
+];
+
+/// 將 [kSeedTemplates] 轉成可插入 `Templates` + `TemplateExercises` 表的
+/// Companion 清單。呼叫端(app_database.dart 的 `_seedSystemTemplatesIfEmpty`)
+/// 需先確保 [kSeedExercises] 已經種好,並傳入「動作名稱 -> 已插入的
+/// exercise id」對照表([exerciseIdByName])。
+///
+/// 找不到對應名稱時丟 [StateError] 而不是靜默略過——系統模板的動作數量是
+/// 被測試鎖住的固定值(對照 iOS mock),名稱對不上代表種子資料本身有誤,
+/// 應該在開發期就讓它炸掉,而不是悄悄種出動作數不對的模板。
+({List<TemplatesCompanion> templates, List<TemplateExercisesCompanion> templateExercises})
+    buildSeedTemplateCompanions(Map<String, String> exerciseIdByName) {
+  final now = DateTime.now();
+  final templateCompanions = <TemplatesCompanion>[];
+  final templateExerciseCompanions = <TemplateExercisesCompanion>[];
+
+  for (final seedTemplate in kSeedTemplates) {
+    final templateId = generateUuidV4();
+    templateCompanions.add(
+      TemplatesCompanion.insert(
+        id: templateId,
+        userId: const Value(null),
+        name: seedTemplate.name,
+        descriptionText: Value(seedTemplate.description),
+        isSystem: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    for (var i = 0; i < seedTemplate.exercises.length; i++) {
+      final seedExercise = seedTemplate.exercises[i];
+      final exerciseId = exerciseIdByName[seedExercise.exerciseName];
+      if (exerciseId == null) {
+        throw StateError(
+          '系統模板種子「${seedTemplate.name}」的動作「${seedExercise.exerciseName}」'
+          '找不到對應的種子動作(kSeedExercises 沒有這個名稱)。',
+        );
+      }
+      templateExerciseCompanions.add(
+        TemplateExercisesCompanion.insert(
+          id: generateUuidV4(),
+          templateId: templateId,
+          exerciseId: exerciseId,
+          orderIndex: Value(i),
+          suggestedSets: Value(seedExercise.suggestedSets),
+          suggestedReps: Value(seedExercise.suggestedReps),
+        ),
+      );
+    }
+  }
+
+  return (templates: templateCompanions, templateExercises: templateExerciseCompanions);
+}

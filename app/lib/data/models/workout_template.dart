@@ -6,7 +6,10 @@ import 'exercise.dart';
 /// 訓練模板,對應 Drift `Templates` 表。
 class WorkoutTemplate {
   final String id;
-  final String userId;
+  /// 擁有者。系統模板(見 [isSystem])沒有擁有者,是 null——對應 schemaVersion
+  /// 2 起 `Templates.userId` 改 nullable(見 tables.dart 註解與
+  /// `.claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md`)。
+  final String? userId;
   final String name;
   final String? description;
   final bool isSystem;
@@ -16,7 +19,7 @@ class WorkoutTemplate {
 
   const WorkoutTemplate({
     required this.id,
-    required this.userId,
+    this.userId,
     required this.name,
     this.description,
     this.isSystem = false,
