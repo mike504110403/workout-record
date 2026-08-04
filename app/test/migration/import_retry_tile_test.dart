@@ -135,6 +135,24 @@ void main() {
     expect(find.text('沒有舊資料可匯入,已標記完成'), findsOneWidget);
   });
 
+  testWidgets('重試結果是 skipReason = alreadyCompleted 時顯示對應訊息'
+      '(觸發路徑先前缺斷言:_messageFor 的這個分支從未被任何測試跑到過)', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        ImportRetryTile(
+          checkPermanentlyFailed: () async => true,
+          importAction: () async =>
+              const ImportResult.skippedAlreadyCompleted(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tapRetryAndDrain(tester);
+
+    expect(find.text('舊資料先前已匯入完成'), findsOneWidget);
+  });
+
   testWidgets(
     '不注入 checkPermanentlyFailed(走真實 SharedPreferences 檢查):重試'
     '失敗後 tile 仍然可見,不會因為 _visibleFuture 重新檢查時讀到中間狀態'
