@@ -27,8 +27,7 @@ const kCoreDataImportAttemptsKey = 'coredata_import_attempts';
 /// `importIfNeeded` 之後會直接 skip,不再自動重試,需使用者手動點擊
 /// Settings 頁的重試按鈕(呼叫 [CoreDataImporter.retryAfterPermanentFailure])
 /// 才會再跑一次。
-const kCoreDataImportFailedPermanentlyKey =
-    'coredata_import_failed_permanently';
+const kCoreDataImportFailedPermanentlyKey = 'coredata_import_failed_permanently';
 
 /// SharedPreferences:成功匯入後的各表**落地筆數**,以 JSON 字串存放,供之後
 /// debug / 跟使用者核對「東西是不是都搬過來了」(spec 4.5 節)。
@@ -46,8 +45,7 @@ const kCoreDataImportDedupedCountsKey = 'coredata_import_deduped_counts';
 /// SharedPreferences:成功匯入後,因舊資料的 FK 對不上任何已知列而惰性補建
 /// 的佔位列筆數(users / exercises 兩表),以 JSON 字串存放。這些是**額外
 /// 新增**的列,不對應任何一筆舊庫來源資料。
-const kCoreDataImportCreatedPlaceholdersKey =
-    'coredata_import_created_placeholders';
+const kCoreDataImportCreatedPlaceholdersKey = 'coredata_import_created_placeholders';
 
 /// SharedPreferences:匯入收工那一刻(成功匯入 transaction 剛 commit,或
 /// alreadyLanded 命中)對 Drift 各表下的 `SELECT COUNT(*)` 核帳快照,以 JSON
@@ -125,71 +123,49 @@ class ImportResult {
   });
 
   const ImportResult.skippedNoOldDb()
-    : success = true,
-      skipped = true,
-      errorMessage = null,
-      tableCounts = const {},
-      skippedCounts = const {},
-      dedupedCounts = const {},
-      createdPlaceholders = const {},
-      warnings = const [],
-      permanentlyFailed = false,
-      skipReason = ImportSkipReason.noOldDb,
-      oldDbTableCounts = const {};
+      : success = true,
+        skipped = true,
+        errorMessage = null,
+        tableCounts = const {},
+        skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
+        warnings = const [],
+        permanentlyFailed = false,
+        skipReason = ImportSkipReason.noOldDb,
+        oldDbTableCounts = const {};
 
   /// 連續失敗達重試上限、已標記 [kCoreDataImportFailedPermanentlyKey] 時,
   /// `importIfNeeded` 直接回傳這個結果,不再嘗試開檔匯入。
   const ImportResult.skippedPermanentlyFailed()
-    : success = false,
-      skipped = true,
-      errorMessage =
-          '先前已連續失敗達重試上限,已標記為 permanently failed,'
-          '需在設定頁手動重試。',
-      tableCounts = const {},
-      skippedCounts = const {},
-      dedupedCounts = const {},
-      createdPlaceholders = const {},
-      warnings = const [],
-      permanentlyFailed = true,
-      skipReason = ImportSkipReason.permanentlyFailed,
-      oldDbTableCounts = const {};
-
-  /// 「已 commit 未標旗」窗口命中(見 [ImportSkipReason.alreadyLanded]):
-  /// 資料其實已經在 Drift 裡,只是完成旗標沒寫,已補寫旗標,不重新匯入
-  /// (重新匯入會撞主鍵)。**不帶** [oldDbTableCounts]——那份數字是動態查出來
-  /// 的(每次舊庫內容不同),這個 const 命名建構子只給沒有實際偵測、憑空
-  /// 建出結果的少數呼叫端(目前是 [retryAfterPermanentFailure] 內部片段)
-  /// 使用;真正命中 alreadyLanded 的路徑(見 coredata_importer_io.dart
-  /// `_importFromFile`)會改用主建構子,親自帶上當下查到的
-  /// [oldDbTableCounts],不會呼叫這個命名建構子。
-  const ImportResult.skippedAlreadyLanded()
-    : success = true,
-      skipped = true,
-      errorMessage = null,
-      tableCounts = const {},
-      skippedCounts = const {},
-      dedupedCounts = const {},
-      createdPlaceholders = const {},
-      warnings = const [],
-      permanentlyFailed = false,
-      skipReason = ImportSkipReason.alreadyLanded,
-      oldDbTableCounts = const {};
+      : success = false,
+        skipped = true,
+        errorMessage = '先前已連續失敗達重試上限,已標記為 permanently failed,'
+            '需在設定頁手動重試。',
+        tableCounts = const {},
+        skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
+        warnings = const [],
+        permanentlyFailed = true,
+        skipReason = ImportSkipReason.permanentlyFailed,
+        oldDbTableCounts = const {};
 
   /// 完成旗標([kCoreDataImportCompletedKey])已設置,`importIfNeeded` 一
   /// 開頭就短路回這個,不去檢查舊檔案是否存在(見 [ImportSkipReason.alreadyCompleted]
   /// 的語意說明)。
   const ImportResult.skippedAlreadyCompleted()
-    : success = true,
-      skipped = true,
-      errorMessage = null,
-      tableCounts = const {},
-      skippedCounts = const {},
-      dedupedCounts = const {},
-      createdPlaceholders = const {},
-      warnings = const [],
-      permanentlyFailed = false,
-      skipReason = ImportSkipReason.alreadyCompleted,
-      oldDbTableCounts = const {};
+      : success = true,
+        skipped = true,
+        errorMessage = null,
+        tableCounts = const {},
+        skippedCounts = const {},
+        dedupedCounts = const {},
+        createdPlaceholders = const {},
+        warnings = const [],
+        permanentlyFailed = false,
+        skipReason = ImportSkipReason.alreadyCompleted,
+        oldDbTableCounts = const {};
 
   final bool success;
 
@@ -227,14 +203,29 @@ class ImportResult {
   final ImportSkipReason? skipReason;
 
   /// [skipReason] 為 [ImportSkipReason.alreadyLanded] 時,命中當下對舊庫
-  /// (CoreData SQLite)11 張表各下的 `SELECT COUNT(*)`(見
-  /// coredata_importer_io.dart `_oldDbTableCounts` / `_detectAlreadyLanded`)。
-  /// 其餘情況一律是空 map——「已 commit 未標旗」窗口命中時沒有本次的
-  /// [tableCounts] 可存(見該欄位文件),這份舊庫側快照補上「命中當下舊庫
-  /// 原本有多少」的數字,跟同一時刻寫進
-  /// [kCoreDataImportVerifiedCountsKey] 的 Drift 側核帳快照對照,才看得出
-  /// 兩邊是否吻合,供日後診斷這類窗口時比對,不只是知道「有命中」這個
-  /// 布林結果。
+  /// (CoreData SQLite)各表下的 `SELECT COUNT(*)`(見 coredata_importer_io.dart
+  /// `_oldDbTableCounts` / `_detectAlreadyLanded`)。其餘情況一律是空
+  /// map——「已 commit 未標旗」窗口命中時沒有本次的 [tableCounts] 可存
+  /// (見該欄位文件),這份舊庫側快照補上「命中當下舊庫原本有多少」的數字,
+  /// 供日後診斷這類窗口時跟 [kCoreDataImportVerifiedCountsKey] 的 Drift 側
+  /// 核帳快照比對。
+  ///
+  /// 比對時哪些 key 該精確相等、哪些預期會有落差,取決於該表的落地規則:
+  /// - **應精確相等**:workouts / templates / body_weights /
+  ///   personal_records / user_goals / power_lift_records——這幾張表原樣
+  ///   保留舊庫 id、沒有去重也沒有孤兒略過,alreadyLanded 命中代表資料已經
+  ///   一比一落地,兩邊數字該相等。
+  /// - **預期會有落差**:`exercises`(Drift 側還含 seedIfEmpty() 的既有種子
+  ///   + 惰性補建的佔位動作,舊庫側只有原始筆數,Drift 側通常較大)、
+  ///   `template_exercises` / `workout_exercises` / `workout_sets`(結構層
+  ///   孤兒防護可能略過整列,Drift 側可能較小)、`users`(舊庫可能是空表,
+  ///   靠惰性補建的佔位使用者落地,Drift 側可能較大)。
+  ///
+  /// 單表查詢在舊庫裡失敗(表不存在)時,該 key 直接不出現在這個 map 裡
+  /// (見 `_oldDbTableCounts` 的逐表 try/catch 說明),不是 0——0 代表「查
+  /// 得到、確實是空表」,key 缺席代表「查不到,沒有這個數字可比對」,兩者
+  /// 語意不同,呼叫端讀取時要用 `oldDbTableCounts['workouts']`(可能是
+  /// `null`)而不是假設一定有值。
   final Map<String, int> oldDbTableCounts;
 
   @override
