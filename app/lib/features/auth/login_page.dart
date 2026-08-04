@@ -67,6 +67,54 @@ class LoginPage extends ConsumerWidget {
         // 再次觸發 ref.listen 的 previous != next 比較。
         ref.read(sessionControllerProvider.notifier).clearError();
       }
+
+      // 帳號隔離(見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)
+      // ——controller 只回傳/更新狀態,不自己彈 UI,這裡才是真正決定要不要
+      // 彈警告對話框的地方。用 `!=` 比對 [LoginOwnerConflict] 物件(沒有覆寫
+      // `==`,走 identity 比較)——每次 controller 偵測到衝突都會建一個新
+      // instance,所以「同一個 instance 沒變」不會重複彈,「換一個新 instance」
+      // (即使欄位內容一樣)一定會彈,對齊 errorMessage 那條路的一次性事件
+      // 精神。
+      final conflict = next.ownerConflict;
+      if (conflict != null && conflict != previous?.ownerConflict) {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => PopScope(
+            // 防 Android 實體/手勢返回鍵繞過警告對話框直接關掉——這個對話框
+            // 只能靠「取消」或「刪除並繼續」兩顆按鈕明確做出選擇,不能被
+            // 系統返回手勢當成「取消」悄悄吃掉(那樣使用者會誤以為自己
+            // 已經取消,但下一次同一身分登入 controller 又會再彈一次,
+            // 行為對得上但體驗詭異,乾脆不給返回鍵這條路)。
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('偵測到不同帳號'),
+              content: const Text(
+                '此裝置保存了另一個帳號的資料,繼續將永久刪除本機所有訓練紀錄,'
+                '並以目前登入的帳號重新開始。確定要繼續嗎?',
+              ),
+              actions: [
+                TextButton(
+                  key: const Key('ownerConflictCancelButton'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    ref.read(sessionControllerProvider.notifier).cancelOwnerConflict();
+                  },
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  key: const Key('ownerConflictConfirmButton'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    ref.read(sessionControllerProvider.notifier).confirmClearAndContinueLogin();
+                  },
+                  child: const Text('刪除並繼續'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
     });
 
     return Scaffold(
