@@ -24,7 +24,11 @@ import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/migration/coredata_importer.dart';
 import 'package:workout_record/data/migration/import_log.dart';
 
-final String _fixtureDbPath = p.join('test', 'fixtures', 'WorkoutRecord.sqlite');
+final String _fixtureDbPath = p.join(
+  'test',
+  'fixtures',
+  'WorkoutRecord.sqlite',
+);
 
 void main() {
   late Directory tempDir;
@@ -58,7 +62,9 @@ void main() {
     return CoreDataImporter(
       supportDirectoryProvider: () async => supportDir,
       temporaryDirectoryProvider: () async {
-        final dir = Directory(p.join(tempDir.path, 'tmp_${supportDir.hashCode}'));
+        final dir = Directory(
+          p.join(tempDir.path, 'tmp_${supportDir.hashCode}'),
+        );
         dir.createSync(recursive: true);
         return dir;
       },
@@ -70,8 +76,9 @@ void main() {
   Directory buildBadSupportDir(String name) {
     final dir = Directory(p.join(tempDir.path, name))
       ..createSync(recursive: true);
-    File(p.join(dir.path, 'WorkoutRecord.sqlite'))
-        .writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
+    File(
+      p.join(dir.path, 'WorkoutRecord.sqlite'),
+    ).writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
     return dir;
   }
 
@@ -216,15 +223,18 @@ void main() {
       await importer.importIfNeeded(db);
 
       final pushTemplateId = _hexToUuid('2339F463F7A44B95BD8BE91F0CC6736B');
-      final orderedTemplateExercises = await (db.select(db.templateExercises)
-            ..where((t) => t.templateId.equals(pushTemplateId))
-            ..orderBy([(t) => OrderingTerm.asc(t.orderIndex)]))
-          .get();
+      final orderedTemplateExercises =
+          await (db.select(db.templateExercises)
+                ..where((t) => t.templateId.equals(pushTemplateId))
+                ..orderBy([(t) => OrderingTerm.asc(t.orderIndex)]))
+              .get();
 
       expect(orderedTemplateExercises, hasLength(5));
-      final firstExercise = await (db.select(db.exercises)
-            ..where((t) => t.id.equals(orderedTemplateExercises.first.exerciseId)))
-          .getSingle();
+      final firstExercise =
+          await (db.select(db.exercises)..where(
+                (t) => t.id.equals(orderedTemplateExercises.first.exerciseId),
+              ))
+              .getSingle();
       // fixture 裡 PPL - Push 模板 orderIndex = 0 的動作是「槓鈴臥推」。
       expect(firstExercise.name, '槓鈴臥推');
     });
@@ -236,8 +246,9 @@ void main() {
 
       await importer.importIfNeeded(db);
 
-      final exerciseIds =
-          (await db.select(db.exercises).get()).map((e) => e.id).toSet();
+      final exerciseIds = (await db.select(db.exercises).get())
+          .map((e) => e.id)
+          .toSet();
       final templateExerciseIds = (await db.select(db.templateExercises).get())
           .map((te) => te.exerciseId)
           .toSet();
@@ -245,17 +256,35 @@ void main() {
       expect(exerciseIds.containsAll(templateExerciseIds), isTrue);
     });
 
-    test('冪等:跑兩次不會重複匯入', () async {
+    test('冪等:跑兩次不會重複匯入——第二次觸發的是 alreadyCompleted 短路'
+        '(完成旗標已設置),不是重新掃描舊庫或撞主鍵', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
+      final supportDir = copyFixtureAsOldAppSupportDir();
+      final importer = importerWithSupportDir(supportDir);
 
       final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      // 觸發條件成立的獨立驗證:第二次呼叫前,完成旗標必須已經是 true
+      // (alreadyCompleted 短路的判準本身),不是先假設它成立。
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
+      final logFile = File(p.join(supportDir.path, 'logs', 'import.log'));
+      expect(logFile.existsSync(), isTrue);
+      final logLinesAfterFirst = logFile.readAsLinesSync().length;
+
       final second = await importer.importIfNeeded(db);
 
-      expect(first.skipped, isFalse);
       expect(second.skipped, isTrue);
+      // 後續動作正確①:誠實回報具體的 skip 原因,不是籠統的「skipped」。
+      expect(second.skipReason, ImportSkipReason.alreadyCompleted);
+      expect(second.success, isTrue);
       expect(await db.select(db.templates).get(), hasLength(4));
+      // 後續動作正確②:alreadyCompleted 是 importIfNeeded 開頭第一件事就
+      // 短路回傳(見 coredata_importer_io.dart),連 ImportLog 物件都不會
+      // 建立,不會對本地 log 多追加一行——跟真的執行一次匯入/alreadyLanded
+      // 偵測(那兩者都會多寫一行 log)不同,這裡驗證行數沒有增加。
+      expect(logFile.readAsLinesSync().length, logLinesAfterFirst);
     });
   });
 
@@ -286,8 +315,9 @@ void main() {
       addTearDown(db.close);
       final badSupportDir = Directory(p.join(tempDir.path, 'bad_support'))
         ..createSync(recursive: true);
-      File(p.join(badSupportDir.path, 'WorkoutRecord.sqlite'))
-          .writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
+      File(
+        p.join(badSupportDir.path, 'WorkoutRecord.sqlite'),
+      ).writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
       final importer = importerWithSupportDir(badSupportDir);
 
       // 呼叫本身不能拋出未捕捉例外——importIfNeeded 要自己 catch 並回傳失敗
@@ -325,9 +355,9 @@ void main() {
       final result = await importer.importIfNeeded(db);
 
       expect(result.success, isTrue, reason: result.errorMessage);
-      final sets = await (db.select(db.workoutSets)
-            ..orderBy([(t) => OrderingTerm.asc(t.setNumber)]))
-          .get();
+      final sets = await (db.select(
+        db.workoutSets,
+      )..orderBy([(t) => OrderingTerm.asc(t.setNumber)])).get();
       expect(sets, hasLength(2));
       expect(sets[0].rpe, isNull);
       expect(sets[0].restSeconds, isNull);
@@ -343,7 +373,9 @@ void main() {
       addTearDown(db.close);
       final supportDir = Directory(p.join(tempDir.path, 'orphan_we_support'))
         ..createSync(recursive: true);
-      _buildOrphanWorkoutExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      _buildOrphanWorkoutExerciseDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
       final importer = importerWithSupportDir(supportDir);
 
       final result = await importer.importIfNeeded(db);
@@ -357,7 +389,9 @@ void main() {
       expect(sets, hasLength(1));
       expect(sets.single.note, 'valid set');
       expect(
-        result.warnings.any((w) => w.contains('workout_exercises') && w.contains('未對到任何已匯入的訓練')),
+        result.warnings.any(
+          (w) => w.contains('workout_exercises') && w.contains('未對到任何已匯入的訓練'),
+        ),
         isTrue,
       );
     });
@@ -377,7 +411,9 @@ void main() {
       expect(sets, hasLength(1));
       expect(sets.single.note, 'valid set');
       expect(
-        result.warnings.any((w) => w.contains('workout_sets') && w.contains('未對到任何已匯入的訓練動作')),
+        result.warnings.any(
+          (w) => w.contains('workout_sets') && w.contains('未對到任何已匯入的訓練動作'),
+        ),
         isTrue,
       );
     });
@@ -387,7 +423,9 @@ void main() {
       addTearDown(db.close);
       final supportDir = Directory(p.join(tempDir.path, 'orphan_te_support'))
         ..createSync(recursive: true);
-      _buildOrphanTemplateExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      _buildOrphanTemplateExerciseDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
       final importer = importerWithSupportDir(supportDir);
 
       final result = await importer.importIfNeeded(db);
@@ -397,7 +435,9 @@ void main() {
       expect(templateExercises, hasLength(1));
       expect(templateExercises.single.suggestedSets, 3);
       expect(
-        result.warnings.any((w) => w.contains('template_exercises') && w.contains('未對到任何已匯入的模板')),
+        result.warnings.any(
+          (w) => w.contains('template_exercises') && w.contains('未對到任何已匯入的模板'),
+        ),
         isTrue,
       );
     });
@@ -406,8 +446,9 @@ void main() {
         '佔位動作補建、sets 保留、可讀回', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir = Directory(p.join(tempDir.path, 'missing_exercise_we_support'))
-        ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'missing_exercise_we_support'),
+      )..createSync(recursive: true);
       _buildMissingExerciseForWorkoutExerciseDb(
         p.join(supportDir.path, 'WorkoutRecord.sqlite'),
       );
@@ -418,9 +459,10 @@ void main() {
       expect(result.success, isTrue, reason: result.errorMessage);
       final workoutExercises = await db.select(db.workoutExercises).get();
       expect(workoutExercises, hasLength(1));
-      final placeholderExercise = await (db.select(db.exercises)
-            ..where((t) => t.id.equals(workoutExercises.single.exerciseId)))
-          .getSingle();
+      final placeholderExercise =
+          await (db.select(db.exercises)
+                ..where((t) => t.id.equals(workoutExercises.single.exerciseId)))
+              .getSingle();
       expect(placeholderExercise.name, 'Ghost Exercise');
       expect(placeholderExercise.isSystem, isFalse);
       expect(placeholderExercise.isActive, isTrue);
@@ -432,7 +474,11 @@ void main() {
       expect(sets.single.reps, 5);
 
       expect(
-        result.warnings.any((w) => w.contains('workout_exercises') && w.contains('已補建佔位動作「Ghost Exercise」')),
+        result.warnings.any(
+          (w) =>
+              w.contains('workout_exercises') &&
+              w.contains('已補建佔位動作「Ghost Exercise」'),
+        ),
         isTrue,
       );
       // 舊庫 ZEXERCISEENTITY 本身是空的(見 fixture 文件註解),落地的這 1
@@ -444,8 +490,9 @@ void main() {
     test('personal_record 的 exerciseId 對不上 → 佔位「未知動作」補建、PR 保留', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir = Directory(p.join(tempDir.path, 'missing_exercise_pr_support'))
-        ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'missing_exercise_pr_support'),
+      )..createSync(recursive: true);
       _buildMissingExerciseForPersonalRecordDb(
         p.join(supportDir.path, 'WorkoutRecord.sqlite'),
       );
@@ -456,14 +503,16 @@ void main() {
       expect(result.success, isTrue, reason: result.errorMessage);
       final records = await db.select(db.personalRecords).get();
       expect(records, hasLength(1));
-      final placeholderExercise = await (db.select(db.exercises)
-            ..where((t) => t.id.equals(records.single.exerciseId)))
-          .getSingle();
+      final placeholderExercise = await (db.select(
+        db.exercises,
+      )..where((t) => t.id.equals(records.single.exerciseId))).getSingle();
       expect(placeholderExercise.name, '未知動作');
       expect(records.single.oneRepMax, closeTo(70.0, 1e-9));
 
       expect(
-        result.warnings.any((w) => w.contains('personal_records') && w.contains('已補建佔位動作「未知動作」')),
+        result.warnings.any(
+          (w) => w.contains('personal_records') && w.contains('已補建佔位動作「未知動作」'),
+        ),
         isTrue,
       );
       // 同上——舊庫 ZEXERCISEENTITY 是空的,落地的這 1 筆 exercise 完全是
@@ -477,7 +526,9 @@ void main() {
       addTearDown(db.close);
       final supportDir = Directory(p.join(tempDir.path, 'no_user_support'))
         ..createSync(recursive: true);
-      _buildNoUserWithBodyWeightDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      _buildNoUserWithBodyWeightDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
       final importer = importerWithSupportDir(supportDir);
 
       final result = await importer.importIfNeeded(db);
@@ -494,7 +545,9 @@ void main() {
       expect(bodyWeights.single.weight, 82.5);
 
       expect(
-        result.warnings.any((w) => w.contains('舊庫也沒有任何 UserEntity') && w.contains('已補建佔位使用者')),
+        result.warnings.any(
+          (w) => w.contains('舊庫也沒有任何 UserEntity') && w.contains('已補建佔位使用者'),
+        ),
         isTrue,
       );
 
@@ -514,9 +567,9 @@ void main() {
         '(對照 workout_exercises:那邊會補建佔位動作,這裡不會)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'missing_exercise_te_support'))
-            ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'missing_exercise_te_support'),
+      )..createSync(recursive: true);
       _buildMissingExerciseForTemplateExerciseDb(
         p.join(supportDir.path, 'WorkoutRecord.sqlite'),
       );
@@ -530,10 +583,9 @@ void main() {
 
       // 不像 workout_exercises,這裡不會補建佔位動作——67 筆系統種子動作
       // 之外沒有任何新增的自訂/佔位動作。
-      final customOrPlaceholderExercises =
-          (await db.select(db.exercises).get())
-              .where((e) => !e.isSystem)
-              .toList();
+      final customOrPlaceholderExercises = (await db.select(db.exercises).get())
+          .where((e) => !e.isSystem)
+          .toList();
       expect(customOrPlaceholderExercises, isEmpty);
 
       expect(
@@ -548,12 +600,12 @@ void main() {
   });
 
   group('CoreDataImporter - 連續失敗上限與手動重試(spec 4.6 節)', () {
-
     test('連續失敗 3 次後標記 permanently failed,第 4 次直接 skip 不再嘗試開檔', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final importer =
-          importerWithSupportDir(buildBadSupportDir('retry_limit_support'));
+      final importer = importerWithSupportDir(
+        buildBadSupportDir('retry_limit_support'),
+      );
 
       for (var i = 1; i <= 3; i++) {
         final result = await importer.importIfNeeded(db);
@@ -599,7 +651,9 @@ void main() {
       for (final suffix in ['', '-wal', '-shm']) {
         final source = File('$_fixtureDbPath$suffix');
         if (source.existsSync()) {
-          source.copySync(p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'));
+          source.copySync(
+            p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'),
+          );
         }
       }
 
@@ -638,7 +692,9 @@ void main() {
       for (final suffix in ['', '-wal', '-shm']) {
         final source = File('$_fixtureDbPath$suffix');
         if (source.existsSync()) {
-          source.copySync(p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'));
+          source.copySync(
+            p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'),
+          );
         }
       }
 
@@ -658,8 +714,9 @@ void main() {
         '另外讀 prefs', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final importer =
-          importerWithSupportDir(buildBadSupportDir('retry_still_bad_support'));
+      final importer = importerWithSupportDir(
+        buildBadSupportDir('retry_still_bad_support'),
+      );
 
       for (var i = 0; i < 3; i++) {
         await importer.importIfNeeded(db);
@@ -693,8 +750,9 @@ void main() {
         '不撞主鍵、直接補標完成', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir = Directory(p.join(tempDir.path, 'already_landed_support'))
-        ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'already_landed_support'),
+      )..createSync(recursive: true);
       _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
       final importer = importerWithSupportDir(supportDir);
 
@@ -726,14 +784,18 @@ void main() {
       // 使用者在匯入前已經自己開始記錄了一筆新訓練,userId/workoutId 都是
       // 跟舊庫毫無關係的新 UUID。
       const userCreatedUserId = '11111111-1111-1111-1111-111111111111';
-      await db.into(db.users).insert(
+      await db
+          .into(db.users)
+          .insert(
             UsersCompanion.insert(
               id: userCreatedUserId,
               createdAt: DateTime.now(),
               updatedAt: DateTime.now(),
             ),
           );
-      await db.into(db.workouts).insert(
+      await db
+          .into(db.workouts)
+          .insert(
             WorkoutsCompanion.insert(
               id: '22222222-2222-2222-2222-222222222222',
               userId: userCreatedUserId,
@@ -743,9 +805,9 @@ void main() {
             ),
           );
 
-      final supportDir =
-          Directory(p.join(tempDir.path, 'user_created_before_import_support'))
-            ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'user_created_before_import_support'),
+      )..createSync(recursive: true);
       _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
       final importer = importerWithSupportDir(supportDir);
 
@@ -759,13 +821,12 @@ void main() {
     });
 
     test('多表多樣本①:舊庫無 user、無 workout,只有 body_weight,且該'
-        'body_weight 已在 Drift → 命中(抽樣退到 body_weights 表才找到樣本)',
-        () async {
+        'body_weight 已在 Drift → 命中(抽樣退到 body_weights 表才找到樣本)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'already_landed_bw_only_support'))
-            ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'already_landed_bw_only_support'),
+      )..createSync(recursive: true);
       _buildNoUserWithBodyWeightDb(
         p.join(supportDir.path, 'WorkoutRecord.sqlite'),
       );
@@ -792,9 +853,9 @@ void main() {
         '此測試修正前必須紅——重跑會因 users 主鍵衝突而失敗)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'workout_deleted_support'))
-            ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'workout_deleted_support'),
+      )..createSync(recursive: true);
       _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
       final importer = importerWithSupportDir(supportDir);
 
@@ -823,10 +884,8 @@ void main() {
     });
   });
 
-  group('CoreDataImporter - 核帳快照(spec 4.5 節,minor:alreadyLanded 也要留痕)',
-      () {
-    test('成功匯入時,核帳快照存進 SharedPreferences 且與 Drift 實際筆數一致',
-        () async {
+  group('CoreDataImporter - 核帳快照(spec 4.5 節,minor:alreadyLanded 也要留痕)', () {
+    test('成功匯入時,核帳快照存進 SharedPreferences 且與 Drift 實際筆數一致', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
@@ -837,8 +896,8 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
       expect(stored, isNotNull);
-      final verifiedCounts =
-          (jsonDecode(stored!) as Map<String, dynamic>).cast<String, int>();
+      final verifiedCounts = (jsonDecode(stored!) as Map<String, dynamic>)
+          .cast<String, int>();
       // exercises 落地量是 0(全部去重合併到既有種子),但核帳快照是「Drift
       // 現有筆數」,兩者不是同一個數字——快照應該看得到那 66 筆既有種子。
       expect(verifiedCounts['exercises'], greaterThan(0));
@@ -850,14 +909,60 @@ void main() {
         verifiedCounts['workouts'],
         (await db.select(db.workouts).get()).length,
       );
+      // allTables 遍歷覆蓋:快照的 key 數量要跟 AppDatabase 實際登記的表數
+      // 一致(獨立參照——直接比對 db.allTables.length,不是手動寫死 11 這個
+      // 數字讓「手列漏表」的錯誤有機會被自己蓋掉)。
+      expect(verifiedCounts.keys.length, db.allTables.length);
     });
 
-    test('alreadyLanded 命中時,即使沒有 tableCounts 也照樣存核帳快照', () async {
+    test('孤兒 skip 情境下,verified counts 反映落地量而非讀取量——若把'
+        '_verifiedTableCounts 改回累計/讀取量,此測試必須紅', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'verified_counts_already_landed'))
-            ..createSync(recursive: true);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'verified_counts_orphan_we_support'),
+      )..createSync(recursive: true);
+      _buildOrphanWorkoutExerciseDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+      expect(result.success, isTrue, reason: result.errorMessage);
+      // 舊庫讀到 2 筆 workout_exercise(1 有效 + 1 孤兒略過),落地只有 1 筆。
+      expect(result.tableCounts['workout_exercises'], 1);
+      expect(result.skippedCounts['workout_exercises'], 1);
+
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
+      expect(stored, isNotNull);
+      final verifiedCounts = (jsonDecode(stored!) as Map<String, dynamic>)
+          .cast<String, int>();
+
+      // 參照物獨立於被測物:直接對 in-memory Drift DB 下 SELECT,不拿
+      // result 的其他欄位當參照。
+      final actualLandedRows = await db.select(db.workoutExercises).get();
+      expect(verifiedCounts['workout_exercises'], actualLandedRows.length);
+      expect(verifiedCounts['workout_exercises'], 1);
+      // 明確不等於讀取量(舊庫實際有 2 筆)——這正是「孤兒 skip 時偏高,
+      // 不能當零遺失證據」的反例覆蓋。
+      expect(verifiedCounts['workout_exercises'], isNot(2));
+
+      // 同一個 fixture 的 workout_sets 也有一組孤兒(父列被略過連帶略過):
+      // 舊庫讀到 2 筆,落地只有 1 筆,同樣要反映落地量。
+      final actualLandedSets = await db.select(db.workoutSets).get();
+      expect(verifiedCounts['workout_sets'], actualLandedSets.length);
+      expect(verifiedCounts['workout_sets'], 1);
+      expect(verifiedCounts['workout_sets'], isNot(2));
+    });
+
+    test('alreadyLanded 命中時,即使沒有 tableCounts 也照樣存核帳快照,且'
+        '結果/log 順記舊庫(CoreData)各表 COUNT(*)供比對', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(
+        p.join(tempDir.path, 'verified_counts_already_landed'),
+      )..createSync(recursive: true);
       _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
       final importer = importerWithSupportDir(supportDir);
 
@@ -872,96 +977,203 @@ void main() {
 
       final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
       expect(stored, isNotNull);
-      final verifiedCounts =
-          (jsonDecode(stored!) as Map<String, dynamic>).cast<String, int>();
+      final verifiedCounts = (jsonDecode(stored!) as Map<String, dynamic>)
+          .cast<String, int>();
       expect(verifiedCounts['workouts'], 1);
       expect(verifiedCounts['users'], 1);
+
+      // 舊庫(CoreData)側的 COUNT(*) 快照——獨立參照:直接對合成舊庫下
+      // SQL COUNT,不拿 Drift 側的 verifiedCounts 或 result 的其他欄位替代。
+      final oldDb = sqlite3lib.sqlite3.open(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+        mode: sqlite3lib.OpenMode.readOnly,
+      );
+      final expectedOldWorkouts =
+          oldDb.select('SELECT COUNT(*) AS c FROM ZWORKOUTENTITY').first['c']
+              as int;
+      final expectedOldUsers =
+          oldDb.select('SELECT COUNT(*) AS c FROM ZUSERENTITY').first['c']
+              as int;
+      oldDb.dispose();
+
+      expect(second.oldDbTableCounts, isNotEmpty);
+      expect(second.oldDbTableCounts['workouts'], expectedOldWorkouts);
+      expect(second.oldDbTableCounts['users'], expectedOldUsers);
+
+      final logFile = File(p.join(supportDir.path, 'logs', 'import.log'));
+      expect(logFile.existsSync(), isTrue);
+      expect(logFile.readAsStringSync(), contains('舊庫(CoreData)各表 COUNT'));
     });
   });
 
-  group('CoreDataImporter - 統計口徑:tableCounts 落地量 vs skippedCounts(spec 4.5 節)', () {
-    test('沒有孤兒的真實 fixture:三張易孤兒表的 skippedCounts 皆為 0,'
-        'tableCounts 為落地量(exercises 因全數去重為 0,其餘表與來源筆數'
-        '相等)', () async {
+  group('CoreDataImporter - exercises 核帳等式(spec 4.5 節:快照 = 種子'
+      '(系統動作)+ 自訂動作落地)', () {
+    test('真實 fixture(66 筆系統動作全數去重,無自訂動作):verifiedCounts'
+        '[exercises] = 匯入前既有種子數 + 本次落地量(0)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
+      // 獨立參照:匯入前先直接對 in-memory DB 查一次種子數(seedIfEmpty
+      // 已在建庫時跑過),不拿匯入結果的任何欄位當作「種子有多少」的依據。
+      final seedCountBeforeImport =
+          (await db.select(db.exercises).get()).length;
+      expect(seedCountBeforeImport, 66);
+
       final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
-
       final result = await importer.importIfNeeded(db);
-
       expect(result.success, isTrue, reason: result.errorMessage);
-      expect(result.skippedCounts['template_exercises'], 0);
-      expect(result.skippedCounts['workout_exercises'], 0);
-      expect(result.skippedCounts['workout_sets'], 0);
-      final expectedLanded = Map<String, int>.from(fixtureSourceCounts())
-        ..['exercises'] = 0;
-      expect(result.tableCounts, equals(expectedLanded));
 
-      // 成功匯入的落地量摘要(連同 skippedCounts/dedupedCounts/
-      // createdPlaceholders)也會存進 SharedPreferences(spec 4.5 節)。
       final prefs = await SharedPreferences.getInstance();
-      final storedTableCounts = prefs.getString(kCoreDataImportTableCountsKey);
-      expect(storedTableCounts, isNotNull);
+      final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
+      final verifiedCounts = (jsonDecode(stored!) as Map<String, dynamic>)
+          .cast<String, int>();
+
+      final actualExercisesCount = (await db.select(db.exercises).get()).length;
+      expect(verifiedCounts['exercises'], actualExercisesCount);
+      // 等式核心斷言:種子(匯入前 66)+ 本次落地量(全數去重,0)= 66。
       expect(
-        jsonDecode(storedTableCounts!) as Map<String, dynamic>,
-        equals(result.tableCounts),
+        verifiedCounts['exercises'],
+        seedCountBeforeImport + result.tableCounts['exercises']!,
       );
-      final storedSkippedCounts =
-          prefs.getString(kCoreDataImportSkippedCountsKey);
-      expect(storedSkippedCounts, isNotNull);
-      expect(
-        jsonDecode(storedSkippedCounts!) as Map<String, dynamic>,
-        equals(result.skippedCounts),
-      );
-      final storedDedupedCounts =
-          prefs.getString(kCoreDataImportDedupedCountsKey);
-      expect(storedDedupedCounts, isNotNull);
-      expect(
-        jsonDecode(storedDedupedCounts!) as Map<String, dynamic>,
-        equals(result.dedupedCounts),
-      );
+      expect(verifiedCounts['exercises'], 66);
     });
 
-    test('workout_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
-        'skippedCounts 另外記錄被略過的孤兒數', () async {
+    test('孤兒 exerciseId 補建佔位動作情境:verifiedCounts[exercises] = '
+        '匯入前既有種子數 + 本次落地量(含補建的佔位動作),等式仍成立', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'counts_orphan_we_support'))
-            ..createSync(recursive: true);
-      _buildOrphanWorkoutExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final seedCountBeforeImport =
+          (await db.select(db.exercises).get()).length;
+      expect(seedCountBeforeImport, 66);
+
+      final supportDir = Directory(
+        p.join(tempDir.path, 'exercises_equation_orphan_support'),
+      )..createSync(recursive: true);
+      // 這個合成舊庫的 ZEXERCISEENTITY 是空表(見該 builder 文件),舊庫的
+      // workout_exercise 帶著一個從未存在的 exerciseId → 補建 1 筆佔位動作
+      // 「Ghost Exercise」,不是略過整列。
+      _buildMissingExerciseForWorkoutExerciseDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
       final importer = importerWithSupportDir(supportDir);
 
       final result = await importer.importIfNeeded(db);
-
       expect(result.success, isTrue, reason: result.errorMessage);
-      // fixture 有 2 筆 workout_exercise 來源(1 有效 + 1 孤兒),落地量只
-      // 算成功寫入的 1 筆,不能拿「讀到的筆數」(2)當作零遺失的證據。
-      expect(result.tableCounts['workout_exercises'], 1);
-      expect(result.skippedCounts['workout_exercises'], 1);
-      // 孤兒 workout_exercise 底下的 set 隨其父列一併略過:來源 2 筆,
-      // 落地 1 筆。
-      expect(result.tableCounts['workout_sets'], 1);
-      expect(result.skippedCounts['workout_sets'], 1);
-    });
+      expect(result.createdPlaceholders['exercises'], 1);
+      expect(result.tableCounts['exercises'], 1);
 
-    test('template_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
-        'skippedCounts 另外記錄被略過的孤兒數', () async {
-      final db = AppDatabase.forTesting(NativeDatabase.memory());
-      addTearDown(db.close);
-      final supportDir =
-          Directory(p.join(tempDir.path, 'counts_orphan_te_support'))
-            ..createSync(recursive: true);
-      _buildOrphanTemplateExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
-      final importer = importerWithSupportDir(supportDir);
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
+      final verifiedCounts = (jsonDecode(stored!) as Map<String, dynamic>)
+          .cast<String, int>();
 
-      final result = await importer.importIfNeeded(db);
-
-      expect(result.success, isTrue, reason: result.errorMessage);
-      expect(result.tableCounts['template_exercises'], 1);
-      expect(result.skippedCounts['template_exercises'], 1);
+      // 參照物獨立於被測物:直接對 in-memory DB 下 SELECT COUNT。
+      final actualExercisesCount = (await db.select(db.exercises).get()).length;
+      expect(verifiedCounts['exercises'], actualExercisesCount);
+      // 等式:種子(66)+ 落地量(1 筆補建的佔位動作)= 67。
+      expect(
+        verifiedCounts['exercises'],
+        seedCountBeforeImport + result.tableCounts['exercises']!,
+      );
+      expect(verifiedCounts['exercises'], 67);
     });
   });
+
+  group(
+    'CoreDataImporter - 統計口徑:tableCounts 落地量 vs skippedCounts(spec 4.5 節)',
+    () {
+      test('沒有孤兒的真實 fixture:三張易孤兒表的 skippedCounts 皆為 0,'
+          'tableCounts 為落地量(exercises 因全數去重為 0,其餘表與來源筆數'
+          '相等)', () async {
+        final db = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(db.close);
+        final importer = importerWithSupportDir(
+          copyFixtureAsOldAppSupportDir(),
+        );
+
+        final result = await importer.importIfNeeded(db);
+
+        expect(result.success, isTrue, reason: result.errorMessage);
+        expect(result.skippedCounts['template_exercises'], 0);
+        expect(result.skippedCounts['workout_exercises'], 0);
+        expect(result.skippedCounts['workout_sets'], 0);
+        final expectedLanded = Map<String, int>.from(fixtureSourceCounts())
+          ..['exercises'] = 0;
+        expect(result.tableCounts, equals(expectedLanded));
+
+        // 成功匯入的落地量摘要(連同 skippedCounts/dedupedCounts/
+        // createdPlaceholders)也會存進 SharedPreferences(spec 4.5 節)。
+        final prefs = await SharedPreferences.getInstance();
+        final storedTableCounts = prefs.getString(
+          kCoreDataImportTableCountsKey,
+        );
+        expect(storedTableCounts, isNotNull);
+        expect(
+          jsonDecode(storedTableCounts!) as Map<String, dynamic>,
+          equals(result.tableCounts),
+        );
+        final storedSkippedCounts = prefs.getString(
+          kCoreDataImportSkippedCountsKey,
+        );
+        expect(storedSkippedCounts, isNotNull);
+        expect(
+          jsonDecode(storedSkippedCounts!) as Map<String, dynamic>,
+          equals(result.skippedCounts),
+        );
+        final storedDedupedCounts = prefs.getString(
+          kCoreDataImportDedupedCountsKey,
+        );
+        expect(storedDedupedCounts, isNotNull);
+        expect(
+          jsonDecode(storedDedupedCounts!) as Map<String, dynamic>,
+          equals(result.dedupedCounts),
+        );
+      });
+
+      test('workout_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
+          'skippedCounts 另外記錄被略過的孤兒數', () async {
+        final db = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(db.close);
+        final supportDir = Directory(
+          p.join(tempDir.path, 'counts_orphan_we_support'),
+        )..createSync(recursive: true);
+        _buildOrphanWorkoutExerciseDb(
+          p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+        );
+        final importer = importerWithSupportDir(supportDir);
+
+        final result = await importer.importIfNeeded(db);
+
+        expect(result.success, isTrue, reason: result.errorMessage);
+        // fixture 有 2 筆 workout_exercise 來源(1 有效 + 1 孤兒),落地量只
+        // 算成功寫入的 1 筆,不能拿「讀到的筆數」(2)當作零遺失的證據。
+        expect(result.tableCounts['workout_exercises'], 1);
+        expect(result.skippedCounts['workout_exercises'], 1);
+        // 孤兒 workout_exercise 底下的 set 隨其父列一併略過:來源 2 筆,
+        // 落地 1 筆。
+        expect(result.tableCounts['workout_sets'], 1);
+        expect(result.skippedCounts['workout_sets'], 1);
+      });
+
+      test('template_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
+          'skippedCounts 另外記錄被略過的孤兒數', () async {
+        final db = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(db.close);
+        final supportDir = Directory(
+          p.join(tempDir.path, 'counts_orphan_te_support'),
+        )..createSync(recursive: true);
+        _buildOrphanTemplateExerciseDb(
+          p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+        );
+        final importer = importerWithSupportDir(supportDir);
+
+        final result = await importer.importIfNeeded(db);
+
+        expect(result.success, isTrue, reason: result.errorMessage);
+        expect(result.tableCounts['template_exercises'], 1);
+        expect(result.skippedCounts['template_exercises'], 1);
+      });
+    },
+  );
 
   group('CoreDataImporter - 本地 log(spec 4.6 節,不只靠 debugPrint)', () {
     File logFileFor(Directory supportDir) =>
@@ -988,8 +1200,9 @@ void main() {
       addTearDown(db.close);
       final supportDir = Directory(p.join(tempDir.path, 'log_bad_support'))
         ..createSync(recursive: true);
-      File(p.join(supportDir.path, 'WorkoutRecord.sqlite'))
-          .writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
+      File(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      ).writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
       final importer = importerWithSupportDir(supportDir);
 
       final result = await importer.importIfNeeded(db);
@@ -1081,7 +1294,17 @@ void _buildSyntheticOldDb(String path) {
       'INSERT INTO ZEXERCISEENTITY '
       '(ZID, ZNAME, ZCATEGORYID, ZTYPE, ZISSYSTEM, ZISACTIVE, ZUSERID, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [exerciseId, 'Synthetic Exercise', categoryId, 'free_weight', 0, 1, userId, 0.0, 0.0],
+      [
+        exerciseId,
+        'Synthetic Exercise',
+        categoryId,
+        'free_weight',
+        0,
+        1,
+        userId,
+        0.0,
+        0.0,
+      ],
     );
 
     db.execute(
@@ -1160,7 +1383,17 @@ void _buildOrphanWorkoutExerciseDb(String path) {
       'INSERT INTO ZEXERCISEENTITY '
       '(ZID, ZNAME, ZCATEGORYID, ZTYPE, ZISSYSTEM, ZISACTIVE, ZUSERID, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [exerciseId, 'Bench Press', categoryId, 'free_weight', 0, 1, userId, 0.0, 0.0],
+      [
+        exerciseId,
+        'Bench Press',
+        categoryId,
+        'free_weight',
+        0,
+        1,
+        userId,
+        0.0,
+        0.0,
+      ],
     );
     db.execute(
       'INSERT INTO ZWORKOUTENTITY '
@@ -1216,14 +1449,34 @@ void _buildOrphanWorkoutExerciseDb(String path) {
       'INSERT INTO ZWORKOUTSETENTITY '
       '(ZID, ZWORKOUTEXERCISEID, ZSETNUMBER, ZWEIGHT, ZREPS, ZVOLUME, ZNOTE, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [validSetId, validWorkoutExerciseId, 1, 50.0, 10, 500.0, 'valid set', 0.0, 0.0],
+      [
+        validSetId,
+        validWorkoutExerciseId,
+        1,
+        50.0,
+        10,
+        500.0,
+        'valid set',
+        0.0,
+        0.0,
+      ],
     );
     // 掛在孤兒 workout_exercise 底下的 set,應隨其父列一併被略過。
     db.execute(
       'INSERT INTO ZWORKOUTSETENTITY '
       '(ZID, ZWORKOUTEXERCISEID, ZSETNUMBER, ZWEIGHT, ZREPS, ZVOLUME, ZNOTE, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [orphanSetId, orphanWorkoutExerciseId, 1, 40.0, 8, 320.0, 'orphan set', 0.0, 0.0],
+      [
+        orphanSetId,
+        orphanWorkoutExerciseId,
+        1,
+        40.0,
+        8,
+        320.0,
+        'orphan set',
+        0.0,
+        0.0,
+      ],
     );
   } finally {
     db.dispose();
@@ -1243,7 +1496,9 @@ void _buildOrphanWorkoutSetDb(String path) {
     final exerciseId = _fakeUuidBytes(22);
     final workoutId = _fakeUuidBytes(23);
     final validWorkoutExerciseId = _fakeUuidBytes(24);
-    final danglingWorkoutExerciseId = _fakeUuidBytes(25); // 從未寫進 ZWORKOUTEXERCISEENTITY
+    final danglingWorkoutExerciseId = _fakeUuidBytes(
+      25,
+    ); // 從未寫進 ZWORKOUTEXERCISEENTITY
     final validSetId = _fakeUuidBytes(26);
     final orphanSetId = _fakeUuidBytes(27);
 
@@ -1288,7 +1543,17 @@ void _buildOrphanWorkoutSetDb(String path) {
       'INSERT INTO ZWORKOUTSETENTITY '
       '(ZID, ZWORKOUTEXERCISEID, ZSETNUMBER, ZWEIGHT, ZREPS, ZVOLUME, ZNOTE, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [validSetId, validWorkoutExerciseId, 1, 60.0, 5, 300.0, 'valid set', 0.0, 0.0],
+      [
+        validSetId,
+        validWorkoutExerciseId,
+        1,
+        60.0,
+        5,
+        300.0,
+        'valid set',
+        0.0,
+        0.0,
+      ],
     );
     // 孤兒:workoutExerciseId 指向從未存在的 workout_exercise。
     db.execute(
@@ -1337,7 +1602,17 @@ void _buildOrphanTemplateExerciseDb(String path) {
       'INSERT INTO ZEXERCISEENTITY '
       '(ZID, ZNAME, ZCATEGORYID, ZTYPE, ZISSYSTEM, ZISACTIVE, ZUSERID, '
       'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [exerciseId, 'Deadlift', categoryId, 'free_weight', 0, 1, userId, 0.0, 0.0],
+      [
+        exerciseId,
+        'Deadlift',
+        categoryId,
+        'free_weight',
+        0,
+        1,
+        userId,
+        0.0,
+        0.0,
+      ],
     );
     db.execute(
       'INSERT INTO ZTEMPLATEENTITY '
