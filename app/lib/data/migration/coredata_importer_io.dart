@@ -876,13 +876,18 @@ class CoreDataImporter {
       await db.into(db.templates).insert(
             TemplatesCompanion.insert(
               id: id,
-              userId: await _resolveUserId(
+              // Templates.userId 自 schemaVersion 2 起改 nullable(系統模板
+              // 用,見 tables.dart);匯入的模板一律是使用者自建,
+              // _resolveUserId 一定解出真實 userId(必要時補建佔位使用者),
+              // 這裡包一層 Value() 純粹是型別配合欄位改 nullable 後的
+              // Companion 簽名,行為不變。
+              userId: Value(await _resolveUserId(
                 db,
                 _uuidFromBlob(row['ZUSERID']),
                 userIds,
                 '模板「$name」',
                 tally,
-              ),
+              )),
               name: name,
               descriptionText: Value(row['ZDESCRIPTIONTEXT'] as String?),
               isSystem: Value(_boolFromInt(row['ZISSYSTEM'])),

@@ -36,11 +36,18 @@ class TemplateRepository {
 
   // MARK: - Read
 
+  /// minor 修改(大腦核准的既有方法一行變更,回報中單獨列出):WHERE 補
+  /// `isSystem = false`。防呆——CoreData 匯入的個人模板理論上不該是
+  /// isSystem = true,但來源資料就是「使用者裝置上真實存在過什麼就是
+  /// 什麼」,沒有結構性保證;萬一某筆匯入列的 userId 剛好等於某個真實
+  /// 使用者、ZISSYSTEM 又剛好是 1,原本這裡會把它撈進「個人模板」清單,
+  /// 跟 fetchSystemTemplates() 撈到的同一筆重複列出兩次。加這個條件讓
+  /// fetchAll 名副其實只回傳個人模板,系統模板一律只從 fetchSystemTemplates()
+  /// 出現一次。
   Future<List<WorkoutTemplate>> fetchAll(String userId) async {
     final rows = await (_db.select(_db.templates)
-          ..where((t) => t.userId.equals(userId))
+          ..where((t) => t.userId.equals(userId) & t.isSystem.equals(false))
           ..orderBy([
-            (t) => OrderingTerm(expression: t.isSystem, mode: OrderingMode.desc),
             (t) => OrderingTerm(expression: t.name),
           ]))
         .get();

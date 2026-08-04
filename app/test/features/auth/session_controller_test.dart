@@ -601,6 +601,17 @@ void main() {
       expect(afterAll.any((e) => e.id == 'custom-ex-1'), isFalse); // 自訂動作(個資)已刪
       expect(afterAll.where((e) => e.isSystem).length, 66); // 系統動作庫重種回滿額
       expect(afterAll.length, 66); // 沒有任何非系統動作殘留
+
+      // code-M-B / db-m3:resetForNewOwner() 清空 templates 後,seedIfEmpty()
+      // 也會重種 5 個系統模板——這條路徑先前「行為對但沒測試」,比照上面
+      // 動作庫 66 筆的既有斷言,這裡補模板側,不再是無守門的隱性行為。
+      final templatesAfter =
+          await (db.select(db.templates)..where((t) => t.isSystem.equals(true))).get();
+      expect(templatesAfter, hasLength(5));
+      final templateExercisesAfter = await (db.select(db.templateExercises)
+            ..where((t) => t.templateId.isIn(templatesAfter.map((t) => t.id))))
+          .get();
+      expect(templateExercisesAfter, hasLength(25));
     });
   });
 

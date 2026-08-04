@@ -6,7 +6,10 @@ import 'exercise.dart';
 /// 訓練模板,對應 Drift `Templates` 表。
 class WorkoutTemplate {
   final String id;
-  final String userId;
+  /// 擁有者。系統模板(見 [isSystem])沒有擁有者,是 null——對應 schemaVersion
+  /// 2 起 `Templates.userId` 改 nullable(見 tables.dart 註解與
+  /// `.claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md`)。
+  final String? userId;
   final String name;
   final String? description;
   final bool isSystem;
@@ -16,7 +19,7 @@ class WorkoutTemplate {
 
   const WorkoutTemplate({
     required this.id,
-    required this.userId,
+    this.userId,
     required this.name,
     this.description,
     this.isSystem = false,
@@ -53,9 +56,15 @@ class WorkoutTemplate {
     );
   }
 
+  /// [description] 用 [Value] 哨兵區分「沒傳(維持原值)」與「傳入 null
+  /// (清空描述)」——原本用 `description ?? this.description` 這種一般
+  /// nullable 參數寫法,清空描述時傳進來的 null 會被 `??` 吃掉、自動退回
+  /// 舊描述,存檔後畫面看起來成功但 DB 裡描述其實沒被清掉(code-reviewer
+  /// 實測重現的真實 bug)。呼叫端要清空描述時必須明確傳
+  /// `description: const Value(null)`,不傳這個參數就是「不動描述」。
   WorkoutTemplate copyWith({
     String? name,
-    String? description,
+    Value<String?> description = const Value.absent(),
     List<TemplateExercise>? exercises,
     DateTime? updatedAt,
   }) {
@@ -63,7 +72,7 @@ class WorkoutTemplate {
       id: id,
       userId: userId,
       name: name ?? this.name,
-      description: description ?? this.description,
+      description: description.present ? description.value : this.description,
       isSystem: isSystem,
       exercises: exercises ?? this.exercises,
       createdAt: createdAt,
