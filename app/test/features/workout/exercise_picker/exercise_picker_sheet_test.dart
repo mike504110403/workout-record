@@ -49,6 +49,40 @@ class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
   }
 }
 
+/// code review r2 major S1:原本的 major 2 回歸測試選了「引體向上」——這筆
+/// 動作本來就同時存在於 `fetchAll()` 跟 `fetchByCategory('背部')`(現行
+/// repository 謂詞下,`fetchByCategory` 永遠是 `fetchAll` 的子集),所以就算
+/// `_confirmMultiSelect` 退回「只查 allExercises」的舊寫法,這筆動作照樣在
+/// `allExercises` 裡找得到,測試移除聯集邏輯也不會變紅——不是真的守門。
+///
+/// 這個 stub 讓 `fetchByCategory` 額外回傳一筆**只從這裡冒出來、沒有真的
+/// 寫進 DB**的合成動作,模擬「未來 fetchByCategory 的謂詞跟 fetchAll 出現
+/// 分歧(例如 fetchByCategory 多了 fetchAll 沒有的條件,或反過來)」的情境
+/// ——`fetchAll()` 查真實 DB,永遠找不到這筆合成動作,聯集邏輯若被移除,
+/// 靠它勾選的動作在確認當下真的會消失,測試才有辦法變紅。
+class _CategoryOnlyBonusExerciseRepository extends ExerciseRepository {
+  _CategoryOnlyBonusExerciseRepository(super.db);
+
+  static final categoryOnlyBonusExercise = Exercise(
+    id: 'category-only-bonus-exercise-not-in-db',
+    name: '謂詞分歧測試動作(只存在於 fetchByCategory)',
+    categoryId: SeedCategoryIds.back,
+    type: ExerciseType.freeWeight,
+    isSystem: true,
+    createdAt: DateTime(2026, 1, 1),
+    updatedAt: DateTime(2026, 1, 1),
+  );
+
+  @override
+  Future<List<Exercise>> fetchByCategory(String categoryId) async {
+    final real = await super.fetchByCategory(categoryId);
+    if (categoryId == SeedCategoryIds.back) {
+      return [...real, categoryOnlyBonusExercise];
+    }
+    return real;
+  }
+}
+
 /// 觸發選動作器的最小 host 頁面:一顆按鈕開 sheet,回傳結果(含「尚未有
 /// 結果」與「明確回傳 null」兩種狀態的區分)顯示在畫面上供斷言。
 class _PickerHostPage extends StatefulWidget {
@@ -342,21 +376,25 @@ void main() {
     });
 
     testWidgets(
-      '多選模式:在分類篩選過的清單(categoryExercises)勾選,確認仍含該動作(code review major 2)',
+      '多選模式:勾選只存在於 categoryExercises、不存在於 allExercises 的動作,確認仍含該動作'
+      '(code review major 2,r2 major S1 修正:用謂詞分歧 stub 讓這條測試真的守得住)',
       (tester) async {
-        final harness = await _setUpHarness();
+        final harness = await _setUpHarness(
+          exerciseRepoBuilder: (db) => _CategoryOnlyBonusExerciseRepository(db),
+        );
         await _pumpHost(tester, harness, multiSelect: true);
         await _openPicker(tester);
 
-        // 先切到背部分類——此時畫面顯示的是 `categoryExercises`,不是
-        // `allExercises`。原本的 bug:`_confirmMultiSelect` 只從
-        // `allExercises` 解析勾選 id,若兩份清單的查詢謂詞不一致,在這裡
+        // 先切到背部分類——此時畫面顯示的是 `categoryExercises`,裡面含
+        // stub 塞的合成動作(`categoryOnlyBonusExercise`),它不存在於
+        // `allExercises`(fetchAll 查真實 DB 找不到它)。原本的 bug:
+        // `_confirmMultiSelect` 只從 `allExercises` 解析勾選 id,這種情境下
         // 勾選的動作會在確認當下無聲消失。
         await tester.tap(find.byKey(Key('category_chip_${SeedCategoryIds.back}')));
         await tester.pumpAndSettle();
 
-        final exercises = await harness.exerciseRepo.fetchByCategory(SeedCategoryIds.back);
-        final target = exercises.firstWhere((e) => e.name == '引體向上');
+        final target = _CategoryOnlyBonusExerciseRepository.categoryOnlyBonusExercise;
+        expect(find.byKey(Key('exercise_row_${target.id}')), findsOneWidget);
 
         await tester.tap(find.byKey(Key('exercise_row_${target.id}')));
         await tester.pumpAndSettle();
@@ -503,6 +541,45 @@ void main() {
       )..where((t) => t.isSystem.equals(false))).get();
       expect(rows, isEmpty);
     });
+
+    testWidgets(
+      '失敗後關閉表單、重新點「+」開新表單,不殘留上一次的錯誤訊息(code review r2 minor S2)',
+      (tester) async {
+        final harness = await _setUpHarness(
+          exerciseRepoBuilder: (db) => _ThrowingCreateExerciseRepository(db),
+        );
+        await _pumpHost(tester, harness);
+        await _openPicker(tester);
+
+        await tester.tap(find.byKey(const Key('exercise_picker_add_button')));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(const Key('quick_add_name_field')), '會失敗的動作');
+        await tester.tap(find.byKey(const Key('quick_add_submit_button')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('quick_add_error_text')), findsOneWidget);
+
+        // 點背景關閉這個表單(疊在最上層的 modal route 自己的 barrier),
+        // 不經任何確認/取消按鈕——這條表單本身沒有明確的取消鈕,對照
+        // showModalBottomSheet 的預設滑掉/點外部關閉行為。
+        await tester.tapAt(const Offset(20, 20));
+        await tester.pumpAndSettle();
+
+        // 表單已關閉,回到主選動作器(搜尋框還在)。
+        expect(find.byKey(const Key('quick_add_error_text')), findsNothing);
+        expect(find.byKey(const Key('exercise_picker_search_field')), findsOneWidget);
+
+        // 重新點「+」開一個全新表單——原本的 bug:`customExerciseError` 只在
+        // 下一次 `addCustomExercise` 開頭才會被清,單純關表單不會觸發它,
+        // 新表單一開就會顯示著上一次的錯誤。
+        await tester.tap(find.byKey(const Key('exercise_picker_add_button')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('quick_add_error_text')), findsNothing);
+        expect(find.text('新增動作失敗,請稍後再試'), findsNothing);
+        expect(find.byKey(const Key('quick_add_name_field')), findsOneWidget);
+      },
+    );
   });
 
   group('最愛(常用動作)持久化', () {

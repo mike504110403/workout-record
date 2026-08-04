@@ -225,6 +225,22 @@ class ExercisePickerController extends AsyncNotifier<ExercisePickerState> {
     state = AsyncData(current.copyWith(selectedIds: next));
   }
 
+  /// 清掉自訂動作新增的錯誤訊息(code review r2 minor S2)。
+  ///
+  /// `addCustomExercise` 本身只在「開始下一次新增」時清 error(見該方法
+  /// 開頭的 `customExerciseError: null`),但 quick add 表單走的是「失敗 →
+  /// 使用者按取消關掉表單 → 之後重新點『+』開一個全新表單」這條路——
+  /// 這個全新表單理應是空白、無錯誤的,但 `customExerciseError` 只有在
+  /// 「送出」那個時間點才會被清,單純關表單不會觸發任何一次 `addCustomExercise`
+  /// 呼叫,錯誤訊息會一路殘留到下次送出前,讓下一個全新表單一開就顯示著
+  /// 上一次(可能完全無關)的錯誤。呼叫端(`_openQuickAdd`)在開表單「之前」
+  /// 呼叫這個方法清掉殘留。
+  void clearCustomExerciseError() {
+    final current = state.value;
+    if (current == null || current.customExerciseError == null) return;
+    state = AsyncData(current.copyWith(customExerciseError: null));
+  }
+
   /// 星號切換最愛(brief 功能規格 3):立即更新畫面(置頂排序即時反映),
   /// 再寫入 SharedPreferences 持久化。
   ///

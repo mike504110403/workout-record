@@ -11,26 +11,22 @@
 //   「查無此人退回血緣 key」的慣例,不能直接假設 session id 就是 Users
 //   表裡的 id——血緣情境下直接塞會撞 FK。
 //
-// ignore_for_file 說明:
-// - depend_on_referenced_packages:`shared_preferences_platform_interface`
-//   是 `shared_preferences` 的 transitive dependency(已存在 pubspec.lock,
-//   版本不受這個 import 影響),要真的注入 SharedPreferences 寫入失敗
-//   (minor 1 測試),只能從這一層换掉底層 store——`SharedPreferences`
-//   類別本身建構子是 private,測試沒辦法直接 subclass/mock 它。brief 範圍
-//   禁止改依賴(不升版本),這裡選擇 ignore 這條 info 等級的 lint,而不是
-//   去 pubspec.yaml 補一行 direct dependency 宣告。
-// - use_super_parameters:`_ThrowingSetValueStore.withData` 要轉發到父類別
-//   同名的「具名」super 建構子(`InMemorySharedPreferencesStore.withData`),
-//   super-parameter 簡寫語法只能省略呼叫「未命名」super 建構子時的參數,
-//   這裡維持顯式 `: super.withData(data)` 寫法更清楚,不採用 lint 建議的
-//   簡寫。
-// ignore_for_file: depend_on_referenced_packages, use_super_parameters
-
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// code review r2 minor S4:改成 import 行級 ignore,不用 ignore_for_file——
+// `depend_on_referenced_packages` 只跟這一行 import 有關,`ignore_for_file`
+// 範圍是整個檔案,會連帶蓋掉檔案裡其他地方未來新增的、其實該被這條規則抓到
+// 的違規 import。`shared_preferences_platform_interface` 是
+// `shared_preferences` 的 transitive dependency(已存在 pubspec.lock,版本
+// 不受這個 import 影響),要真的注入 SharedPreferences 寫入失敗(minor 1
+// 測試),只能從這一層換掉底層 store——`SharedPreferences` 類別本身建構子是
+// private,測試沒辦法直接 subclass/mock 它。brief 範圍禁止改依賴(不升
+// 版本),這裡選擇 ignore 這條 info 等級的 lint,而不是去 pubspec.yaml 補
+// 一行 direct dependency 宣告。
+// ignore: depend_on_referenced_packages
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:workout_record/data/db/app_database.dart' hide Exercise;
@@ -78,12 +74,25 @@ class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
 /// `setValue`(所有 `set*` 系列方法的共同底層)覆寫成拋錯,`getAll`/初始資料
 /// 讀取等其他行為完全沿用真正的記憶體實作。
 class _ThrowingSetValueStore extends InMemorySharedPreferencesStore {
-  _ThrowingSetValueStore.withData(Map<String, Object> data) : super.withData(data);
+  _ThrowingSetValueStore.withData(super.data) : super.withData();
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) {
     throw Exception('模擬 SharedPreferences 寫入失敗(minor 1 測試用)');
   }
+}
+
+/// `setValue` 回傳 `false`(寫入邏輯上失敗,但不拋例外)的假後端——
+/// `toggleFavorite` 的還原邏輯有兩條路:`catch` 接住拋出的例外,以及
+/// `if (!success)` 接住「沒拋錯但回傳失敗」這種情況(code review r2 minor
+/// S6,原本只有拋例外那條路有測試)。真實資料不寫進底層(`_data` 不更新),
+/// 對照真的寫入失敗但平台沒有丟例外的情境(例如某些平台實作用回傳值表達
+/// 失敗,不是例外)。
+class _FalseReturningSetValueStore extends InMemorySharedPreferencesStore {
+  _FalseReturningSetValueStore.withData(super.data) : super.withData();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async => false;
 }
 
 typedef _Harness = ({AppDatabase db, ProviderContainer container});
@@ -336,5 +345,43 @@ void main() {
       expect(after.favoriteIds.contains(targetId), isFalse);
       expect(after.favoriteIds, before.favoriteIds);
     });
+
+    test(
+      'SharedPreferences 寫入回傳 false(不拋錯)時,favoriteIds 一樣還原成切換前的狀態'
+      '(code review r2 minor S6:拋例外與回傳 false 是 toggleFavorite 兩條不同的還原分支)',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        SharedPreferencesStorePlatform.instance = _FalseReturningSetValueStore.withData({
+          'flutter.$kAppleUserIdKey': testUserId,
+        });
+        addTearDown(() => SharedPreferences.setMockInitialValues({}));
+        final falseReturningPrefs = await SharedPreferences.getInstance();
+
+        final db = openTestDatabase();
+        addTearDown(db.close);
+        await seedTestUser(db);
+
+        final container = ProviderContainer(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(falseReturningPrefs),
+            appDatabaseProvider.overrideWithValue(db),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(exercisePickerControllerProvider.future);
+        final notifier = container.read(exercisePickerControllerProvider.notifier);
+
+        final before = container.read(exercisePickerControllerProvider).value!;
+        final targetId = before.allExercises.first.id;
+        expect(before.favoriteIds.contains(targetId), isFalse);
+
+        await notifier.toggleFavorite(targetId);
+
+        final after = container.read(exercisePickerControllerProvider).value!;
+        expect(after.favoriteIds.contains(targetId), isFalse);
+        expect(after.favoriteIds, before.favoriteIds);
+      },
+    );
   });
 }

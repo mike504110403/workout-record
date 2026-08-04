@@ -57,6 +57,12 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
   }
 
   Future<void> _openQuickAdd() async {
+    // code review r2 minor S2:`customExerciseError` 只在下一次
+    // `addCustomExercise` 開始時才會被清掉——上一次失敗、使用者按取消關掉
+    // 表單、之後重新點「+」開一個全新表單,若不在這裡先清掉,新表單一開
+    // 就會顯示著上一次殘留的錯誤訊息。開表單前先呼叫
+    // `clearCustomExerciseError`,確保每次開出來的都是乾淨表單。
+    ref.read(exercisePickerControllerProvider.notifier).clearCustomExerciseError();
     final created = await showQuickAddExerciseSheet(context);
     if (!mounted || created == null) return;
 
@@ -244,7 +250,12 @@ class _Body extends StatelessWidget {
         // 的分類,不假裝切換成功),用這個 inline banner 告知使用者、不用
         // SnackBar——sheet 高度撐到螢幕 90%,SnackBar 從 `ScaffoldMessenger`
         // 找到的通常是背後那個被蓋住的 Scaffold,彈出來也可能整個看不到
-        // (code review minor 3 同樣的顧慮)。
+        // (code review minor 3 同樣的顧慮)。這個 banner 只會出現在這個
+        // `if (state.isSearching)` 為 false 的分支——刻意的,搜尋中畫面本來
+        // 就不顯示分類 tab/分類查詢結果,舊的分類錯誤在那個當下跟畫面內容
+        // 無關,不需要跟著搜尋結果一起顯示;使用者清空搜尋字串、回到分類
+        // 視圖時,若 `categoryError` 仍未被下一次成功查詢清掉,banner 會
+        // 自然重新出現。
         if (state.categoryError != null)
           Container(
             key: const Key('exercise_picker_category_error'),

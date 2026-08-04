@@ -100,10 +100,16 @@ void main() {
       expect(state.searchResults, isEmpty);
     });
 
-    test('搜尋結果套用最愛置頂排序:命中兩筆時,最愛的排前面', () {
-      // 深蹲、槓鈴臥推都含有 primaryMuscleGroup displayName 不會同時命中同一
-      // 個關鍵字,這裡改用同時命中中英文都含「a」風格關鍵字不夠精確,直接手
-      // 造兩筆都會命中同一查詢字串的 fixture。
+    test('搜尋結果套用最愛置頂排序:命中兩筆時,最愛的排前面(即使字典序在後)', () {
+      // 深蹲、槓鈴臥推都含有 primaryMuscleGroup displayName,不會同時命中同一
+      // 個關鍵字,這裡直接手造兩筆都會命中同一查詢字串的 fixture。
+      //
+      // code review r2 minor S5:fixture 選的最愛(legCurl/腿彎舉)恰好字典序
+      // 本來就排最前(彎 U+5F4E < 推 U+63A8),就算 `visibleExercises`/
+      // `searchResults` 完全不做「最愛置頂」、只單純照名稱排序,結果也會
+      // 剛好一樣,測試守不住置頂邏輯本身。改成最愛選字典序本來會排在後面
+      // 的那筆(legPress/腿推機),斷言它被置頂排到前面——這樣把置頂邏輯拿掉
+      // 才會讓這條測試真的變紅。
       final legPress = _buildExercise(
         id: 'e5',
         name: '腿推機',
@@ -118,11 +124,11 @@ void main() {
       );
       final state = ExercisePickerState(
         allExercises: [legPress, legCurl],
-        favoriteIds: const {'e6'},
+        favoriteIds: const {'e5'},
         searchQuery: '腿',
       );
 
-      expect(state.searchResults.map((e) => e.id), ['e6', 'e5']);
+      expect(state.searchResults.map((e) => e.id), ['e5', 'e6']);
     });
   });
 
@@ -138,15 +144,19 @@ void main() {
       expect(state.visibleExercises.map((e) => e.id), ['e1', 'e4', 'e2']);
     });
 
-    test('選了分類時改用 categoryExercises,同樣套用最愛置頂排序', () {
+    test('選了分類時改用 categoryExercises,同樣套用最愛置頂排序(即使字典序在後)', () {
+      // code review r2 minor S5:原本最愛選棒式(e4),字典序本來就排在深蹲
+      // (e2)前面(棒 U+68D2 < 深 U+6DF1),拿掉置頂邏輯結果也一樣,測試守不住
+      // 置頂本身。改成最愛選字典序本來會排在後面的深蹲(e2),斷言它被置頂
+      // 排到前面。
       final state = ExercisePickerState(
         allExercises: [squat, benchPress, plank],
-        favoriteIds: const {'e4'},
+        favoriteIds: const {'e2'},
         selectedCategoryId: 'legs-category',
         categoryExercises: [squat, plank],
       );
 
-      expect(state.visibleExercises.map((e) => e.id), ['e4', 'e2']);
+      expect(state.visibleExercises.map((e) => e.id), ['e2', 'e4']);
     });
   });
 
