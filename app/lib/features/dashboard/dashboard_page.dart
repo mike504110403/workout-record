@@ -69,7 +69,23 @@ class DashboardPage extends ConsumerWidget {
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(child: Text('載入失敗：$error')),
+        // 查詢失敗(例如暫時性的 DB/IO 錯誤)不能讓使用者卡在死路——補一顆
+        // 重試按鈕,invalidate provider 重新跑一次 build()/_load(),失敗若是
+        // 暫時性的就能自行恢復,不必整個 app 重開。
+        error: (error, stackTrace) => Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('載入失敗：$error'),
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const Key('dashboardErrorRetryButton'),
+                onPressed: () => ref.invalidate(dashboardControllerProvider),
+                child: const Text('重試'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

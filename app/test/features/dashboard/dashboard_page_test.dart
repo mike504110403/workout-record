@@ -86,6 +86,25 @@ class _ThrowingOnLoadBodyWeightRepository extends BodyWeightRepository {
   }
 }
 
+/// error 分支重試路徑測試專用:只有第一次呼叫 `getLatestWeight()` 拋錯,
+/// 之後恢復正常——模擬「暫時性失敗,重試就好了」的情境,用來驗證
+/// dashboard_page.dart 的重試按鈕真的能讓畫面從 error 分支恢復,不是擺好看
+/// 的裝飾。
+class _FlakyBodyWeightRepository extends BodyWeightRepository {
+  _FlakyBodyWeightRepository(super.db);
+
+  var _callCount = 0;
+
+  @override
+  Future<BodyWeight?> getLatestWeight() async {
+    _callCount += 1;
+    if (_callCount == 1) {
+      throw Exception('模擬第一次載入失敗,重試後應恢復(error 分支重試測試用)');
+    }
+    return super.getLatestWeight();
+  }
+}
+
 class _DashboardHarness {
   _DashboardHarness(this.db, this.container)
       : workoutRepo = WorkoutRepository(db, ExerciseRepository(db)),
@@ -102,7 +121,26 @@ class _DashboardHarness {
 /// [extraPrefs] 疊加在預設的 `{kAppleUserIdKey: testUserId}` 之上(用於 M2
 /// 換帳號測試,預先塞好 `kTestLoginUserIdPrefsKey` 讓 signInTest() 切到可
 /// 預期的固定帳號,而不是隨機 UUID)。
-Future<_DashboardHarness> _setUpHarness({Map<String, Object> extraPrefs = const {}}) async {
+///
+/// [bodyWeightRepoBuilder] 給定時,額外把 `bodyWeightRepositoryProvider`
+/// 換成它建出的 fake(用於 M1/m8 的失敗/重試路徑測試,模擬寫入失敗、查詢
+/// 失敗、或先失敗後恢復)。用「傳入一個建構 repository 的 callback」而不是
+/// 讓呼叫端直接傳一包 `overrides:` 清單——目前 pin 住的 riverpod 3.1.0 沒有
+/// 對外 export `Override` 這個型別(`package:flutter_riverpod` 拿不到這個
+/// 名字),沒辦法在函式簽章上具名引用它,這裡用 callback + `if` collection
+/// element 繞開,靠型別推導組出 `overrides:` list literal,不需要點名該型別。
+///
+/// [disableAutoRetry] 為 true 時關掉 riverpod 內建的自動重試
+/// (`ProviderContainer.defaultRetry`:provider build() 拋出 `Exception`
+/// 時,框架本身就會照 200ms 起跳、指數退避的排程自動重試,最多 10 次)。
+/// 用來測「dashboard_page.dart 的 error 分支重試按鈕真的有效」的測試需要
+/// 這個——不關掉的話,riverpod 自己的自動重試會搶在我們斷言/按按鈕之前
+/// 就把 flaky repo 重試到成功,測試斷言不到穩定的 error 畫面。
+Future<_DashboardHarness> _setUpHarness({
+  Map<String, Object> extraPrefs = const {},
+  BodyWeightRepository Function(AppDatabase db)? bodyWeightRepoBuilder,
+  bool disableAutoRetry = false,
+}) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
     ...extraPrefs,
@@ -113,36 +151,12 @@ Future<_DashboardHarness> _setUpHarness({Map<String, Object> extraPrefs = const 
   await seedTestUser(db);
 
   final container = ProviderContainer(
+    retry: disableAutoRetry ? (retryCount, error) => null : null,
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
-    ],
-  );
-  addTearDown(container.dispose);
-  return _DashboardHarness(db, container);
-}
-
-/// M1/m8 失敗路徑測試專用:除了標準 harness 之外,額外把
-/// `bodyWeightRepositoryProvider` 換成 [buildRepo] 建出的 fake(用來模擬
-/// 寫入失敗/查詢失敗)。不重用 `_setUpHarness`——那個 helper 的
-/// `overrides:` 是 riverpod 內部型別 `Override` 的 `List`,這個型別在目前
-/// pin 住的 riverpod 3.1.0 沒有對外 export(`package:flutter_riverpod` 拿
-/// 不到 `Override` 這個名字),沒辦法在這裡的函式簽章上具名引用,所以改用
-/// 「傳入一個建構 repository 的 callback」繞開,不用直接點名該型別。
-Future<_DashboardHarness> _setUpHarnessWithBodyWeightRepo(
-  BodyWeightRepository Function(AppDatabase db) buildRepo,
-) async {
-  SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
-  final prefs = await SharedPreferences.getInstance();
-  final db = openTestDatabase();
-  addTearDown(db.close);
-  await seedTestUser(db);
-
-  final container = ProviderContainer(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-      appDatabaseProvider.overrideWithValue(db),
-      bodyWeightRepositoryProvider.overrideWithValue(buildRepo(db)),
+      if (bodyWeightRepoBuilder != null)
+        bodyWeightRepositoryProvider.overrideWithValue(bodyWeightRepoBuilder(db)),
     ],
   );
   addTearDown(container.dispose);
@@ -291,7 +305,7 @@ void main() {
     // try/catch/finally 後,失敗要能:秀出錯誤、解除 disable、彈窗還開著
     // (沒有被誤 pop)。
     testWidgets('存體重失敗時:顯示錯誤 SnackBar,輸入框與按鈕解除 disable(不永久卡死)', (tester) async {
-      final harness = await _setUpHarnessWithBodyWeightRepo(_ThrowingBodyWeightRepository.new);
+      final harness = await _setUpHarness(bodyWeightRepoBuilder: _ThrowingBodyWeightRepository.new);
 
       await _pumpDashboard(tester, harness);
 
@@ -734,43 +748,55 @@ void main() {
     });
   });
 
-  // 修復 M3(major):StatefulShellRoute.indexedStack 讓分頁不 dispose,
-  // DashboardController.build() 只在 provider 第一次建立時跑一次,切走再
-  // 切回首頁分頁不會重新查詢。修法是 router.dart 的
-  // _AppShell.onDestinationSelected 在切到首頁分頁時呼叫
-  // ref.invalidate(dashboardControllerProvider)(見 router.dart
-  // shouldRefreshDashboardOnBranchSwitch,純函式邏輯獨立測在
-  // test/router/router_redirect_test.dart)。這裡驗證的是修法的另一半:
-  // invalidate 之後 provider 真的會重新查詢、畫面反映新資料,不會卡住停在
-  // 舊快取——DashboardPage 本身不需要重建(indexedStack 語意本就不重建它)。
-  group('切頁回訪重新整理(M3)', () {
-    testWidgets('provider 被 invalidate 後重新查詢,畫面反映新資料', (tester) async {
-      final harness = await _setUpHarness();
-      await _pumpDashboard(tester, harness);
+  // M3(major)的真實回歸測試(切走再切回首頁分頁時,透過 router.dart 真的
+  // invalidate、重新查詢)搬到 test/features/dashboard/dashboard_shell_revisit_test.dart
+  // ——那邊 pump 完整的 WorkItOutApp(真的 go_router StatefulShellRoute +
+  // bottom nav),不是像這個檔案其他測試一樣繞過 router 直接 pump
+  // DashboardPage。複審 r2 打回的原因:這裡先前那條「provider 被
+  // invalidate 後重新查詢」測試是直接呼叫 `container.invalidate(...)`,
+  // 測的是 Riverpod 自身的 invalidate 行為,不是 router.dart
+  // _AppShell.onDestinationSelected 有沒有真的接上這個呼叫——複審把
+  // router.dart 裡呼叫 invalidate 的那三行刪掉,這條測試照樣全綠,是假防護。
+  // 純函式那半(index 對應)留在 test/router/router_redirect_test.dart。
 
-      expect(find.byKey(const Key('noWorkoutTodayCard')), findsOneWidget);
-
-      await harness.workoutRepo.create(
-        _buildWorkout(id: 'landed-after-invalidate', startedAt: DateTime.now()),
-      );
-      harness.container.invalidate(dashboardControllerProvider);
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('todayWorkoutCard')), findsOneWidget);
-      expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
-    });
-  });
-
-  // 修復 m8 覆蓋缺口:dashboard_page.dart 的 `error:` 分支。
+  // m8 覆蓋缺口:dashboard_page.dart 的 `error:` 分支,以及重試按鈕真的能
+  // 讓畫面從錯誤恢復(不是擺好看的裝飾按鈕)。
   group('載入失敗', () {
     testWidgets('查詢拋錯時顯示 error 分支文案', (tester) async {
-      final harness = await _setUpHarnessWithBodyWeightRepo(_ThrowingOnLoadBodyWeightRepository.new);
+      final harness = await _setUpHarness(
+        bodyWeightRepoBuilder: _ThrowingOnLoadBodyWeightRepository.new,
+        disableAutoRetry: true,
+      );
 
       await _pumpDashboard(tester, harness);
 
       expect(find.textContaining('載入失敗'), findsOneWidget);
+      expect(find.byKey(const Key('dashboardErrorRetryButton')), findsOneWidget);
       expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
       expect(find.byKey(const Key('todayWorkoutCard')), findsNothing);
+    });
+
+    testWidgets('點重試按鈕後,暫時性失敗恢復,畫面回到正常呈現', (tester) async {
+      final harness = await _setUpHarness(
+        bodyWeightRepoBuilder: _FlakyBodyWeightRepository.new,
+        disableAutoRetry: true,
+      );
+
+      await _pumpDashboard(tester, harness);
+
+      // 第一次載入失敗,停在 error 分支。
+      expect(find.textContaining('載入失敗'), findsOneWidget);
+      final retryButton = find.byKey(const Key('dashboardErrorRetryButton'));
+      expect(retryButton, findsOneWidget);
+
+      await tester.tap(retryButton);
+      await tester.pumpAndSettle();
+
+      // 重試後 _FlakyBodyWeightRepository 第二次呼叫不再拋錯,畫面恢復成
+      // 正常的 data 分支,error 文案與重試按鈕都消失。
+      expect(find.textContaining('載入失敗'), findsNothing);
+      expect(find.byKey(const Key('dashboardErrorRetryButton')), findsNothing);
+      expect(find.byKey(const Key('noWorkoutTodayCard')), findsOneWidget);
     });
   });
 }

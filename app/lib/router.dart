@@ -40,15 +40,21 @@ String? resolveAuthRedirect({
 /// 首頁在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序一致。
 const _dashboardBranchIndex = 0;
 
-/// 修復 M3(major):`StatefulShellRoute.indexedStack` 讓分頁切換不會
-/// dispose 頁面,`DashboardController.build()` 只會在 provider 第一次建立
-/// 時跑一次,使用者切去別的分頁再切回首頁不會重新查詢——跨午夜「今日概覽」
-/// 停在昨天、波 3 記完訓練切回首頁數字不更新都是同一個根因。這裡在切到
-/// 首頁分頁時強制 invalidate 一次 dashboardControllerProvider,行為對等
-/// iOS 版每次 `.onAppear` 都重新整理(對照 iOS
-/// `DashboardView.onAppear { viewModel.refresh() }`;spec 缺漏①「iOS
-/// onAppear 刷新」由此修復補齊,不再是差異)。純函式,不吃
-/// BuildContext/WidgetRef,方便單獨單元測試(見 test/router/router_redirect_test.dart)。
+/// `StatefulShellRoute.indexedStack` 讓分頁切換不會 dispose 頁面,
+/// `DashboardController.build()` 只會在 provider 第一次建立時跑一次,使用者
+/// 切去別的分頁再切回首頁不會重新查詢——跨午夜「今日概覽」停在昨天、波 3
+/// 記完訓練切回首頁數字不更新都是同一個根因。這裡在切到首頁分頁時強制
+/// invalidate 一次 dashboardControllerProvider,對照 iOS
+/// `DashboardView.onAppear { viewModel.refresh() }`。
+///
+/// 只涵蓋目前唯一的回訪路徑(bottom nav bar 切分頁);之後如果新增其他能
+/// 抵達 /dashboard 的路徑(例如從詳情頁 push 回來、程式化 `context.go`),
+/// 那些路徑不會經過這裡,必須另外一併處理。
+///
+/// 純函式,不吃 BuildContext/WidgetRef,方便單獨單元測試(見
+/// test/router/router_redirect_test.dart;實際「切分頁真的觸發 invalidate」
+/// 這條線的行為測在 test/features/dashboard/dashboard_shell_revisit_test.dart
+/// ——純函式測試只守「index 對應」,守不住接線本身有沒有真的呼叫)。
 bool shouldRefreshDashboardOnBranchSwitch(int targetIndex) => targetIndex == _dashboardBranchIndex;
 
 /// session / onboarding 狀態改變時通知 GoRouter 重新評估 redirect(例如
