@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session_controller.dart';
+import 'widgets/import_retry_tile.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -39,6 +40,8 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 24),
           const Center(child: Text('設定', style: TextStyle(fontSize: 24))),
           const SizedBox(height: 24),
+          // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染。
+          const ImportRetryTile(),
           ListTile(
             key: const Key('signOutButton'),
             leading: const Icon(Icons.logout, color: Colors.red),

@@ -20,11 +20,13 @@
 //   失敗就整個 rollback、不寫入完成旗標,下次啟動會自動重試(天然幂等)。
 // - 系統動作(isSystem = true)用「名稱 + categoryId」對映到 seedIfEmpty()
 //   已建立的內建動作,重複的不再插入,只記住 id 對映;自訂動作照原樣搬。
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show GeneratedColumn, Table, TableInfo, Value;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,11 +34,17 @@ import 'package:sqlite3/sqlite3.dart' as sqlite3lib;
 
 import '../db/app_database.dart';
 import 'coredata_importer_result.dart';
+import 'import_log.dart';
 
 export 'coredata_importer_result.dart';
 
 const _oldDbFileName = 'WorkoutRecord.sqlite';
 const _coreDataEpochOffsetSeconds = 978307200;
+
+/// spec 4.6 節「建議設一個重試上限(例如連續失敗 3 次)」——連續失敗達此
+/// 次數後標記 [kCoreDataImportFailedPermanentlyKey],改為需要使用者手動
+/// 重試(見 app/lib/features/settings/widgets/import_retry_tile.dart)。
+const _maxConsecutiveFailures = 3;
 
 /// 佔位動作用的 categoryId——Exercises.categoryId 沒有 FK 約束(tables.dart),
 /// 全 0 UUID 代表「未分類佔位」,不會撞到任何真實分類。
@@ -60,37 +68,160 @@ class CoreDataImporter {
   Future<ImportResult> importIfNeeded(AppDatabase db) async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(kCoreDataImportCompletedKey) ?? false) {
-      return const ImportResult.skippedNoOldDb();
+      return const ImportResult.skippedAlreadyCompleted();
+    }
+    if (prefs.getBool(kCoreDataImportFailedPermanentlyKey) ?? false) {
+      return const ImportResult.skippedPermanentlyFailed();
     }
 
-    final supportDir = await _supportDirectoryProvider();
-    final oldDbFile = File(p.join(supportDir.path, _oldDbFileName));
-    if (!oldDbFile.existsSync()) {
-      await prefs.setBool(kCoreDataImportCompletedKey, true);
-      return const ImportResult.skippedNoOldDb();
-    }
-
+    final log = ImportLog(supportDirectoryProvider: _supportDirectoryProvider);
+    final currentStep = _CurrentStepHolder();
     File? copiedDbFile;
     try {
+      currentStep.value = '取得 support 目錄';
+      final supportDir = await _supportDirectoryProvider();
+      final oldDbFile = File(p.join(supportDir.path, _oldDbFileName));
+
+      currentStep.value = '檢查舊檔是否存在';
+      if (!oldDbFile.existsSync()) {
+        await prefs.setBool(kCoreDataImportCompletedKey, true);
+        return const ImportResult.skippedNoOldDb();
+      }
+
+      currentStep.value = '複製舊檔到暫存目錄';
       copiedDbFile = await _copyToTemp(supportDir);
-      final result = await _importFromFile(db, copiedDbFile, prefs);
+      final result =
+          await _importFromFile(db, copiedDbFile, prefs, currentStep);
       if (result.success) {
         await prefs.setBool(kCoreDataImportCompletedKey, true);
+        await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+        // 核帳快照:不管是正常匯入成功、還是 alreadyLanded 命中,收工那一刻
+        // Drift 各表實際有幾筆都要留痕——alreadyLanded 命中時沒有
+        // tableCounts 可存,這份快照補上那個缺口;exercises 這種混了既有
+        // 種子的表,也不需要另外記一份 seed 基準線才能核帳(見
+        // kCoreDataImportVerifiedCountsKey 的類別文件)。
+        final verifiedCounts = await _verifiedTableCounts(db);
+        await prefs.setString(
+          kCoreDataImportVerifiedCountsKey,
+          jsonEncode(verifiedCounts),
+        );
+        if (result.skipped) {
+          // 「已 commit 未標旗」窗口命中(見 _detectAlreadyLanded):資料
+          // 已經在,這裡只是補寫旗標,沒有新的落地統計數字可存。
+          await log.append(
+            '偵測到資料已落地但完成旗標未設置(spec 4.6 節),已補寫完成旗標,'
+            '不重新跑一次匯入。核帳快照(各表現有筆數):$verifiedCounts',
+          );
+        } else {
+          await prefs.setString(
+            kCoreDataImportTableCountsKey,
+            jsonEncode(result.tableCounts),
+          );
+          await prefs.setString(
+            kCoreDataImportSkippedCountsKey,
+            jsonEncode(result.skippedCounts),
+          );
+          await prefs.setString(
+            kCoreDataImportDedupedCountsKey,
+            jsonEncode(result.dedupedCounts),
+          );
+          await prefs.setString(
+            kCoreDataImportCreatedPlaceholdersKey,
+            jsonEncode(result.createdPlaceholders),
+          );
+          await log.append(
+            '匯入成功:tableCounts=${result.tableCounts}, '
+            'skippedCounts=${result.skippedCounts}, '
+            'dedupedCounts=${result.dedupedCounts}, '
+            'createdPlaceholders=${result.createdPlaceholders}, '
+            'warnings=${result.warnings.length} 則, '
+            '核帳快照(各表現有筆數):$verifiedCounts',
+          );
+        }
       }
       return result;
     } catch (e, st) {
-      // 任何未預期例外(檔案損毀、schema 不符...)→ 不寫入完成旗標,
-      // 下次啟動會重新偵測到「舊檔存在 + 完成旗標未設置」,自動重試。
+      // 任何未預期例外(檔案損毀、schema 不符、support 目錄取不到...)→
+      // 不寫入完成旗標,下次啟動會重新偵測到「舊檔存在 + 完成旗標未設置」,
+      // 自動重試,直到連續失敗達 _maxConsecutiveFailures 次為止
+      // (spec 4.6 節)。
+      final attempts = (prefs.getInt(kCoreDataImportAttemptsKey) ?? 0) + 1;
+      await prefs.setInt(kCoreDataImportAttemptsKey, attempts);
+      await log.append(
+        '匯入失敗(連續第 $attempts 次,進行到:${currentStep.value ?? '未知階段'}):'
+        '${truncateForImportLog('$e\n$st')}',
+      );
+
+      // 本次呼叫剛好跨過上限時也算 permanentlyFailed——呼叫端(見
+      // ImportRetryTile)不需要另外讀 prefs 才知道已經到頂。
+      final justPermanentlyFailed = attempts >= _maxConsecutiveFailures;
+      if (justPermanentlyFailed) {
+        await prefs.setBool(kCoreDataImportFailedPermanentlyKey, true);
+        await log.append(
+          '連續失敗達 $_maxConsecutiveFailures 次上限,已標記 '
+          '$kCoreDataImportFailedPermanentlyKey = true,改為需手動重試。',
+        );
+      }
+
       return ImportResult(
         success: false,
         skipped: false,
         errorMessage: '$e\n$st',
+        permanentlyFailed: justPermanentlyFailed,
       );
     } finally {
       if (copiedDbFile != null) {
         await _safeDelete(copiedDbFile);
         await _safeDelete(File('${copiedDbFile.path}-wal'));
         await _safeDelete(File('${copiedDbFile.path}-shm'));
+      }
+    }
+  }
+
+  /// spec 4.6 節「連續失敗達重試上限後,提供一個手動重試按鈕」的實際重試
+  /// 邏輯——原本散落在 ImportRetryTile 裡(widget 自己操作 prefs key),
+  /// 收進這裡讓 widget 只需要呼叫一個方法,也讓這段狀態機邏輯可以直接被
+  /// 單元測試覆蓋。
+  ///
+  /// 這是 one-shot 重試,不是把使用者導回自動重試佇列:清掉
+  /// [kCoreDataImportFailedPermanentlyKey] 與 [kCoreDataImportAttemptsKey]
+  /// 後跑一次 [importIfNeeded]。若這一次仍然失敗——**或 [importIfNeeded]
+  /// 本身丟出未預期例外**(理論上它自己會 catch 住大部分狀況,但防禦性地
+  /// 假設呼叫端不該永遠信任這一點)——**立刻**把旗標與計數復原成「已達
+  /// 上限」的狀態(而不是讓它停在「已清掉」,也不是讓它從 1 次重新累積到
+  /// [_maxConsecutiveFailures] 次)——否則使用者得再連續失敗好幾次才會又
+  /// 看到手動重試按鈕,等於這次點擊的重試意圖平白被吃掉,甚至讓 App 卡在
+  /// 「兩個旗標都沒設、又不會自動重試」的無人之地。用 try/finally 而不是
+  /// 只在失敗分支手動寫回,就是為了讓例外路徑也一定會復原。回傳的
+  /// [ImportResult.permanentlyFailed] 因此在失敗時一定是 true,呼叫端不需要
+  /// 另外讀 prefs 判斷。
+  Future<ImportResult> retryAfterPermanentFailure(AppDatabase db) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
+    await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+
+    var recovered = false;
+    try {
+      final result = await importIfNeeded(db);
+      if (result.success || result.skipped) {
+        recovered = true;
+        return result;
+      }
+      return ImportResult(
+        success: false,
+        skipped: false,
+        errorMessage: result.errorMessage,
+        tableCounts: result.tableCounts,
+        skippedCounts: result.skippedCounts,
+        dedupedCounts: result.dedupedCounts,
+        createdPlaceholders: result.createdPlaceholders,
+        warnings: result.warnings,
+        permanentlyFailed: true,
+      );
+    } finally {
+      if (!recovered) {
+        await prefs.setBool(kCoreDataImportFailedPermanentlyKey, true);
+        await prefs.setInt(kCoreDataImportAttemptsKey, _maxConsecutiveFailures);
       }
     }
   }
@@ -135,43 +266,85 @@ class CoreDataImporter {
     AppDatabase db,
     File dbFile,
     SharedPreferences prefs,
+    _CurrentStepHolder currentStep,
   ) async {
     final oldDb = sqlite3lib.sqlite3.open(
       dbFile.path,
       mode: sqlite3lib.OpenMode.readOnly,
     );
     try {
+      currentStep.value = '偵測「已 commit 未標旗」窗口';
+      if (await _detectAlreadyLanded(db, oldDb)) {
+        return const ImportResult.skippedAlreadyLanded();
+      }
+
+      // 落地筆數(實際 insert 進 Drift 的筆數,見 ImportResult 類別文件的
+      // 帳式說明)。
       final counts = <String, int>{};
+      // 只有 template_exercises / workout_exercises / workout_sets 有結構層
+      // 孤兒防護會略過整列,其餘表恆為 0(不特別寫入 key)。
+      final skippedCounts = <String, int>{};
+      // 目前只有 exercises(系統動作對映到既有種子)有這個概念。
+      final dedupedCounts = <String, int>{};
+      // 惰性補建的佔位列筆數,只有 users / exercises 會有非零值,見
+      // _resolveUserId / _resolveOrCreatePlaceholderExercise。
+      final createdPlaceholders = <String, int>{};
       final warnings = <String>[];
       var userIds = <String>{};
 
       await db.transaction(() async {
+        currentStep.value = 'users';
         final usersImport = await _importUsers(db, oldDb);
-        counts['users'] = usersImport.sourceCount;
+        // counts['users'] 在 transaction 收尾統一定案(落地 + 佔位);
+        // userIds 提升到 transaction 外,結束後寫血緣 key 用。
         userIds = usersImport.ids;
 
-        final exercisesImport =
-            await _importExercises(db, oldDb, userIds, warnings);
-        counts['exercises'] = exercisesImport.sourceCount;
+        currentStep.value = 'exercises';
+        final exercisesImport = await _importExercises(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
+        dedupedCounts['exercises'] = exercisesImport.dedupedCount;
         final exerciseIdMap = exercisesImport.idMap;
         // 名稱 → 補建的佔位動作 id,讓不同的舊 exerciseId 若解析到同一個
         // 名稱時共用同一筆佔位動作,不會重複補建(見 _resolveOrCreatePlaceholderExercise)。
         final placeholderExerciseIdsByName = <String, String>{};
 
-        final templatesImport =
-            await _importTemplates(db, oldDb, userIds, warnings);
+        currentStep.value = 'templates';
+        final templatesImport = await _importTemplates(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
         counts['templates'] = templatesImport.sourceCount;
-        counts['template_exercises'] = await _importTemplateExercises(
+
+        currentStep.value = 'template_exercises';
+        final templateExercisesImport = await _importTemplateExercises(
           db,
           oldDb,
           exerciseIdMap,
           templatesImport.ids,
           warnings,
         );
+        counts['template_exercises'] = templateExercisesImport.landedCount;
+        skippedCounts['template_exercises'] = templateExercisesImport.skippedCount;
 
-        final workoutsImport =
-            await _importWorkouts(db, oldDb, userIds, warnings);
+        currentStep.value = 'workouts';
+        final workoutsImport = await _importWorkouts(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
         counts['workouts'] = workoutsImport.sourceCount;
+
+        currentStep.value = 'workout_exercises';
         final workoutExercisesImport = await _importWorkoutExercises(
           db,
           oldDb,
@@ -179,17 +352,31 @@ class CoreDataImporter {
           workoutsImport.ids,
           placeholderExerciseIdsByName,
           warnings,
+          createdPlaceholders,
         );
-        counts['workout_exercises'] = workoutExercisesImport.sourceCount;
-        counts['workout_sets'] = await _importWorkoutSets(
+        counts['workout_exercises'] = workoutExercisesImport.landedCount;
+        skippedCounts['workout_exercises'] = workoutExercisesImport.skippedCount;
+
+        currentStep.value = 'workout_sets';
+        final workoutSetsImport = await _importWorkoutSets(
           db,
           oldDb,
           workoutExercisesImport.ids,
           warnings,
         );
+        counts['workout_sets'] = workoutSetsImport.landedCount;
+        skippedCounts['workout_sets'] = workoutSetsImport.skippedCount;
 
-        counts['body_weights'] =
-            await _importBodyWeights(db, oldDb, userIds, warnings);
+        currentStep.value = 'body_weights';
+        counts['body_weights'] = await _importBodyWeights(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
+
+        currentStep.value = 'personal_records';
         counts['personal_records'] = await _importPersonalRecords(
           db,
           oldDb,
@@ -197,10 +384,34 @@ class CoreDataImporter {
           placeholderExerciseIdsByName,
           userIds,
           warnings,
+          createdPlaceholders,
         );
-        counts['user_goals'] = await _importUserGoals(db, oldDb, userIds, warnings);
-        counts['power_lift_records'] =
-            await _importPowerLiftRecords(db, oldDb, userIds, warnings);
+
+        currentStep.value = 'user_goals';
+        counts['user_goals'] = await _importUserGoals(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
+
+        currentStep.value = 'power_lift_records';
+        counts['power_lift_records'] = await _importPowerLiftRecords(
+          db,
+          oldDb,
+          userIds,
+          warnings,
+          createdPlaceholders,
+        );
+
+        // users / exercises 的落地量必須等所有子表都跑完才能定案——佔位
+        // 使用者 / 佔位動作是在子表匯入過程中才可能惰性補建的(見
+        // ImportResult 類別文件的帳式說明)。
+        counts['users'] =
+            usersImport.sourceCount + (createdPlaceholders['users'] ?? 0);
+        counts['exercises'] = exercisesImport.landedCount +
+            (createdPlaceholders['exercises'] ?? 0);
       });
 
       if (userIds.isNotEmpty) {
@@ -211,11 +422,170 @@ class CoreDataImporter {
         success: true,
         skipped: false,
         tableCounts: counts,
+        skippedCounts: skippedCounts,
+        dedupedCounts: dedupedCounts,
+        createdPlaceholders: createdPlaceholders,
         warnings: warnings,
       );
     } finally {
       oldDb.dispose();
     }
+  }
+
+  /// spec 4.6 節「已 commit 未標旗」窗口:匯入的 transaction 已成功寫入
+  /// Drift,但寫入完成旗標前 App 被中斷(崩潰 / 被系統砍掉),導致下次啟動
+  /// 誤判成尚未匯入,重跑會撞主鍵。用抽樣舊庫 id、查 Drift 是否已存在同一批
+  /// id 的方式偵測——任一樣本命中就代表資料已經在,只是旗標沒寫。
+  ///
+  /// 抽樣範圍:所有「原樣保留舊庫 id」的表——workouts、users、自訂動作
+  /// (isSystem = false)、templates、body_weights、personal_records、
+  /// user_goals、power_lift_records。每張表最多抽 3 筆 id(LIMIT 3),逐表
+  /// 檢查,只要有任何一筆命中 Drift 就視為已落地;不像舊版「第一張非空表
+  /// 沒中就直接判定未匯入」——那樣只要抽樣到的那 1 筆剛好被使用者事後刪掉,
+  /// 就會誤判成未匯入,重跑撞上其餘資料的主鍵。要**全部**表的**全部**樣本
+  /// 都沒命中,才會判定為未匯入。
+  ///
+  /// **刻意不抽系統動作**:系統動作本來就會對映到既有種子(見
+  /// [_importExercises]),Drift 有那筆資料是完全正常的現象,不代表曾經
+  /// 匯入過,拿它當判準會產生大量偽陽性。也**刻意不用「Drift 有任何資料」
+  /// 當判準**:使用者可能在匯入失敗後就已經開始用 App 記錄新訓練,那些新
+  /// 資料跟舊庫毫無關係,誤判成「已匯入」會導致舊資料永久匯不進來。
+  ///
+  /// **殘餘窗口**:多表多樣本已經把誤判機率壓得很低,但不是零——理論上
+  /// 若使用者精準刪光「每一張抽樣表裡剛好被抽中的那 1~3 筆」(其餘資料仍
+  /// 保留),就還是會誤判成未匯入而重跑一次。這是抽樣型偵測的天生限制,
+  /// 發生機率極低,不追求用全表掃描把它壓到 0(那會讓每次啟動都多付出
+  /// 一次全表比對的成本)。
+  Future<bool> _detectAlreadyLanded(
+    AppDatabase db,
+    sqlite3lib.Database oldDb,
+  ) async {
+    if (await _anySampleExists(
+      db,
+      db.workouts,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZWORKOUTENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.users,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZUSERENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.exercises,
+      (t) => t.id,
+      _sampleOldCustomExerciseIds(oldDb),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.templates,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZTEMPLATEENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.bodyWeights,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZBODYWEIGHTENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.personalRecords,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZPERSONALRECORDENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.userGoals,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZUSERGOALENTITY'),
+    )) {
+      return true;
+    }
+    if (await _anySampleExists(
+      db,
+      db.powerLiftRecords,
+      (t) => t.id,
+      _sampleOldIds(oldDb, 'ZPOWERLIFTRECORDENTITY'),
+    )) {
+      return true;
+    }
+
+    // 所有抽樣表都是空的,或抽到的樣本 Drift 裡都沒有,沒有更多樣本可查,
+    // 視為未偵測到,照常往下跑正常匯入流程。
+    return false;
+  }
+
+  /// [_detectAlreadyLanded] 的共用檢查邏輯:[candidateIds] 任一筆存在於
+  /// [table] 就回傳 true。抽出成獨立方法而不是在呼叫端各自組 query——8 張
+  /// 表的檢查邏輯完全一樣,只有表跟 id 欄位不同。
+  Future<bool> _anySampleExists<Tbl extends Table, Row>(
+    AppDatabase db,
+    TableInfo<Tbl, Row> table,
+    GeneratedColumn<String> Function(Tbl) idColumn,
+    List<String> candidateIds,
+  ) async {
+    if (candidateIds.isEmpty) return false;
+    final rows = await (db.select(table)
+          ..where((t) => idColumn(t).isIn(candidateIds)))
+        .get();
+    return rows.isNotEmpty;
+  }
+
+  /// 抽樣舊庫某張表最多 3 筆 id(見 [_detectAlreadyLanded] 的抽樣策略說明)。
+  List<String> _sampleOldIds(sqlite3lib.Database oldDb, String table) {
+    final rows = oldDb.select('SELECT ZID FROM $table LIMIT 3');
+    return [for (final row in rows) _uuidFromBlob(row['ZID'])];
+  }
+
+  /// 自訂動作(isSystem = false)專用抽樣——`ZISSYSTEM` 用 `COALESCE(...,0)`
+  /// 修正 NULL 語意(CoreData 的 optional Bool 屬性沒賦值時欄位本身可能是
+  /// NULL,不是 0,`ZISSYSTEM = 0` 會漏掉這種列)。
+  List<String> _sampleOldCustomExerciseIds(sqlite3lib.Database oldDb) {
+    final rows = oldDb.select(
+      'SELECT ZID FROM ZEXERCISEENTITY WHERE COALESCE(ZISSYSTEM, 0) = 0 LIMIT 3',
+    );
+    return [for (final row in rows) _uuidFromBlob(row['ZID'])];
+  }
+
+  /// 匯入收工那一刻(成功匯入或 alreadyLanded 命中)對 Drift 11 張表各下一次
+  /// `SELECT COUNT(*)` 的核帳快照(見 [kCoreDataImportVerifiedCountsKey] 的
+  /// 類別文件)。
+  Future<Map<String, int>> _verifiedTableCounts(AppDatabase db) async {
+    Future<int> countOf<Tbl extends Table, Row>(
+      TableInfo<Tbl, Row> table,
+    ) async {
+      final rows = await db.select(table).get();
+      return rows.length;
+    }
+
+    return {
+      'users': await countOf(db.users),
+      'exercises': await countOf(db.exercises),
+      'templates': await countOf(db.templates),
+      'template_exercises': await countOf(db.templateExercises),
+      'workouts': await countOf(db.workouts),
+      'workout_exercises': await countOf(db.workoutExercises),
+      'workout_sets': await countOf(db.workoutSets),
+      'body_weights': await countOf(db.bodyWeights),
+      'personal_records': await countOf(db.personalRecords),
+      'user_goals': await countOf(db.userGoals),
+      'power_lift_records': await countOf(db.powerLiftRecords),
+    };
   }
 
   Future<({int sourceCount, Set<String> ids})> _importUsers(
@@ -252,13 +622,15 @@ class CoreDataImporter {
   /// `userIds` 為空(舊庫連一筆 `UserEntity` 都沒有,但子表仍有資料)時,
   /// 沒有任何使用者可以 fallback——惰性補建一筆佔位使用者(新 UUID、
   /// name/email 皆為 null)並加入 `userIds`,之後同一輪匯入的呼叫會自然
-  /// fallback 到這筆佔位使用者,不會重複補建。
+  /// fallback 到這筆佔位使用者,不會重複補建。`createdPlaceholders['users']`
+  /// 因此最多只會被加 1(見 [ImportResult] 類別文件的帳式說明)。
   Future<String> _resolveUserId(
     AppDatabase db,
     String candidateUserId,
     Set<String> userIds,
     List<String> warnings,
     String context,
+    Map<String, int> createdPlaceholders,
   ) async {
     if (userIds.contains(candidateUserId)) {
       return candidateUserId;
@@ -274,6 +646,7 @@ class CoreDataImporter {
             ),
           );
       userIds.add(placeholderId);
+      createdPlaceholders['users'] = (createdPlaceholders['users'] ?? 0) + 1;
       warnings.add(
         '$context 的 userId($candidateUserId)未對到任何使用者,'
         '舊庫也沒有任何 UserEntity,已補建佔位使用者($placeholderId)。',
@@ -295,7 +668,8 @@ class CoreDataImporter {
   /// 這兩張表底下掛著真實訓練歷史(sets / PR),略過會損失比孤兒本身更多
   /// 的資料。同一個舊 exerciseId 之後再次查到會直接複用 [exerciseIdMap];
   /// 不同的舊 exerciseId 若解析到相同名稱,也共用同一筆佔位動作,不重複
-  /// 補建。
+  /// 補建——`createdPlaceholders['exercises']` 因此只在真正新建一筆佔位
+  /// 動作時才加 1(見 [ImportResult] 類別文件的帳式說明)。
   Future<String> _resolveOrCreatePlaceholderExercise({
     required AppDatabase db,
     required String oldExerciseId,
@@ -305,6 +679,7 @@ class CoreDataImporter {
     required Map<String, String> placeholderIdsByName,
     required List<String> warnings,
     required String context,
+    required Map<String, int> createdPlaceholders,
   }) async {
     final existing = exerciseIdMap[oldExerciseId];
     if (existing != null) {
@@ -335,6 +710,7 @@ class CoreDataImporter {
         );
     placeholderIdsByName[resolvedName] = placeholderId;
     exerciseIdMap[oldExerciseId] = placeholderId;
+    createdPlaceholders['exercises'] = (createdPlaceholders['exercises'] ?? 0) + 1;
     warnings.add(
       '$context 的 exerciseId($oldExerciseId)未對到任何動作,'
       '已補建佔位動作「$resolvedName」($placeholderId)。',
@@ -343,15 +719,25 @@ class CoreDataImporter {
   }
 
   /// 系統動作(isSystem = true)以「名稱 + categoryId」對映到 seedIfEmpty()
-  /// 已建立的內建動作(重複的不插入,只記住 id 對映);自訂動作(isSystem =
-  /// false)照原樣搬,保留原 UUID。回傳:舊 id(小寫 UUID 字串)→ 新 id 的
-  /// 對映表(給 TemplateExercises / WorkoutExercises / PersonalRecords 的
-  /// exerciseId 用),以及讀到的舊資料筆數。
-  Future<({Map<String, String> idMap, int sourceCount})> _importExercises(
+  /// 已建立的內建動作(重複的不插入,只記住 id 對映,計入 [dedupedCount]);
+  /// 自訂動作(isSystem = false)照原樣搬,保留原 UUID。回傳:舊 id(小寫
+  /// UUID 字串)→ 新 id 的對映表(給 TemplateExercises / WorkoutExercises /
+  /// PersonalRecords 的 exerciseId 用)、讀到的舊資料筆數([sourceCount])、
+  /// 實際 insert 的筆數([landedCount])與去重筆數([dedupedCount])——
+  /// `sourceCount == landedCount + dedupedCount` 恆成立,用於驗證帳式沒有
+  /// 算錯(見 [ImportResult] 類別文件)。
+  Future<
+      ({
+        Map<String, String> idMap,
+        int sourceCount,
+        int landedCount,
+        int dedupedCount,
+      })> _importExercises(
     AppDatabase db,
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final existingSystemExercises = await (db.select(db.exercises)
           ..where((t) => t.isSystem.equals(true)))
@@ -362,6 +748,7 @@ class CoreDataImporter {
 
     final rows = oldDb.select('SELECT * FROM ZEXERCISEENTITY');
     final idMap = <String, String>{};
+    var dedupedCount = 0;
 
     for (final row in rows) {
       final oldId = _uuidFromBlob(row['ZID']);
@@ -373,6 +760,7 @@ class CoreDataImporter {
         final match = seedByNameAndCategory['$name\u0000$categoryId'];
         if (match != null) {
           idMap[oldId] = match;
+          dedupedCount++;
           continue;
         }
         warnings.add('系統動作「$name」(舊 id $oldId)未能與內建種子對映,已改為原樣匯入。');
@@ -381,7 +769,14 @@ class CoreDataImporter {
       final rawUserId = _uuidFromBlobOrNull(row['ZUSERID']);
       final resolvedUserId = rawUserId == null
           ? null
-          : await _resolveUserId(db, rawUserId, userIds, warnings, '自訂動作「$name」');
+          : await _resolveUserId(
+              db,
+              rawUserId,
+              userIds,
+              warnings,
+              '自訂動作「$name」',
+              createdPlaceholders,
+            );
       await db.into(db.exercises).insert(
             ExercisesCompanion.insert(
               id: oldId,
@@ -404,7 +799,12 @@ class CoreDataImporter {
       idMap[oldId] = oldId;
     }
 
-    return (idMap: idMap, sourceCount: rows.length);
+    return (
+      idMap: idMap,
+      sourceCount: rows.length,
+      landedCount: rows.length - dedupedCount,
+      dedupedCount: dedupedCount,
+    );
   }
 
   Future<({int sourceCount, Set<String> ids})> _importTemplates(
@@ -412,6 +812,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZTEMPLATEENTITY');
     final ids = <String>{};
@@ -427,6 +828,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '模板「$name」',
+                createdPlaceholders,
               ),
               name: name,
               descriptionText: Value(row['ZDESCRIPTIONTEXT'] as String?),
@@ -446,7 +848,8 @@ class CoreDataImporter {
   /// 結構層孤兒防護:`templateId` 未對到已匯入的模板、或 `exerciseId` 未對
   /// 到任何動作 → 略過該列 + warning(模板項本身沒有動作身分即無意義,且
   /// 它不是訓練歷史,略過只損失該筆,不賠整批 transaction)。
-  Future<int> _importTemplateExercises(
+  Future<({int sourceCount, int landedCount, int skippedCount})>
+      _importTemplateExercises(
     AppDatabase db,
     sqlite3lib.Database oldDb,
     Map<String, String> exerciseIdMap,
@@ -456,6 +859,7 @@ class CoreDataImporter {
     final rows = oldDb.select(
       'SELECT * FROM ZTEMPLATEEXERCISEENTITY ORDER BY ZTEMPLATE, ZORDERINDEX',
     );
+    var skipped = 0;
     for (final row in rows) {
       final id = _uuidFromBlob(row['ZID']);
       final templateId = _uuidFromBlob(row['ZTEMPLATEID']);
@@ -464,6 +868,7 @@ class CoreDataImporter {
           '[template_exercises] 模板動作($id)的 templateId($templateId)'
           '未對到任何已匯入的模板,已略過。',
         );
+        skipped++;
         continue;
       }
 
@@ -474,6 +879,7 @@ class CoreDataImporter {
           '[template_exercises] 模板動作($id)的 exerciseId($oldExerciseId)'
           '未對到任何動作,已略過。',
         );
+        skipped++;
         continue;
       }
 
@@ -488,7 +894,11 @@ class CoreDataImporter {
             ),
           );
     }
-    return rows.length;
+    return (
+      sourceCount: rows.length,
+      landedCount: rows.length - skipped,
+      skippedCount: skipped,
+    );
   }
 
   Future<({int sourceCount, Set<String> ids})> _importWorkouts(
@@ -496,6 +906,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZWORKOUTENTITY');
     final ids = <String>{};
@@ -510,6 +921,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '訓練($id)',
+                createdPlaceholders,
               ),
               startedAt: _dateFromCoreData(row['ZSTARTEDAT']),
               endedAt: Value(_dateFromCoreDataOrNull(row['ZENDEDAT'])),
@@ -534,18 +946,21 @@ class CoreDataImporter {
   /// 不賠整批 transaction)。`exerciseId` 對不上任何動作則不略過——改為
   /// 補建佔位動作(見 [_resolveOrCreatePlaceholderExercise]),因為這張表
   /// 底下掛著真實訓練歷史(sets)。
-  Future<({int sourceCount, Set<String> ids})> _importWorkoutExercises(
+  Future<({int sourceCount, int landedCount, int skippedCount, Set<String> ids})>
+      _importWorkoutExercises(
     AppDatabase db,
     sqlite3lib.Database oldDb,
     Map<String, String> exerciseIdMap,
     Set<String> workoutIds,
     Map<String, String> placeholderExerciseIdsByName,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select(
       'SELECT * FROM ZWORKOUTEXERCISEENTITY ORDER BY ZWORKOUT, ZORDERINDEX',
     );
     final ids = <String>{};
+    var skipped = 0;
     for (final row in rows) {
       final id = _uuidFromBlob(row['ZID']);
       final workoutId = _uuidFromBlob(row['ZWORKOUTID']);
@@ -554,6 +969,7 @@ class CoreDataImporter {
           '[workout_exercises] 訓練動作($id)的 workoutId($workoutId)'
           '未對到任何已匯入的訓練,已略過。',
         );
+        skipped++;
         continue;
       }
 
@@ -568,6 +984,7 @@ class CoreDataImporter {
         placeholderIdsByName: placeholderExerciseIdsByName,
         warnings: warnings,
         context: '[workout_exercises] 訓練動作($id)',
+        createdPlaceholders: createdPlaceholders,
       );
 
       await db.into(db.workoutExercises).insert(
@@ -588,7 +1005,12 @@ class CoreDataImporter {
           );
       ids.add(id);
     }
-    return (sourceCount: rows.length, ids: ids);
+    return (
+      sourceCount: rows.length,
+      landedCount: rows.length - skipped,
+      skippedCount: skipped,
+      ids: ids,
+    );
   }
 
   /// rpe / restSeconds:CoreData 的 0 值視為「未填」轉成 Drift 端的 NULL
@@ -596,13 +1018,15 @@ class CoreDataImporter {
   ///
   /// 結構層孤兒防護:`workoutExerciseId` 未對到已匯入的訓練動作 → 略過該
   /// 列 + warning(略過只損失該筆孤兒碎片,不賠整批 transaction)。
-  Future<int> _importWorkoutSets(
+  Future<({int sourceCount, int landedCount, int skippedCount})>
+      _importWorkoutSets(
     AppDatabase db,
     sqlite3lib.Database oldDb,
     Set<String> workoutExerciseIds,
     List<String> warnings,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZWORKOUTSETENTITY');
+    var skipped = 0;
     for (final row in rows) {
       final id = _uuidFromBlob(row['ZID']);
       final workoutExerciseId = _uuidFromBlob(row['ZWORKOUTEXERCISEID']);
@@ -611,6 +1035,7 @@ class CoreDataImporter {
           '[workout_sets] 訓練組數($id)的 workoutExerciseId($workoutExerciseId)'
           '未對到任何已匯入的訓練動作,已略過。',
         );
+        skipped++;
         continue;
       }
 
@@ -631,7 +1056,11 @@ class CoreDataImporter {
             ),
           );
     }
-    return rows.length;
+    return (
+      sourceCount: rows.length,
+      landedCount: rows.length - skipped,
+      skippedCount: skipped,
+    );
   }
 
   Future<int> _importBodyWeights(
@@ -639,6 +1068,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZBODYWEIGHTENTITY');
     for (final row in rows) {
@@ -652,6 +1082,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '體重紀錄($id)',
+                createdPlaceholders,
               ),
               weight: Value(_doubleOrZero(row['ZWEIGHT'])),
               measuredAt: _dateFromCoreData(row['ZMEASUREDAT']),
@@ -676,6 +1107,7 @@ class CoreDataImporter {
     Map<String, String> placeholderExerciseIdsByName,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZPERSONALRECORDENTITY');
     for (final row in rows) {
@@ -690,6 +1122,7 @@ class CoreDataImporter {
         placeholderIdsByName: placeholderExerciseIdsByName,
         warnings: warnings,
         context: '[personal_records] 個人紀錄($id)',
+        createdPlaceholders: createdPlaceholders,
       );
       await db.into(db.personalRecords).insert(
             PersonalRecordsCompanion.insert(
@@ -700,6 +1133,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '個人紀錄($id)',
+                createdPlaceholders,
               ),
               exerciseId: resolvedExerciseId,
               oneRepMax: Value(_doubleOrZero(row['ZONEREPMAX'])),
@@ -720,6 +1154,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZUSERGOALENTITY');
     for (final row in rows) {
@@ -733,6 +1168,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '使用者目標($id)',
+                createdPlaceholders,
               ),
               targetWeight: Value(_nullableDouble(row['ZTARGETWEIGHT'])),
               weeklyWorkoutGoal: Value((row['ZWEEKLYWORKOUTGOAL'] as int?) ?? 0),
@@ -757,6 +1193,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     List<String> warnings,
+    Map<String, int> createdPlaceholders,
   ) async {
     final rows = oldDb.select('SELECT * FROM ZPOWERLIFTRECORDENTITY');
     for (final row in rows) {
@@ -770,6 +1207,7 @@ class CoreDataImporter {
                 userIds,
                 warnings,
                 '三大項紀錄($id)',
+                createdPlaceholders,
               ),
               lift: row['ZLIFT'] as String,
               oneRepMax: Value(_doubleOrZero(row['ZONEREPMAX'])),
@@ -784,6 +1222,14 @@ class CoreDataImporter {
     }
     return rows.length;
   }
+}
+
+/// `importIfNeeded` 用來記錄「目前跑到哪一張表/哪個階段」的可變容器,失敗時
+/// 寫進 log(spec 4.6 節)。獨立成一個小容器類別,而不是 [CoreDataImporter]
+/// 的 instance 欄位——`CoreDataImporter` 本身是 `const`(無狀態),不該為了
+/// 這種每次呼叫都不同的暫時性資訊而變成可變物件。
+class _CurrentStepHolder {
+  String? value;
 }
 
 // ---- 型別轉換工具(見 spec 第 2.3 節)----

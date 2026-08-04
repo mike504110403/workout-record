@@ -8,7 +8,10 @@
 //
 // 覆蓋:逐表筆數比對(對應「不遺失任何訓練歷史」的量化驗證)、抽樣欄位、
 // 動作對映去重、模板動作排序、關聯完整性、冪等、邊界情況
-// (舊檔不存在 / 壞檔 / optional 欄位為 NULL / rpe·restSeconds 0→NULL)。
+// (舊檔不存在 / 壞檔 / optional 欄位為 NULL / rpe·restSeconds 0→NULL)、
+// 連續失敗 3 次後標記 permanently failed + 手動重試、tableCounts 落地量
+// 對照 skippedCounts(spec 4.5/4.6 節)。
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -19,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite3lib;
 import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/migration/coredata_importer.dart';
+import 'package:workout_record/data/migration/import_log.dart';
 
 final String _fixtureDbPath = p.join('test', 'fixtures', 'WorkoutRecord.sqlite');
 
@@ -61,6 +65,16 @@ void main() {
     );
   }
 
+  /// 用隨機 bytes 冒充 .sqlite 檔,模擬「打不開的壞舊庫」——連續失敗上限
+  /// 與 retryAfterPermanentFailure 兩組測試都要用到。
+  Directory buildBadSupportDir(String name) {
+    final dir = Directory(p.join(tempDir.path, name))
+      ..createSync(recursive: true);
+    File(p.join(dir.path, 'WorkoutRecord.sqlite'))
+        .writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
+    return dir;
+  }
+
   /// 對 fixture 直接下 SELECT COUNT(*),作為逐表比對的基準(spec 5.2 節)。
   Map<String, int> fixtureSourceCounts() {
     final oldDb = sqlite3lib.sqlite3.open(
@@ -89,7 +103,8 @@ void main() {
   }
 
   group('CoreDataImporter - 真實 fixture 完整匯入', () {
-    test('各表匯入筆數與 fixture 來源筆數逐表一致', () async {
+    test('各表落地筆數與 fixture 來源筆數逐表一致(exercises 表因 66 筆'
+        '系統動作全部去重合併到既有 seed,落地量為 0,見 dedupedCounts)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
@@ -98,7 +113,12 @@ void main() {
 
       expect(result.success, isTrue, reason: result.errorMessage);
       expect(result.skipped, isFalse);
-      expect(result.tableCounts, equals(fixtureSourceCounts()));
+      final expectedLanded = Map<String, int>.from(fixtureSourceCounts())
+        ..['exercises'] = 0;
+      expect(result.tableCounts, equals(expectedLanded));
+      expect(result.dedupedCounts['exercises'], 66);
+      expect(result.createdPlaceholders['users'] ?? 0, 0);
+      expect(result.createdPlaceholders['exercises'] ?? 0, 0);
     });
 
     test('66 個動作:系統動作與 seed 名稱對映後總數仍 66,id 不重複', () async {
@@ -415,6 +435,10 @@ void main() {
         result.warnings.any((w) => w.contains('workout_exercises') && w.contains('已補建佔位動作「Ghost Exercise」')),
         isTrue,
       );
+      // 舊庫 ZEXERCISEENTITY 本身是空的(見 fixture 文件註解),落地的這 1
+      // 筆 exercise 完全是補建的佔位,不是任何來源列。
+      expect(result.createdPlaceholders['exercises'], 1);
+      expect(result.tableCounts['exercises'], 1);
     });
 
     test('personal_record 的 exerciseId 對不上 → 佔位「未知動作」補建、PR 保留', () async {
@@ -442,6 +466,10 @@ void main() {
         result.warnings.any((w) => w.contains('personal_records') && w.contains('已補建佔位動作「未知動作」')),
         isTrue,
       );
+      // 同上——舊庫 ZEXERCISEENTITY 是空的,落地的這 1 筆 exercise 完全是
+      // 補建的佔位。
+      expect(result.createdPlaceholders['exercises'], 1);
+      expect(result.tableCounts['exercises'], 1);
     });
 
     test('舊庫無 user 但有 body_weight → 佔位使用者補建、資料保留', () async {
@@ -474,6 +502,525 @@ void main() {
       // coredata_imported_user_id。
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(kCoreDataImportedUserIdKey), users.single.id);
+
+      // 舊庫 ZUSERENTITY 是空的,落地的這 1 筆 user 完全是補建的佔位;
+      // body_weight 則有 1 筆真正的來源資料落地。
+      expect(result.createdPlaceholders['users'], 1);
+      expect(result.tableCounts['users'], 1);
+      expect(result.tableCounts['body_weights'], 1);
+    });
+
+    test('template_exercise 的 exerciseId 在舊庫不存在 → 該列被 skip'
+        '(對照 workout_exercises:那邊會補建佔位動作,這裡不會)', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'missing_exercise_te_support'))
+            ..createSync(recursive: true);
+      _buildMissingExerciseForTemplateExerciseDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      final templateExercises = await db.select(db.templateExercises).get();
+      expect(templateExercises, isEmpty);
+
+      // 不像 workout_exercises,這裡不會補建佔位動作——67 筆系統種子動作
+      // 之外沒有任何新增的自訂/佔位動作。
+      final customOrPlaceholderExercises =
+          (await db.select(db.exercises).get())
+              .where((e) => !e.isSystem)
+              .toList();
+      expect(customOrPlaceholderExercises, isEmpty);
+
+      expect(
+        result.warnings.any(
+          (w) => w.contains('[template_exercises]') && w.contains('未對到任何動作'),
+        ),
+        isTrue,
+      );
+      expect(result.tableCounts['template_exercises'], 0);
+      expect(result.skippedCounts['template_exercises'], 1);
+    });
+  });
+
+  group('CoreDataImporter - 連續失敗上限與手動重試(spec 4.6 節)', () {
+
+    test('連續失敗 3 次後標記 permanently failed,第 4 次直接 skip 不再嘗試開檔', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final importer =
+          importerWithSupportDir(buildBadSupportDir('retry_limit_support'));
+
+      for (var i = 1; i <= 3; i++) {
+        final result = await importer.importIfNeeded(db);
+        expect(result.success, isFalse);
+        // 第 3 次剛好跨過上限——這次呼叫本身就要誠實回報 permanentlyFailed
+        // = true,呼叫端(ImportRetryTile)不需要另外讀 prefs 才知道已達
+        // 上限(major 1:狀態誠實)。
+        expect(
+          result.permanentlyFailed,
+          i >= 3,
+          reason: i < 3 ? '第 $i 次還沒到上限' : '第 3 次剛好跨過上限,回傳就該誠實反映',
+        );
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt(kCoreDataImportAttemptsKey), i);
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+
+      final fourth = await importer.importIfNeeded(db);
+      expect(fourth.skipped, isTrue);
+      expect(fourth.success, isFalse);
+      expect(fourth.permanentlyFailed, isTrue);
+      // 短路後不再嘗試開檔,attempts 計數維持在 3,不會變成 4。
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 3);
+    });
+
+    test('手動重試:清掉旗標與計數、修好舊檔後可以重新成功匯入', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = buildBadSupportDir('retry_fix_support');
+      final importer = importerWithSupportDir(supportDir);
+
+      for (var i = 0; i < 3; i++) {
+        await importer.importIfNeeded(db);
+      }
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+
+      // 「修好」:把壞檔換成真正的 fixture(同一個 supportDir 物件,
+      // importer 本身不需要重建)。
+      File(p.join(supportDir.path, 'WorkoutRecord.sqlite')).deleteSync();
+      for (final suffix in ['', '-wal', '-shm']) {
+        final source = File('$_fixtureDbPath$suffix');
+        if (source.existsSync()) {
+          source.copySync(p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'));
+        }
+      }
+
+      // 對應 ImportRetryTile._retry() 的行為:先清旗標與計數,再重新呼叫
+      // importIfNeeded()。
+      await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
+      await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+
+      final retried = await importer.importIfNeeded(db);
+
+      expect(retried.success, isTrue, reason: retried.errorMessage);
+      expect(retried.skipped, isFalse);
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 0);
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isFalse);
+    });
+  });
+
+  group('CoreDataImporter.retryAfterPermanentFailure(spec 4.6 節手動重試,'
+      'major 1:狀態誠實)', () {
+    test('重試成功:清掉旗標與計數,回傳成功結果', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = buildBadSupportDir('retry_success_support');
+      final importer = importerWithSupportDir(supportDir);
+
+      // 先失敗 3 次,進入 permanently failed 狀態。
+      for (var i = 0; i < 3; i++) {
+        await importer.importIfNeeded(db);
+      }
+      final prefsBefore = await SharedPreferences.getInstance();
+      expect(prefsBefore.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+
+      // 「修好」:把壞檔換成真正的 fixture。
+      File(p.join(supportDir.path, 'WorkoutRecord.sqlite')).deleteSync();
+      for (final suffix in ['', '-wal', '-shm']) {
+        final source = File('$_fixtureDbPath$suffix');
+        if (source.existsSync()) {
+          source.copySync(p.join(supportDir.path, 'WorkoutRecord.sqlite$suffix'));
+        }
+      }
+
+      final result = await importer.retryAfterPermanentFailure(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      expect(result.skipped, isFalse);
+      expect(result.permanentlyFailed, isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isFalse);
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 0);
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
+    });
+
+    test('重試仍失敗:旗標與計數立刻復原為「已達上限」,不吃掉自動重試的 3 次'
+        '額度——回傳結果的 permanentlyFailed 誠實反映這個狀態,呼叫端不用'
+        '另外讀 prefs', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final importer =
+          importerWithSupportDir(buildBadSupportDir('retry_still_bad_support'));
+
+      for (var i = 0; i < 3; i++) {
+        await importer.importIfNeeded(db);
+      }
+      final prefsBefore = await SharedPreferences.getInstance();
+      expect(prefsBefore.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+
+      // 壞檔沒有被修好,重試理應仍然失敗。
+      final result = await importer.retryAfterPermanentFailure(db);
+
+      expect(result.success, isFalse);
+      expect(result.skipped, isFalse);
+      expect(result.permanentlyFailed, isTrue);
+
+      final prefs = await SharedPreferences.getInstance();
+      // 沒有真的要求使用者再連續點 3 次才會又看到手動重試按鈕——一次失敗
+      // 就立刻復原回「已達上限」的狀態。
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isTrue);
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 3);
+
+      // 緊接著再跑一次 importIfNeeded 應該直接短路 skip,不會又去開壞檔
+      // (attempts 沒有被吃掉,不需要真的再失敗 3 次)。
+      final next = await importer.importIfNeeded(db);
+      expect(next.skipped, isTrue);
+      expect(next.permanentlyFailed, isTrue);
+    });
+  });
+
+  group('CoreDataImporter - 「已 commit 未標旗」窗口(spec 4.6 節,major 3)', () {
+    test('資料已在 Drift(如崩潰在寫完成旗標前)→ 重跑偵測到既有 id,'
+        '不撞主鍵、直接補標完成', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'already_landed_support'))
+        ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      expect(first.skipped, isFalse);
+
+      // 模擬「transaction 已 commit,但寫完成旗標前 App 被中斷」:清掉完成
+      // 旗標,資料本身(Drift)完全不動。
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.success, isTrue, reason: second.errorMessage);
+      expect(second.skipped, isTrue);
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      // 沒有撞主鍵:workouts 表依然只有合成庫的 1 筆(不是丟例外,也不是
+      // 重複匯入出 2 筆)。
+      expect(await db.select(db.workouts).get(), hasLength(1));
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
+    });
+
+    test('Drift 有使用者自建資料,但沒有任何舊庫 id 存在其中 → 不誤判成'
+        '已落地,照常跑一次正常匯入', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+
+      // 使用者在匯入前已經自己開始記錄了一筆新訓練,userId/workoutId 都是
+      // 跟舊庫毫無關係的新 UUID。
+      const userCreatedUserId = '11111111-1111-1111-1111-111111111111';
+      await db.into(db.users).insert(
+            UsersCompanion.insert(
+              id: userCreatedUserId,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ),
+          );
+      await db.into(db.workouts).insert(
+            WorkoutsCompanion.insert(
+              id: '22222222-2222-2222-2222-222222222222',
+              userId: userCreatedUserId,
+              startedAt: DateTime.now(),
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ),
+          );
+
+      final supportDir =
+          Directory(p.join(tempDir.path, 'user_created_before_import_support'))
+            ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      // 不是誤判成 already landed——是正常跑了一次真的匯入。
+      expect(result.skipped, isFalse);
+      // 合成庫的 1 筆訓練被正常匯入,連同使用者自建的那 1 筆,共 2 筆。
+      expect(await db.select(db.workouts).get(), hasLength(2));
+    });
+
+    test('多表多樣本①:舊庫無 user、無 workout,只有 body_weight,且該'
+        'body_weight 已在 Drift → 命中(抽樣退到 body_weights 表才找到樣本)',
+        () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'already_landed_bw_only_support'))
+            ..createSync(recursive: true);
+      _buildNoUserWithBodyWeightDb(
+        p.join(supportDir.path, 'WorkoutRecord.sqlite'),
+      );
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      expect(first.skipped, isFalse);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.success, isTrue, reason: second.errorMessage);
+      expect(second.skipped, isTrue);
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      // 沒有撞主鍵:body_weight 依然只有合成庫的 1 筆。
+      expect(await db.select(db.bodyWeights).get(), hasLength(1));
+    });
+
+    test('多表多樣本②:舊庫 workouts 的抽樣列已被使用者刪掉,但 users 仍在'
+        'Drift → 命中(修正前只抽 workouts、抽樣落空就直接 return false,'
+        '此測試修正前必須紅——重跑會因 users 主鍵衝突而失敗)', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'workout_deleted_support'))
+            ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+
+      // 模擬使用者事後把這筆訓練刪掉了(但沒有動使用者本身)——依 FK
+      // cascade 順序刪:sets -> workout_exercises -> workouts。
+      await db.delete(db.workoutSets).go();
+      await db.delete(db.workoutExercises).go();
+      await db.delete(db.workouts).go();
+      expect(await db.select(db.workouts).get(), isEmpty);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.success, isTrue, reason: second.errorMessage);
+      expect(second.skipped, isTrue);
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      // 依然沒有撞主鍵:users 表只有合成庫的 1 筆,workouts 維持刪除後的
+      // 空狀態(沒有被誤重跑一次匯入)。
+      expect(await db.select(db.users).get(), hasLength(1));
+      expect(await db.select(db.workouts).get(), isEmpty);
+    });
+  });
+
+  group('CoreDataImporter - 核帳快照(spec 4.5 節,minor:alreadyLanded 也要留痕)',
+      () {
+    test('成功匯入時,核帳快照存進 SharedPreferences 且與 Drift 實際筆數一致',
+        () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
+
+      final result = await importer.importIfNeeded(db);
+      expect(result.success, isTrue, reason: result.errorMessage);
+
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
+      expect(stored, isNotNull);
+      final verifiedCounts =
+          (jsonDecode(stored!) as Map<String, dynamic>).cast<String, int>();
+      // exercises 落地量是 0(全部去重合併到既有種子),但核帳快照是「Drift
+      // 現有筆數」,兩者不是同一個數字——快照應該看得到那 66 筆既有種子。
+      expect(verifiedCounts['exercises'], greaterThan(0));
+      expect(
+        verifiedCounts['exercises'],
+        (await db.select(db.exercises).get()).length,
+      );
+      expect(
+        verifiedCounts['workouts'],
+        (await db.select(db.workouts).get()).length,
+      );
+    });
+
+    test('alreadyLanded 命中時,即使沒有 tableCounts 也照樣存核帳快照', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'verified_counts_already_landed'))
+            ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      await importer.importIfNeeded(db);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+
+      final second = await importer.importIfNeeded(db);
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      // alreadyLanded 的 ImportResult 本身沒有 tableCounts,但快照仍然要有。
+      expect(second.tableCounts, isEmpty);
+
+      final stored = prefs.getString(kCoreDataImportVerifiedCountsKey);
+      expect(stored, isNotNull);
+      final verifiedCounts =
+          (jsonDecode(stored!) as Map<String, dynamic>).cast<String, int>();
+      expect(verifiedCounts['workouts'], 1);
+      expect(verifiedCounts['users'], 1);
+    });
+  });
+
+  group('CoreDataImporter - 統計口徑:tableCounts 落地量 vs skippedCounts(spec 4.5 節)', () {
+    test('沒有孤兒的真實 fixture:三張易孤兒表的 skippedCounts 皆為 0,'
+        'tableCounts 為落地量(exercises 因全數去重為 0,其餘表與來源筆數'
+        '相等)', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      expect(result.skippedCounts['template_exercises'], 0);
+      expect(result.skippedCounts['workout_exercises'], 0);
+      expect(result.skippedCounts['workout_sets'], 0);
+      final expectedLanded = Map<String, int>.from(fixtureSourceCounts())
+        ..['exercises'] = 0;
+      expect(result.tableCounts, equals(expectedLanded));
+
+      // 成功匯入的落地量摘要(連同 skippedCounts/dedupedCounts/
+      // createdPlaceholders)也會存進 SharedPreferences(spec 4.5 節)。
+      final prefs = await SharedPreferences.getInstance();
+      final storedTableCounts = prefs.getString(kCoreDataImportTableCountsKey);
+      expect(storedTableCounts, isNotNull);
+      expect(
+        jsonDecode(storedTableCounts!) as Map<String, dynamic>,
+        equals(result.tableCounts),
+      );
+      final storedSkippedCounts =
+          prefs.getString(kCoreDataImportSkippedCountsKey);
+      expect(storedSkippedCounts, isNotNull);
+      expect(
+        jsonDecode(storedSkippedCounts!) as Map<String, dynamic>,
+        equals(result.skippedCounts),
+      );
+      final storedDedupedCounts =
+          prefs.getString(kCoreDataImportDedupedCountsKey);
+      expect(storedDedupedCounts, isNotNull);
+      expect(
+        jsonDecode(storedDedupedCounts!) as Map<String, dynamic>,
+        equals(result.dedupedCounts),
+      );
+    });
+
+    test('workout_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
+        'skippedCounts 另外記錄被略過的孤兒數', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'counts_orphan_we_support'))
+            ..createSync(recursive: true);
+      _buildOrphanWorkoutExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      // fixture 有 2 筆 workout_exercise 來源(1 有效 + 1 孤兒),落地量只
+      // 算成功寫入的 1 筆,不能拿「讀到的筆數」(2)當作零遺失的證據。
+      expect(result.tableCounts['workout_exercises'], 1);
+      expect(result.skippedCounts['workout_exercises'], 1);
+      // 孤兒 workout_exercise 底下的 set 隨其父列一併略過:來源 2 筆,
+      // 落地 1 筆。
+      expect(result.tableCounts['workout_sets'], 1);
+      expect(result.skippedCounts['workout_sets'], 1);
+    });
+
+    test('template_exercise 孤兒 skip 時:tableCounts 只算落地筆數,'
+        'skippedCounts 另外記錄被略過的孤兒數', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir =
+          Directory(p.join(tempDir.path, 'counts_orphan_te_support'))
+            ..createSync(recursive: true);
+      _buildOrphanTemplateExerciseDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      expect(result.tableCounts['template_exercises'], 1);
+      expect(result.skippedCounts['template_exercises'], 1);
+    });
+  });
+
+  group('CoreDataImporter - 本地 log(spec 4.6 節,不只靠 debugPrint)', () {
+    File logFileFor(Directory supportDir) =>
+        File(p.join(supportDir.path, 'logs', 'import.log'));
+
+    test('匯入成功時,log 檔案追加一行含 tableCounts 的摘要', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = copyFixtureAsOldAppSupportDir();
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+      expect(result.success, isTrue, reason: result.errorMessage);
+
+      final logFile = logFileFor(supportDir);
+      expect(logFile.existsSync(), isTrue);
+      final content = logFile.readAsStringSync();
+      expect(content, contains('匯入成功'));
+      expect(content, contains('tableCounts'));
+    });
+
+    test('匯入失敗時,log 檔案追加一行含錯誤訊息', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'log_bad_support'))
+        ..createSync(recursive: true);
+      File(p.join(supportDir.path, 'WorkoutRecord.sqlite'))
+          .writeAsBytesSync(List<int>.generate(256, (i) => i % 256));
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+      expect(result.success, isFalse);
+
+      final logFile = logFileFor(supportDir);
+      expect(logFile.existsSync(), isTrue);
+      final content = logFile.readAsStringSync();
+      expect(content, contains('匯入失敗'));
+      // 「進行到:XXX」記錄失敗當下卡在哪個階段(見 _CurrentStepHolder),
+      // 不只是丟一堆 stacktrace 讓人猜是哪一步壞的。
+      expect(content, contains('進行到'));
+    });
+  });
+
+  group('truncateForImportLog - 截斷邊界(500/501 字元)', () {
+    test('剛好 500 字元不截斷', () {
+      final message = 'a' * kImportLogMaxMessageLength;
+      final result = truncateForImportLog(message);
+
+      expect(result, message);
+      expect(result, isNot(contains('截斷')));
+    });
+
+    test('501 字元(剛超過上限 1 個字元)開始截斷', () {
+      final message = 'a' * (kImportLogMaxMessageLength + 1);
+      final result = truncateForImportLog(message);
+
+      expect(result, startsWith('a' * kImportLogMaxMessageLength));
+      expect(result, contains('截斷'));
+      expect(result, contains('原始長度 ${kImportLogMaxMessageLength + 1} 字元'));
     });
   });
 }
@@ -915,6 +1462,44 @@ void _buildNoUserWithBodyWeightDb(String path) {
       '(ZID, ZUSERID, ZWEIGHT, ZMEASUREDAT, ZISSYNCED, ZCREATEDAT, ZUPDATEDAT) '
       'VALUES (?, ?, ?, ?, ?, ?, ?)',
       [bodyWeightId, danglingUserId, 82.5, 0.0, 0, 0.0, 0.0],
+    );
+  } finally {
+    db.dispose();
+  }
+}
+
+/// (g) template_exercise.exerciseId 在舊庫的 ZEXERCISEENTITY 中完全不存在
+/// (該表本身是空的)——對照 (d) `_buildMissingExerciseForWorkoutExerciseDb`:
+/// workout_exercises 遇到同樣情況會補建佔位動作,但 template_exercises 的
+/// 結構層孤兒防護是直接略過整列(見 coredata_importer_io.dart
+/// `_importTemplateExercises`)——模板項本身沒有動作身分即無意義,且它不是
+/// 訓練歷史,略過只損失該筆,不需要補建佔位動作。
+void _buildMissingExerciseForTemplateExerciseDb(String path) {
+  final db = sqlite3lib.sqlite3.open(path);
+  try {
+    db.execute(_syntheticSchema);
+
+    final userId = _fakeUuidBytes(70);
+    final templateId = _fakeUuidBytes(71);
+    final ghostExerciseId = _fakeUuidBytes(72); // 從未寫進 ZEXERCISEENTITY
+    final templateExerciseId = _fakeUuidBytes(73);
+
+    db.execute(
+      'INSERT INTO ZUSERENTITY (ZID, ZNAME, ZCREATEDAT, ZUPDATEDAT) '
+      'VALUES (?, ?, ?, ?)',
+      [userId, 'Synthetic User', 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZTEMPLATEENTITY '
+      '(ZID, ZUSERID, ZNAME, ZISSYSTEM, ZCREATEDAT, ZUPDATEDAT) '
+      'VALUES (?, ?, ?, ?, ?, ?)',
+      [templateId, userId, 'Ghost Exercise Template', 0, 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZTEMPLATEEXERCISEENTITY '
+      '(ZID, ZTEMPLATEID, ZEXERCISEID, ZORDERINDEX, ZSUGGESTEDSETS, '
+      'ZSUGGESTEDREPS) VALUES (?, ?, ?, ?, ?, ?)',
+      [templateExerciseId, templateId, ghostExerciseId, 0, 3, 8],
     );
   } finally {
     db.dispose();
