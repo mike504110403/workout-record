@@ -16,6 +16,7 @@
 - ✅ 同步架構:**完全自建後端(Go + SQLite + Litestream)+ 自寫簡易同步(updatedAt 增量 + LWW + 墓碑)**;PowerSync 經深挖後由 Mike 否決(雙 schema/約束流失/meta 牆)
 - ✅ 升 Flutter:3.38.5 → 最新 stable(Dart ≥3.11),解 meta 天花板,升完重訂 pin
 - ⏸ 戰爭迷霧(掛同步波前再解):同步 API 細部設計、部署細節(伺服器/Docker/TLS/web 靜態檔)、Auth token 驗證與 session 實作
+- ⏸ **待 Mike 決策(波 1 review 揪出,2026-07-30)**:①DB 層帳號隔離——換帳號時「全查詢帶 userId」vs「清本機資料」,牽動波 2+ 所有資料頁與同步波,決策前資料頁工人不得假設隔離已處理(附帶:血緣裝置的 coredata_imported_user_id 應改「首個登入帳號認領一次即消耗」,決策執行時一併收,見 security delta review 2026-07-30);②同步波備忘:本機 apple_user_id 不可當帳號 key,伺服器須驗 identityToken+nonce;Android 在同步波前不得上架 Play(release build 只有測試登入);③隱私同意文案「分析/錯誤報告」描述了不存在的收集且強制必勾,維持照抄 iOS 或先拿掉,同步波隱私改版一併解
 
 詳見 `.claude/decisions/2026-07-24-三平台雲端同步方向.md`。
 
@@ -42,5 +43,8 @@
 
 ## 下一步
 
-1. 波 1 派工:登入 + Onboarding(UI + 本機 session),從 develop 切 feature 分支
-2. develop 領先 origin 越來越多,找時機問 Mike 要不要推
+1. **波 1 已 merge 回 develop(2026-07-30,merge 825a412)**:登入 + Onboarding 5 頁 + 隱私同意 + 本機 session + iOS entitlement。三輪 review(2 blocker、5 major 修畢)通過;merge 後 analyze 零 issue + test 123/123。Apple 真登入僅 iOS release;iOS debug/模擬器/Android/Web 走測試登入(裝置層 UUID 身分);升級血緣改判 `coredata_imported_user_id`。**Mike 待辦:Apple Developer portal 給 `com.mikelin.workitout` 開 Sign in with Apple capability;iOS 真機實測登入(模擬器測不到)**
+2. **import-minors 已 merge 回 develop(2026-08-04,merge a9954bf)**:六項 spec 4.5/4.6 收尾,經三輪修正(one-shot 重試、統計四份帳+核帳快照、alreadyLanded 多表多樣本偵測),終輪 code+db 複審 0 blocker/0 major。merge 衝突(importer io/result、settings_page、測試)大腦親解,merge 後 analyze 零 issue + test 155/155 + web build 成功
+3. **複審遺留 minor(已准掛下波,勿忘)**:_verifiedTableCounts 改真 COUNT 表達式+allTables 遍歷、alreadyCompleted 觸發路徑補斷言、exercises 核帳等式(快照=種子+自訂落地)專屬測試、alreadyLanded 分支順記舊庫 COUNT、blocked UNIQUE 保險絲(可選)、統計參數群聚收 tally 物件、全 repo dart format(波 0 formatter fallout,另開波)
+4. develop 領先 origin 7 個 commit(波 1 五個 + import-minors 兩個 merge),找時機問 Mike 要不要推
+5. **下一波(波 2 Dashboard)開工前置**:等 Mike 決策「DB 層帳號隔離」(見上方待決策①),資料頁工人不得假設隔離已處理
