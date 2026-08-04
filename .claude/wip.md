@@ -16,7 +16,7 @@
 - ✅ 同步架構:**完全自建後端(Go + SQLite + Litestream)+ 自寫簡易同步(updatedAt 增量 + LWW + 墓碑)**;PowerSync 經深挖後由 Mike 否決(雙 schema/約束流失/meta 牆)
 - ✅ 升 Flutter:3.38.5 → 最新 stable(Dart ≥3.11),解 meta 天花板,升完重訂 pin
 - ⏸ 戰爭迷霧(掛同步波前再解):同步 API 細部設計、部署細節(伺服器/Docker/TLS/web 靜態檔)、Auth token 驗證與 session 實作
-- ⏸ **待 Mike 決策(波 1 review 揪出,2026-07-30)**:①DB 層帳號隔離——換帳號時「全查詢帶 userId」vs「清本機資料」,牽動波 2+ 所有資料頁與同步波,決策前資料頁工人不得假設隔離已處理(附帶:血緣裝置的 coredata_imported_user_id 應改「首個登入帳號認領一次即消耗」,決策執行時一併收,見 security delta review 2026-07-30);②同步波備忘:本機 apple_user_id 不可當帳號 key,伺服器須驗 identityToken+nonce;Android 在同步波前不得上架 Play(release build 只有測試登入);③隱私同意文案「分析/錯誤報告」描述了不存在的收集且強制必勾,維持照抄 iOS 或先拿掉,同步波隱私改版一併解
+- ✅ **DB 帳號隔離:換帳號清本機資料(Mike 2026-08-04 拍板)**,見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`;owner 認領機制 + 血緣 key 一次性消耗,實作掛波 2;②同步波備忘:本機 apple_user_id 不可當帳號 key,伺服器須驗 identityToken+nonce;Android 在同步波前不得上架 Play(release build 只有測試登入);③隱私同意文案「分析/錯誤報告」描述了不存在的收集且強制必勾,維持照抄 iOS 或先拿掉,同步波隱私改版一併解
 
 詳見 `.claude/decisions/2026-07-24-三平台雲端同步方向.md`。
 
