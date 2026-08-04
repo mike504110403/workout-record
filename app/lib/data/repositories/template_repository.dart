@@ -48,7 +48,6 @@ class TemplateRepository {
     final rows = await (_db.select(_db.templates)
           ..where((t) => t.userId.equals(userId) & t.isSystem.equals(false))
           ..orderBy([
-            (t) => OrderingTerm(expression: t.isSystem, mode: OrderingMode.desc),
             (t) => OrderingTerm(expression: t.name),
           ]))
         .get();

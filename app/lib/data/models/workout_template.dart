@@ -62,12 +62,6 @@ class WorkoutTemplate {
   /// 舊描述,存檔後畫面看起來成功但 DB 裡描述其實沒被清掉(code-reviewer
   /// 實測重現的真實 bug)。呼叫端要清空描述時必須明確傳
   /// `description: const Value(null)`,不傳這個參數就是「不動描述」。
-  /// [description] 用 [Value] 哨兵區分「沒傳(維持原值)」與「傳入 null
-  /// (清空描述)」——原本用 `description ?? this.description` 這種一般
-  /// nullable 參數寫法,清空描述時傳進來的 null 會被 `??` 吃掉、自動退回
-  /// 舊描述,存檔後畫面看起來成功但 DB 裡描述其實沒被清掉(code-reviewer
-  /// 實測重現的真實 bug)。呼叫端要清空描述時必須明確傳
-  /// `description: const Value(null)`,不傳這個參數就是「不動描述」。
   WorkoutTemplate copyWith({
     String? name,
     Value<String?> description = const Value.absent(),

@@ -73,12 +73,13 @@ class AppDatabase extends _$AppDatabase {
             // 卡在 v1 的 userId NOT NULL 限制,系統模板(userId = null)根本
             // 插不進去,所以升級路徑永遠沒有系統模板可用(實跑升級後
             // isSystem = 1 為 0 筆)。約束放鬆之後,這裡照 onCreate 的路徑
-            // 補種——沿用同一個 `_seedSystemTemplatesIfEmpty()`:冪等(已有
-            // isSystem 模板就跳過)、容錯(某個模板的動作名稱在裝置既有
-            // exercises 表中找不到,只跳過那個模板 + log,不會讓升級整個
-            // 失敗,見 seed_data.dart `buildSeedTemplateCompanions` 的文件
-            // 註解)。
-            await _seedSystemTemplatesIfEmpty();
+            // 補種——呼叫完整的 `seedIfEmpty()`(db review r2):動作齊全時
+            // 與只種模板行為相同(exercises 非空就跳過),但若裝置動作種子
+            // 曾缺漏,能先自我修復再種模板,避免「升級成功但模板永久 0 筆
+            // 且 user_version 已前進、再也不重試」的死局。冪等 + 容錯
+            // (某模板動作名稱找不到只跳過該模板 + log,不讓升級失敗,見
+            // seed_data.dart `buildSeedTemplateCompanions` 文件註解)。
+            await seedIfEmpty();
           }
         },
         beforeOpen: (details) async {

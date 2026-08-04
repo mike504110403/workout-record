@@ -119,7 +119,7 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
       }
       final parsed = int.tryParse(value);
       if (parsed == null || parsed < 0) {
-        errors[exerciseId] = '請輸入正整數';
+        errors[exerciseId] = '請輸入 0 或正整數';
       } else {
         assign(parsed);
         errors.remove(exerciseId);

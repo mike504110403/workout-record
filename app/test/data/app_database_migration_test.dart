@@ -134,8 +134,13 @@ void main() {
     final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
     addTearDown(db.close);
 
-    // 斷言 1:既有列一列都不能丟,逐欄比對(含子列)。
-    final templatesAfter = await db.select(db.templates).get();
+    // 斷言 1:既有列一列都不能丟,逐欄比對(含子列)。斷言鎖定「非系統
+    // 模板」——onUpgrade 走 seedIfEmpty()(db review r2 自癒改法),這個
+    // fixture 的 exercises 是空的,升級時會先自癒種回 66 筆動作、連帶種出
+    // 5 筆系統模板,那是預期行為,不影響本測試守的「既有使用者列保留」。
+    final templatesAfter = await (db.select(db.templates)
+          ..where((t) => t.isSystem.equals(false)))
+        .get();
     expect(templatesAfter, hasLength(1));
     final migratedTemplate = templatesAfter.single;
     expect(migratedTemplate.id, templateId);
@@ -146,7 +151,9 @@ void main() {
     expect(migratedTemplate.createdAt.millisecondsSinceEpoch, createdAtSeconds * 1000);
     expect(migratedTemplate.updatedAt.millisecondsSinceEpoch, updatedAtSeconds * 1000);
 
-    final templateExercisesAfter = await db.select(db.templateExercises).get();
+    final templateExercisesAfter = await (db.select(db.templateExercises)
+          ..where((te) => te.templateId.equals(templateId)))
+        .get();
     expect(templateExercisesAfter, hasLength(1));
     final migratedTemplateExercise = templateExercisesAfter.single;
     expect(migratedTemplateExercise.id, templateExerciseId);

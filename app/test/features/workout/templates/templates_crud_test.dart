@@ -351,7 +351,7 @@ void main() {
     await tester.enterText(find.byKey(setsFieldKey), 'abc');
     await tester.pump();
 
-    expect(find.text('請輸入正整數'), findsOneWidget);
+    expect(find.text('請輸入 0 或正整數'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('templateFormSaveButton')));
     await tester.pumpAndSettle();
