@@ -45,7 +45,14 @@
 7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review)+ sqlite3_flutter_libs EOL 遷移波、dart format 專波擇機插入
 8. 發布波(三平台)
 
+## 波 3 進行中(2026-08-04 開)
+
+- 決策已裁(見 `.claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md`):進行中訓練 = Drift 草稿寫穿(endedAt NULL);種五個系統模板(照 iOS DEBUG mock 定案);兩段式拆工。
+- **第一段(進行中)**:①`exercise-picker-worker`(`feature/wave3-exercise-picker`,選動作器,契約 `showExercisePicker(context, {multiSelect})`)+ ③`template-worker`(`feature/wave3-templates`,模板種子/CRUD/套用,picker 以同簽名 fake 頂替標 `WAVE3-MERGE`)。各自驗收 + review chain(③涉種子加跑 db-reviewer)→ merge 時大腦把 ③ 的 fake 接到 ① 真 picker。
+- **第二段(未開)**:②訓練核心流——開始(自由/模板)、草稿寫穿、記組(重量/次數/RPE/暖身/休息計時)、上一組帶入、即時統計、放棄確認(iOS 是 TODO,我們要做)、完成結算(completeWorkout + OneRM PR 偵測 `createIfNewPR`)、summary 報告、啟動偵測未完成草稿詢問恢復/放棄;Dashboard M3 invalidate 已保證切回首頁刷新。
+- iOS 基準要點(探路 2026-08-04):進行中純記憶體無恢復(我們改草稿)、AddSetSheet 預設休息 90s 可調 0-300、PR 用 OneRMCalculator(工人讀 iOS 原始碼對等)、匯入路徑統計是複製舊值而新寫入路徑 completeWorkout 現算(語意已對齊,別動)。
+
 ## 下一步
 
-1. 開波 3(記訓練核心流)前:Mike 驗看波 2、裁遺留判斷題、決定 develop 要不要推(遠端已在 50e6787=收斂點,非大腦所推;未推的只剩③相關 5 個 commit:1a8afd8/97f9961/3fa0e9b/50af296 等)。
-2. ~~③修復補審~~(已完成,雙 PASS)。
+1. 收第一段兩工人 → 驗收 + review → merge + 接線 → 開第二段②。
+2. develop 已推(9690e6a);波 2 遺留判斷題仍待裁(riverpod 38 秒重試等,見上方遺留節)。
