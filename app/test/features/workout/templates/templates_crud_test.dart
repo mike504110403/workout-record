@@ -1,8 +1,8 @@
 // 模板 CRUD 真組裝測試:建立 -> 列表出現 -> 編輯(動作清單更新落地,獨立
 // SELECT 驗證)-> 刪除 -> 消失;系統模板不可編輯/刪除;建立失敗路徑。
 //
-// 測試視窗放大到能一次容納整份動作挑選清單(exercise_picker_fake.dart
-// 列出全部啟用中的動作,66 筆系統動作),理由同
+// 測試視窗放大到能一次容納整份動作挑選清單(真 exercise_picker 預設
+// 「全部」分類列出全部啟用中的動作,66 筆系統動作),理由同
 // template_picker_sheet_test.dart 開頭說明:ListView 只 mount 進視窗
 // (含 cacheExtent)內的子項,視窗太小會找不到要點的項目,不是程式有 bug。
 import 'package:flutter/material.dart';
@@ -76,16 +76,29 @@ Future<void> _pumpList(WidgetTester tester, _Harness harness) async {
   await tester.pumpAndSettle();
 }
 
-/// 從新增/編輯表單畫面點開動作挑選 fake sheet,勾選指定的動作,確認。
+/// 從新增/編輯表單畫面點開真 exercise picker(多選模式),勾選指定的動作,
+/// 確認。項目 key 是真 picker 的 `exercise_row_<id>`,列表長於視窗時先捲到
+/// 可見再點。
 Future<void> _pickExercisesInForm(WidgetTester tester, List<String> exerciseIds) async {
   await tester.tap(find.byKey(const Key('templateFormAddExerciseButton')));
   await tester.pumpAndSettle();
 
   for (final id in exerciseIds) {
-    await tester.tap(find.byKey(Key('exercisePickerFakeItem_$id')));
+    final row = find.byKey(Key('exercise_row_$id'));
+    await tester.scrollUntilVisible(
+      row,
+      120,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('exercise_picker_list')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(row);
+    await tester.pump();
   }
-  await tester.pump();
-  await tester.tap(find.byKey(const Key('exercisePickerFakeConfirm')));
+  await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
   await tester.pumpAndSettle();
 }
 

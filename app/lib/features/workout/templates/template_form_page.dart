@@ -1,9 +1,9 @@
 // 建立/編輯模板的共用表單頁。對照 iOS
 // `WorkoutTemplateViewModel.createTemplate` / `updateTemplate`。
 //
-// 動作挑選走 exercise_picker_fake.dart 目前提供的暫時替身(見該檔案開頭
-// WAVE3-MERGE 標記),真實作由另一支平行工人負責,merge 時大腦換這裡的
-// import 即可,函式簽名一致不需要改呼叫邏輯。
+// 動作挑選走 exercise_picker 的 `showExercisePicker`(波 3 第一段兩支平行
+// 分支議定的接縫;模板分支開發期間用同簽名 fake 頂替,merge 時已由大腦
+// 換接真實作,fake 檔案同時移除)。
 //
 // 非同步失敗路徑:儲存失敗時停在表單畫面、解除 loading(`_saving = false`)、
 // 用 SnackBar 顯示錯誤,不 pop——使用者可以修正後重試,不會弄丟已經填好
@@ -13,7 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/exercise.dart';
 import '../../../data/models/workout_template.dart';
-import 'exercise_picker_fake.dart';
+import '../exercise_picker/exercise_picker_sheet.dart';
 import 'templates_controller.dart';
 
 /// 表單內部用的暫存動作項目:動作本身 + 使用者輸入的建議組數/次數。
