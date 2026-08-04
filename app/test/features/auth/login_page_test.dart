@@ -145,6 +145,18 @@ void main() {
       expect(find.byKey(const Key('ownerConflictConfirmButton')), findsOneWidget);
     });
 
+    testWidgets('警告對話框設 PopScope(canPop: false),防 Android 返回鍵繞過', (tester) async {
+      await pumpConflictingLogin(tester);
+
+      final popScope = tester.widget<PopScope>(
+        find.ancestor(
+          of: find.byType(AlertDialog),
+          matching: find.byType(PopScope),
+        ),
+      );
+      expect(popScope.canPop, isFalse);
+    });
+
     testWidgets('按下取消:對話框關閉、未登入、owner 不變', (tester) async {
       await pumpConflictingLogin(tester);
 

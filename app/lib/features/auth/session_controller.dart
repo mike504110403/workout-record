@@ -10,10 +10,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/utils/uuid.dart';
-import '../../data/migration/coredata_importer_result.dart' show kCoreDataImportedUserIdKey;
+import '../../data/migration/coredata_importer_result.dart'
+    show
+        kCoreDataImportAttemptsKey,
+        kCoreDataImportCompletedKey,
+        kCoreDataImportFailedPermanentlyKey,
+        kCoreDataImportStatsKeys,
+        kCoreDataImportedUserIdKey;
+import '../../data/migration/legacy_prefs_importer.dart'
+    show kLegacyPrefsImportCompletedKey, kLegacyPrefsPersonalDataKeys;
 import '../../data/providers.dart' show appDatabaseProvider;
 import '../onboarding/onboarding_controller.dart' show kOnboardingPersonalDataKeys;
-import '../onboarding/onboarding_status.dart' show kHasCompletedOnboardingKey;
+import '../onboarding/onboarding_status.dart'
+    show kHasCompletedOnboardingKey, onboardingStatusProvider;
 import 'shared_preferences_provider.dart';
 
 const kAppleUserIdKey = 'apple_user_id';
@@ -59,6 +68,15 @@ class LoginSuccess extends LoginOutcome {
 /// - 確認 → 呼叫 [SessionController.confirmClearAndContinueLogin]。
 /// - 取消 → 呼叫 [SessionController.cancelOwnerConflict](或什麼都不做,
 ///   狀態就留在 conflict,下一次同一身分登入會再次回傳同一個結果)。
+///
+/// **勿覆寫 `==`/`hashCode`。** `login_page.dart` 用 `!=` 比對這個型別的
+/// instance 判斷「要不要彈警告對話框」,刻意走預設的 identity 比較——每次
+/// controller 偵測到衝突都會 new 一個 instance,「同一個 instance 沒變」不
+/// 重複彈,「換一個新 instance」(即使欄位內容一模一樣,例如同一身分連續
+/// 觸發兩次衝突)一定要再彈一次。若之後改成 value equality(欄位相同視為
+/// 同一個),欄位內容相同的連續衝突會被 `ref.listen` 的 previous != next
+/// 判斷成「沒變」而悄悄吃掉第二次警告,使用者可能因此在沒看到警告的情況下
+/// 被清空資料。
 class LoginOwnerConflict extends LoginOutcome {
   const LoginOwnerConflict({
     required this.pendingUserId,
@@ -158,7 +176,7 @@ class SessionController extends Notifier<SessionState> {
       final userName = fullName.isNotEmpty ? fullName : '用戶';
       final userEmail = credential.email ?? '未提供電子郵件';
 
-      return _completeLoginWithOwnerCheck(
+      return await _completeLoginWithOwnerCheck(
         userId: userId,
         userName: userName,
         userEmail: userEmail,
@@ -191,7 +209,7 @@ class SessionController extends Notifier<SessionState> {
         await prefs.setString(kTestLoginUserIdPrefsKey, testUserId);
       }
 
-      return _completeLoginWithOwnerCheck(
+      return await _completeLoginWithOwnerCheck(
         userId: testUserId,
         userName: kTestLoginUserName,
         userEmail: kTestLoginUserEmail,
@@ -236,38 +254,78 @@ class SessionController extends Notifier<SessionState> {
   }
 
   /// 警告對話框「確認清除並繼續」後呼叫:清空 Drift 全表(見
-  /// [AppDatabase.clearAllTables])+ Onboarding 個資 prefs
+  /// [AppDatabase.resetForNewOwner])+ Onboarding 個資 prefs
   /// ([kOnboardingPersonalDataKeys])+ 完成旗標([kHasCompletedOnboardingKey])
   /// +血緣 key([kCoreDataImportedUserIdKey],一次性消耗——這個 key 只服務
   /// 「第一個認領本機資料的帳號」,換人時連同它指向的 Users row 一起在
-  /// [AppDatabase.clearAllTables] 裡被清掉,這裡額外刪 key 本身是防禦性
-  /// 收尾,確保沒有殘留的 prefs 值可能被誤讀),然後認領 owner 為這次的
-  /// 登入身分、完成登入。
+  /// [AppDatabase.resetForNewOwner] 裡被清掉,這裡額外刪 key 本身是防禦性
+  /// 收尾,確保沒有殘留的 prefs 值可能被誤讀)+ **退休裝置層匯入**(否則
+  /// 重啟後 `main.dart` 的 `importIfNeeded` 會把舊 iOS SQLite 的前人歷史
+  /// 匯回給新帳號,見「實作補充」節,security review 2026-08-04 major):
+  /// CoreData 匯入完成旗標設 true、失敗旗標與重試次數歸零、legacy prefs
+  /// 匯入旗標設 true,連同上一位帳號留下的 legacy 個資與匯入統計 prefs 一併
+  /// 清除,然後認領 owner 為這次的登入身分、完成登入。
   ///
   /// 呼叫前提:[SessionState.ownerConflict] 不為 null——沒有待確認的衝突時
-  /// 直接 no-op 並回傳 [LoginFailure],不會誤觸發清除。
+  /// 直接 no-op 並回傳 [LoginFailure],不會誤觸發清除。守門判斷與清掉
+  /// `ownerConflict`/設 `isLoading: true` 刻意放在同一個同步區塊(方法一開頭,
+  /// 中間沒有任何 `await`)——避免 async gap 期間被重入:第二次呼叫在第一次
+  /// 的清除還沒做完前進來,會因為 `ownerConflict` 已經被第一次呼叫同步清掉
+  /// 而直接落入 no-op 分支,不會有兩個清除同時對同一份 Drift 資料操作。
+  ///
+  /// 失敗(例如清空 DB 時拋例外)不讓例外往外炸——吃下來,走既有的
+  /// [SessionState.errorMessage] 一般化文案路徑,`isLoading` 收尾為 false、
+  /// `ownerConflict` 維持已清除(不重新彈同一個衝突,使用者可以重新登入
+  /// 觸發新的一輪判斷)。
   Future<LoginOutcome> confirmClearAndContinueLogin() async {
     final pending = state.ownerConflict;
     if (pending == null) return const LoginFailure();
+    state = state.copyWith(isLoading: true, clearOwnerConflict: true);
 
-    final db = ref.read(appDatabaseProvider);
-    await db.clearAllTables();
+    try {
+      final db = ref.read(appDatabaseProvider);
+      await db.resetForNewOwner();
 
-    final prefs = ref.read(sharedPreferencesProvider);
-    for (final key in kOnboardingPersonalDataKeys) {
-      await prefs.remove(key);
+      final prefs = ref.read(sharedPreferencesProvider);
+      for (final key in kOnboardingPersonalDataKeys) {
+        await prefs.remove(key);
+      }
+      await prefs.remove(kHasCompletedOnboardingKey);
+      ref.invalidate(onboardingStatusProvider);
+      await prefs.remove(kCoreDataImportedUserIdKey);
+
+      // 退休裝置層匯入——標成「已匯入過」讓 importIfNeeded 之後直接 skip,
+      // 不會把前人的舊 iOS SQLite 歷史匯回給新帳號。
+      await prefs.setBool(kCoreDataImportCompletedKey, true);
+      await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
+      await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+      await prefs.setBool(kLegacyPrefsImportCompletedKey, true);
+
+      // 上一位帳號殘留的 legacy 個資 + 匯入統計 prefs 一併清除(顯式清單,
+      // 不做前綴掃描)。
+      for (final key in kLegacyPrefsPersonalDataKeys) {
+        await prefs.remove(key);
+      }
+      for (final key in kCoreDataImportStatsKeys) {
+        await prefs.remove(key);
+      }
+
+      await prefs.setString(kLocalDataOwnerUserIdKey, pending.pendingUserId);
+
+      await _persistSession(
+        userId: pending.pendingUserId,
+        userName: pending.pendingUserName,
+        userEmail: pending.pendingUserEmail,
+      );
+      return const LoginSuccess();
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        clearOwnerConflict: true,
+        errorMessage: _genericLoginErrorMessage,
+      );
+      return const LoginFailure();
     }
-    await prefs.remove(kHasCompletedOnboardingKey);
-    await prefs.remove(kCoreDataImportedUserIdKey);
-
-    await prefs.setString(kLocalDataOwnerUserIdKey, pending.pendingUserId);
-
-    await _persistSession(
-      userId: pending.pendingUserId,
-      userName: pending.pendingUserName,
-      userEmail: pending.pendingUserEmail,
-    );
-    return const LoginSuccess();
   }
 
   /// 警告對話框「取消」後呼叫:不清除任何東西、不認領、不建立 session,
@@ -327,6 +385,7 @@ class SessionController extends Notifier<SessionState> {
       await prefs.remove(key);
     }
     await prefs.remove(kHasCompletedOnboardingKey);
+    ref.invalidate(onboardingStatusProvider);
 
     state = const SessionState();
   }

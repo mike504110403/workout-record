@@ -56,6 +56,20 @@ const kCoreDataImportCreatedPlaceholdersKey = 'coredata_import_created_placehold
 /// 一定會有,補上那個缺口。
 const kCoreDataImportVerifiedCountsKey = 'coredata_import_verified_counts';
 
+/// 帳號隔離換帳號清除用(見
+/// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`「實作補充」
+/// 節與 session_controller.dart `confirmClearAndContinueLogin`):上一次
+/// CoreData 匯入留下的統計類 key,不是使用者個資,但屬於「上一位帳號那次
+/// 匯入」的殘留,換帳號確認清除時一併清掉,避免下一個帳號在設定頁看到
+/// 前人的匯入統計。顯式列舉,不做前綴掃描。
+const kCoreDataImportStatsKeys = <String>[
+  kCoreDataImportTableCountsKey,
+  kCoreDataImportSkippedCountsKey,
+  kCoreDataImportDedupedCountsKey,
+  kCoreDataImportCreatedPlaceholdersKey,
+  kCoreDataImportVerifiedCountsKey,
+];
+
 /// 沒有實際跑匯入時,[ImportResult.skipped] = true 的具體原因,供 UI
 /// (見 app/lib/features/settings/widgets/import_retry_tile.dart)顯示對應
 /// 訊息,不要一律當成「未知錯誤」或籠統的「成功」。

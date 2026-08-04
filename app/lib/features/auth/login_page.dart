@@ -80,30 +80,38 @@ class LoginPage extends ConsumerWidget {
         showDialog<void>(
           context: context,
           barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('偵測到不同帳號'),
-            content: const Text(
-              '此裝置保存了另一個帳號的資料,繼續將永久刪除本機所有訓練紀錄,'
-              '並以目前登入的帳號重新開始。確定要繼續嗎?',
+          builder: (context) => PopScope(
+            // 防 Android 實體/手勢返回鍵繞過警告對話框直接關掉——這個對話框
+            // 只能靠「取消」或「刪除並繼續」兩顆按鈕明確做出選擇,不能被
+            // 系統返回手勢當成「取消」悄悄吃掉(那樣使用者會誤以為自己
+            // 已經取消,但下一次同一身分登入 controller 又會再彈一次,
+            // 行為對得上但體驗詭異,乾脆不給返回鍵這條路)。
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('偵測到不同帳號'),
+              content: const Text(
+                '此裝置保存了另一個帳號的資料,繼續將永久刪除本機所有訓練紀錄,'
+                '並以目前登入的帳號重新開始。確定要繼續嗎?',
+              ),
+              actions: [
+                TextButton(
+                  key: const Key('ownerConflictCancelButton'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    ref.read(sessionControllerProvider.notifier).cancelOwnerConflict();
+                  },
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  key: const Key('ownerConflictConfirmButton'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    ref.read(sessionControllerProvider.notifier).confirmClearAndContinueLogin();
+                  },
+                  child: const Text('刪除並繼續'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                key: const Key('ownerConflictCancelButton'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  ref.read(sessionControllerProvider.notifier).cancelOwnerConflict();
-                },
-                child: const Text('取消'),
-              ),
-              TextButton(
-                key: const Key('ownerConflictConfirmButton'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  ref.read(sessionControllerProvider.notifier).confirmClearAndContinueLogin();
-                },
-                child: const Text('刪除並繼續'),
-              ),
-            ],
           ),
         );
       }

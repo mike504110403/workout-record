@@ -3,10 +3,14 @@
 // signInWithApple() 在沒有原生 Apple 登入管道(測試環境)時要優雅失敗而不是
 // 讓例外往外炸。
 
+import 'package:drift/drift.dart' show Value;
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/data/db/app_database.dart';
+import 'package:workout_record/data/migration/coredata_importer_result.dart';
+import 'package:workout_record/data/migration/legacy_prefs_importer.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
@@ -15,6 +19,19 @@ import 'package:workout_record/features/onboarding/onboarding_controller.dart'
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
 
 import '../../data/test_helpers.dart';
+
+/// 專給「確認清除時 DB 清空失敗」測試用的假 DB——只覆寫
+/// [AppDatabase.resetForNewOwner] 讓它拋例外,其餘(onCreate/seedIfEmpty 等)
+/// 完全是真正的 Drift 行為,不需要碰任何 native API 就能製造出「清空失敗」
+/// 的情境。
+class _ThrowingResetDb extends AppDatabase {
+  _ThrowingResetDb() : super.forTesting(NativeDatabase.memory());
+
+  @override
+  Future<void> resetForNewOwner() async {
+    throw Exception('boom: 模擬清空 DB 失敗');
+  }
+}
 
 Future<ProviderContainer> _containerWithPrefs(Map<String, Object> values) async {
   SharedPreferences.setMockInitialValues(values);
@@ -111,6 +128,13 @@ void main() {
         'user_current_weight': 70.0,
       });
 
+      // build() 已經把 onboardingStatusProvider 讀成 true(對應上面 mock 的
+      // kHasCompletedOnboardingKey: true)——先讀一次讓它被實際初始化,才能
+      // 驗證下面 signOut() 之後這個 provider 的記憶體值真的被 invalidate
+      // 重新讀成 false,不是只清了 prefs、provider 記憶體值卻沒跟上(blocker
+      // 修復:router.dart 讀的是 provider 記憶體值,不是 prefs)。
+      expect(container.read(onboardingStatusProvider), isTrue);
+
       await container.read(sessionControllerProvider.notifier).signOut();
 
       final state = container.read(sessionControllerProvider);
@@ -122,6 +146,10 @@ void main() {
       expect(prefs.containsKey('user_gender'), isFalse);
       expect(prefs.containsKey('user_current_weight'), isFalse);
       expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+
+      // provider 記憶體值(不是被測方法回傳值)是真正的參照物:signOut()
+      // 必須 invalidate onboardingStatusProvider,不能只清 prefs。
+      expect(container.read(onboardingStatusProvider), isFalse);
     });
 
     test('顯式契約:不在 kOnboardingPersonalDataKeys 清單內的 user_ 前綴 key 不會被清除', () async {
@@ -285,8 +313,9 @@ void main() {
 
     test(
         '確認清除:多表清空(Workouts/WorkoutExercises/WorkoutSets/BodyWeights/Users)、'
-        'onboarding 個資與完成旗標消失、隱私三 key 與裝置層級測試登入 id 仍在、'
-        'owner 換成新帳號、session 建立', () async {
+        'onboarding 個資與完成旗標消失(含 provider 記憶體值)、隱私三 key 與裝置層級'
+        '測試登入 id 仍在、owner 換成新帳號、session 建立、裝置層匯入退休、'
+        '上一位帳號的 legacy 個資與匯入統計 prefs 一併清除', () async {
       const oldOwner = 'owner-a';
       const incomingUserId = 'device-test-uuid';
       final container = await _containerWithPrefsAndDb({
@@ -298,7 +327,32 @@ void main() {
         'has_agreed_to_analytics': true,
         'has_agreed_to_privacy': true,
         'privacy_consent_date': 1234567890,
+        // 模擬「舊帳號這台裝置上已經跑過一次 CoreData 匯入」的裝置狀態——
+        // 確認清除必須把這些旗標退休掉,否則重啟後 main.dart 的
+        // importIfNeeded 會把前人的舊 iOS SQLite 歷史匯回給新帳號。
+        kCoreDataImportCompletedKey: true,
+        kCoreDataImportFailedPermanentlyKey: false,
+        kCoreDataImportAttemptsKey: 2,
+        kLegacyPrefsImportCompletedKey: true,
+        // 上一位帳號的 legacy 個資 + 匯入統計殘留。
+        'legacy_user_name': '舊使用者',
+        'legacy_user_email': 'old@example.com',
+        'legacy_user_gender': '男性',
+        'legacy_user_age': 30,
+        'legacy_user_height': 175.0,
+        'legacy_user_current_weight': 70.0,
+        'legacy_user_target_weight': 65.0,
+        'legacy_global_settings_json': '{"weightUnit":"kg"}',
+        'legacy_current_user_id': oldOwner,
+        kCoreDataImportTableCountsKey: '{"workouts":1}',
+        kCoreDataImportSkippedCountsKey: '{}',
+        kCoreDataImportDedupedCountsKey: '{}',
+        kCoreDataImportCreatedPlaceholdersKey: '{}',
+        kCoreDataImportVerifiedCountsKey: '{"workouts":1}',
       });
+
+      // build() 已把 onboardingStatusProvider 讀成 true——先讀一次觸發初始化。
+      expect(container.read(onboardingStatusProvider), isTrue);
 
       final db = container.read(appDatabaseProvider);
       await seedTestUser(db, id: oldOwner);
@@ -367,6 +421,26 @@ void main() {
       expect(prefs.getString(kTestLoginUserIdPrefsKey), incomingUserId);
       expect(prefs.getString(kLocalDataOwnerUserIdKey), incomingUserId);
 
+      // provider 記憶體值(router.dart 實際讀的東西)也要跟著清乾淨,不是
+      // 只清 prefs——這是 blocker 修復的核心斷言。
+      expect(container.read(onboardingStatusProvider), isFalse);
+
+      // 裝置層匯入退休:重啟後 importIfNeeded 必須直接 skip,不會把前人的
+      // 舊 iOS SQLite 歷史匯回給新帳號。
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
+      expect(prefs.getBool(kCoreDataImportFailedPermanentlyKey), isFalse);
+      expect(prefs.getInt(kCoreDataImportAttemptsKey), 0);
+      expect(prefs.getBool(kLegacyPrefsImportCompletedKey), isTrue);
+
+      // 上一位帳號的 legacy 個資殘留全數清除(顯式清單)。
+      for (final key in kLegacyPrefsPersonalDataKeys) {
+        expect(prefs.containsKey(key), isFalse, reason: '$key 應已被清除');
+      }
+      // 上一位帳號的匯入統計殘留全數清除(顯式清單)。
+      for (final key in kCoreDataImportStatsKeys) {
+        expect(prefs.containsKey(key), isFalse, reason: '$key 應已被清除');
+      }
+
       final state = container.read(sessionControllerProvider);
       expect(state.isLoggedIn, isTrue);
       expect(state.appleUserId, incomingUserId);
@@ -417,6 +491,126 @@ void main() {
       expect(outcome, isA<LoginFailure>());
       expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
     });
+
+    test(
+        '重入防護:清除進行中(async gap 期間)再次呼叫,第二次因 ownerConflict '
+        '已被第一次同步清掉而直接安全回傳,不會有兩個清除同時操作同一份 Drift', () async {
+      const oldOwner = 'owner-a';
+      final container = await _containerWithPrefsAndDb({
+        kLocalDataOwnerUserIdKey: oldOwner,
+      });
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: oldOwner);
+
+      final notifier = container.read(sessionControllerProvider.notifier);
+      final conflictOutcome = await notifier.signInTest();
+      expect(conflictOutcome, isA<LoginOwnerConflict>());
+
+      // 不 await 第一次呼叫,立刻發第二次——confirmClearAndContinueLogin()
+      // 的同步前綴(讀 pending + 清 ownerConflict/設 isLoading)在遇到第一個
+      // `await` 前會整段同步跑完才把控制權交還,所以第二次呼叫看到的
+      // state.ownerConflict 一定已經是 null。
+      final future1 = notifier.confirmClearAndContinueLogin();
+      final outcome2 = await notifier.confirmClearAndContinueLogin();
+
+      expect(outcome2, isA<LoginFailure>());
+
+      final outcome1 = await future1;
+      expect(outcome1, isA<LoginSuccess>());
+
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoggedIn, isTrue);
+      expect(state.ownerConflict, isNull);
+    });
+
+    test(
+        '清空 DB 失敗(例外)時吃下例外、走一般化錯誤文案,isLoading 收尾為 false、'
+        'ownerConflict 已清、不建立 session', () async {
+      const oldOwner = 'owner-a';
+      SharedPreferences.setMockInitialValues({kLocalDataOwnerUserIdKey: oldOwner});
+      final prefs = await SharedPreferences.getInstance();
+      final db = _ThrowingResetDb();
+      final container = ProviderContainer(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          appDatabaseProvider.overrideWithValue(db),
+        ],
+      );
+      addTearDown(() async {
+        container.dispose();
+        await db.close();
+      });
+
+      final notifier = container.read(sessionControllerProvider.notifier);
+      final conflictOutcome = await notifier.signInTest();
+      expect(conflictOutcome, isA<LoginOwnerConflict>());
+
+      final outcome = await notifier.confirmClearAndContinueLogin();
+
+      expect(outcome, isA<LoginFailure>());
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoading, isFalse);
+      expect(state.ownerConflict, isNull);
+      expect(state.errorMessage, isNotNull);
+      expect(state.isLoggedIn, isFalse);
+
+      // owner 沒被誤認領成新身分——清除沒成功就不該動 owner key。
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), oldOwner);
+    });
+
+    test('確認清除:自訂動作(isSystem=false,個資)一併清空,系統動作庫重種回 66 筆', () async {
+      const oldOwner = 'owner-a';
+      const incomingUserId = 'device-test-uuid';
+      final container = await _containerWithPrefsAndDb({
+        kLocalDataOwnerUserIdKey: oldOwner,
+        kTestLoginUserIdPrefsKey: incomingUserId,
+      });
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: oldOwner);
+
+      final systemBefore = await db.select(db.exercises).get();
+      expect(systemBefore.where((e) => e.isSystem).length, 66);
+
+      final now = DateTime.now();
+      await db.into(db.exercises).insert(
+            ExercisesCompanion.insert(
+              id: 'custom-ex-1',
+              name: '舊使用者自訂動作',
+              categoryId: 'custom',
+              type: 'strength',
+              isSystem: const Value(false),
+              isActive: const Value(true),
+              userId: const Value(oldOwner),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      final notifier = container.read(sessionControllerProvider.notifier);
+      final conflictOutcome = await notifier.signInTest();
+      expect(conflictOutcome, isA<LoginOwnerConflict>());
+
+      final confirmOutcome = await notifier.confirmClearAndContinueLogin();
+      expect(confirmOutcome, isA<LoginSuccess>());
+
+      // 參照物是直接 SELECT,不是清空方法的回傳值。
+      final afterAll = await db.select(db.exercises).get();
+      expect(afterAll.any((e) => e.id == 'custom-ex-1'), isFalse); // 自訂動作(個資)已刪
+      expect(afterAll.where((e) => e.isSystem).length, 66); // 系統動作庫重種回滿額
+      expect(afterAll.length, 66); // 沒有任何非系統動作殘留
+    });
+  });
+
+  test(
+      '守門測試:AppDatabase.resetForNewOwner() 手寫的 11 張表清單須涵蓋 db.allTables '
+      '全部的表——schema 之後新增第 12 張表卻忘記補進 resetForNewOwner() 時,這裡會先紅,'
+      '不能靠帳號隔離悄悄漏資料才發現', () async {
+    final db = openTestDatabase();
+    addTearDown(() => db.close());
+    // resetForNewOwner() 目前手動列出 11 個 delete(見 app_database.dart)——
+    // 這裡不重複那份清單本身(重複清單無法防「兩邊一起漏改」),只守住表數
+    // 對得上,數字對不上時就是清單漏了新表。
+    expect(db.allTables.length, 11);
   });
 
   group('帳號隔離 — signOut 不動 owner 與 Drift', () {

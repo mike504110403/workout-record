@@ -35,6 +35,25 @@ import 'import_log.dart';
 const _channelName = 'com.mikelin.workitout/legacy_prefs';
 const kLegacyPrefsImportCompletedKey = 'legacy_prefs_import_completed';
 
+/// 帳號隔離換帳號清除用(見
+/// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`「實作補充」
+/// 節與 session_controller.dart `confirmClearAndContinueLogin`):這裡搬進來
+/// 的舊 App 使用者個資 key,換帳號確認清除時要一併清掉,不然殘留給下一個
+/// 帳號。顯式列舉(對照下方 [importIfNeeded] 實際寫入的 key 名稱),不做
+/// `legacy_` 前綴掃描——`legacy_weight_unit`/`legacy_theme` 等 App 設定類
+/// key 不算個資,刻意不在這份清單裡。
+const kLegacyPrefsPersonalDataKeys = <String>[
+  'legacy_user_name',
+  'legacy_user_email',
+  'legacy_user_gender',
+  'legacy_user_age',
+  'legacy_user_height',
+  'legacy_user_current_weight',
+  'legacy_user_target_weight',
+  'legacy_global_settings_json',
+  'legacy_current_user_id',
+];
+
 class LegacyPrefsResult {
   const LegacyPrefsResult({
     required this.success,

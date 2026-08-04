@@ -32,6 +32,7 @@ import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_controller.dart';
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
+import 'package:workout_record/router.dart' show resolveAuthRedirect;
 
 import '../../data/test_helpers.dart';
 
@@ -129,11 +130,23 @@ void main() {
 
     // 血緣 key 一次性消耗:清除後不得再綁定任何後續帳號。
     expect(prefs.containsKey(kCoreDataImportedUserIdKey), isFalse);
-    // 完成旗標走 prefs 層級核對(對齊既有 signOut 測試的做法)——
-    // onboardingStatusProvider 的 in-memory state 只在明確呼叫
-    // markCompleted() 時才更新,不會因為底層 prefs 被外部改寫就自動重讀,
-    // 這裡驗證的是 confirmClearAndContinueLogin() 真的把 prefs 的旗標移除。
+    // 完成旗標:prefs 與 provider 記憶體值都要核對——router.dart 的
+    // redirect 判斷讀的是 onboardingStatusProvider 的記憶體值,不是 prefs
+    // (blocker 修復:confirmClearAndContinueLogin() 移除 prefs 旗標後必須
+    // ref.invalidate(onboardingStatusProvider),否則新帳號 B 會被 router
+    // 誤判成「已完成 Onboarding」直接送進 /dashboard,落在全空 DB + 無自己
+    // Users row 的狀態)。單驗 prefs 是假防護——provider 沒被 invalidate 時
+    // 這行照樣通過,測不出 blocker。
     expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+    expect(container.read(onboardingStatusProvider), isFalse);
+    expect(
+      resolveAuthRedirect(
+        isLoggedIn: container.read(sessionControllerProvider).isLoggedIn,
+        hasCompletedOnboarding: container.read(onboardingStatusProvider),
+        location: '/dashboard',
+      ),
+      '/onboarding',
+    );
 
     // Drift 全表已清空(舊 Users row 與其體重紀錄都不在了)。
     expect(await db.select(db.users).get(), isEmpty);

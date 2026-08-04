@@ -84,8 +84,12 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  /// 帳號隔離用:清空全部 11 張表(換帳號登入、使用者確認清除後呼叫,見
-  /// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)。
+  /// 帳號隔離用:清空全部 11 張表 + 重種系統動作庫,把本機 Drift 重置成
+  /// 「剛完成 onCreate、還沒有任何使用者資料」的狀態,交給下一個帳號從零
+  /// 開始(換帳號登入、使用者確認清除後呼叫,見
+  /// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)。名字
+  /// 特意不叫 `clearAllTables`——這個方法的契約不只是「清空」,還包含
+  /// 「清完立刻重種系統動作庫」,呼叫端不需要另外記得補呼叫 [seedIfEmpty]。
   ///
   /// 刪除順序手動排成「children 先於 parents」,不靠切換
   /// `PRAGMA foreign_keys`——SQLite 規定該 pragma 在交易中是 no-op(不在交易
@@ -95,7 +99,7 @@ class AppDatabase extends _$AppDatabase {
   /// 清完立刻呼叫 [seedIfEmpty] 補回系統動作庫——那是 App 共用的參照資料
   /// (`isSystem = true`,`userId` 為 null),不屬於任何帳號,換帳號不該讓
   /// 新使用者連動作庫都是空的(等同於全新安裝後的 onCreate 行為)。
-  Future<void> clearAllTables() async {
+  Future<void> resetForNewOwner() async {
     await transaction(() async {
       await delete(workoutSets).go();
       await delete(workoutExercises).go();
