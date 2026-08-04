@@ -76,7 +76,9 @@ class DashboardPage extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('載入失敗：$error'),
+              // 固定文案,不把 exception 內容塞進 UI(對齊 session_controller
+              // 的慣例);細節開發時看 console/log。
+              const Text('載入失敗，請稍後再試'),
               const SizedBox(height: 12),
               FilledButton(
                 key: const Key('dashboardErrorRetryButton'),
