@@ -1,6 +1,7 @@
 // WorkoutRepository 測試:含 exercises/sets 巢狀的 create + fetchById、
 // fetchByDateRange 邊界、completeWorkout 統計計算、delete FK cascade。
 
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workout_record/data/db/app_database.dart' hide Workout, WorkoutExercise, WorkoutSet;
 import 'package:workout_record/data/models/workout.dart';
@@ -8,6 +9,11 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
 
 import 'test_helpers.dart';
+
+/// `buildWorkout` 的 `endedAt` 參數用來區分「呼叫端沒傳(套用預設值)」與
+/// 「明確傳入 null(草稿)」——裸 `DateTime?` 參數做不到這個區分,見下方
+/// `buildWorkout` 的說明。
+const _unset = Object();
 
 void main() {
   late AppDatabase db;
@@ -27,16 +33,26 @@ void main() {
 
   tearDown(() async => db.close());
 
+  // endedAt 預設為 startedAt 一小時後(代表「已完成」)——這份測試檔大多數
+  // 案例(fetchByDateRange/completeWorkout/delete)驗證的是完成訓練後的查詢
+  // 行為,不是波 3 新增的草稿語意。草稿(endedAt: null)不計入
+  // fetchByDateRange/fetchRecent/countWorkouts/calculateTotalVolume 的行為
+  // 另外在 `草稿排除(endedAt IS NULL)` group 獨立測試,那裡才會明確傳
+  // `endedAt: null`。
   Workout buildWorkout({
     required String id,
     required DateTime startedAt,
     List<WorkoutExercise> exercises = const [],
+    Object? endedAt = _unset,
   }) {
     final now = DateTime.now();
     return Workout(
       id: id,
       userId: testUserId,
       startedAt: startedAt,
+      endedAt: identical(endedAt, _unset)
+          ? startedAt.add(const Duration(hours: 1))
+          : endedAt as DateTime?,
       exercises: exercises,
       createdAt: now,
       updatedAt: now,
@@ -217,6 +233,51 @@ void main() {
       expect(completed.totalVolume, 600);
       expect(completed.totalSets, 1);
     });
+
+    // 雙向變異(暖身排除):把下方 `.where((set) => !set.isWarmup)` 兩處
+    // 改回無條件加總,這則測試(以及 completeWorkout 統計計算那則)會紅
+    // ——參照值(1360/3、200/1)手算自 buildSet 傳入的重量/次數,不是照抄
+    // 被測程式碼算出來的。
+    test('暖身組(isWarmup)不計入 totalVolume/totalSets,對齊 iOS WorkoutViewModel', () async {
+      await repository.create(buildWorkout(
+        id: 'workout-warmup',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        exercises: [
+          WorkoutExercise(
+            id: 'we-warmup',
+            workoutId: 'workout-warmup',
+            exerciseId: exerciseId,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            sets: [
+              WorkoutSet(
+                id: 'set-warmup-1',
+                workoutExerciseId: 'we-warmup',
+                setNumber: 1,
+                weight: 20,
+                reps: 10,
+                isWarmup: true,
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+              ),
+              buildSet(
+                id: 'set-warmup-2',
+                workoutExerciseId: 'we-warmup',
+                setNumber: 2,
+                weight: 100,
+                reps: 2,
+              ),
+            ],
+          ),
+        ],
+      ));
+
+      final completed = await repository.completeWorkout('workout-warmup');
+
+      // 暖身組(20 x 10)排除;只計正式組(100 x 2 = 200)。
+      expect(completed.totalVolume, 200);
+      expect(completed.totalSets, 1);
+    });
   });
 
   group('delete', () {
@@ -249,6 +310,246 @@ void main() {
           await (db.select(db.workoutSets)..where((t) => t.workoutExerciseId.equals('we-3')))
               .get();
       expect(remainingSets, isEmpty);
+    });
+  });
+
+  group('草稿寫穿的增量方法', () {
+    test('fetchDraft:找到 endedAt IS NULL 的草稿,已完成訓練不算', () async {
+      await repository.create(buildWorkout(id: 'completed-1', startedAt: DateTime(2026, 1, 1)));
+      await repository.create(buildWorkout(
+        id: 'draft-1',
+        startedAt: DateTime(2026, 1, 2),
+        endedAt: null,
+      ));
+
+      final draft = await repository.fetchDraft(testUserId);
+
+      expect(draft, isNotNull);
+      expect(draft!.id, 'draft-1');
+      expect(draft.endedAt, isNull);
+    });
+
+    test('fetchDraft:沒有草稿時回傳 null', () async {
+      await repository.create(buildWorkout(id: 'completed-only', startedAt: DateTime(2026, 1, 1)));
+
+      expect(await repository.fetchDraft(testUserId), isNull);
+    });
+
+    test('addExerciseToWorkout + addSet:新增動作與組數即時落地,獨立 SELECT 驗證', () async {
+      await repository.create(buildWorkout(id: 'draft-2', startedAt: DateTime(2026, 1, 3), endedAt: null));
+      final now = DateTime.now();
+
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-2',
+        workoutId: 'draft-2',
+        exerciseId: exerciseId,
+        orderIndex: 0,
+        createdAt: now,
+        updatedAt: now,
+      ));
+      await repository.addSet(buildSet(
+        id: 'set-draft-2-1',
+        workoutExerciseId: 'we-draft-2',
+        setNumber: 1,
+        weight: 50,
+        reps: 8,
+      ));
+
+      final exerciseRow =
+          await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-draft-2')))
+              .getSingle();
+      expect(exerciseRow.workoutId, 'draft-2');
+      final setRow =
+          await (db.select(db.workoutSets)..where((t) => t.id.equals('set-draft-2-1'))).getSingle();
+      expect(setRow.weight, 50);
+      expect(setRow.reps, 8);
+      expect(setRow.volume, 400);
+    });
+
+    test('removeExercise:連同其下的 sets 一併刪除(FK cascade)', () async {
+      await repository.create(buildWorkout(id: 'draft-3', startedAt: DateTime(2026, 1, 4), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-3',
+        workoutId: 'draft-3',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+      await repository.addSet(buildSet(
+          id: 'set-draft-3-1', workoutExerciseId: 'we-draft-3', setNumber: 1, weight: 10, reps: 5));
+
+      await repository.removeExercise('we-draft-3');
+
+      final remainingExercise =
+          await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-draft-3')))
+              .getSingleOrNull();
+      expect(remainingExercise, isNull);
+      final remainingSet =
+          await (db.select(db.workoutSets)..where((t) => t.id.equals('set-draft-3-1')))
+              .getSingleOrNull();
+      expect(remainingSet, isNull);
+    });
+
+    test('setExerciseCompleted:更新 isCompleted 欄位', () async {
+      await repository.create(buildWorkout(id: 'draft-4', startedAt: DateTime(2026, 1, 5), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-4',
+        workoutId: 'draft-4',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+
+      await repository.setExerciseCompleted('we-draft-4', isCompleted: true);
+
+      final row = await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-draft-4')))
+          .getSingle();
+      expect(row.isCompleted, isTrue);
+    });
+
+    test('setExerciseCompleted:動作不存在時拋出 StateError', () {
+      expect(
+        () => repository.setExerciseCompleted('does-not-exist', isCompleted: true),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('updateSet:更新重量/次數會連帶重算 volume', () async {
+      await repository.create(buildWorkout(id: 'draft-5', startedAt: DateTime(2026, 1, 6), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-5',
+        workoutId: 'draft-5',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+      final original = buildSet(
+          id: 'set-draft-5-1', workoutExerciseId: 'we-draft-5', setNumber: 1, weight: 40, reps: 10);
+      await repository.addSet(original);
+
+      await repository.updateSet(original.copyWith(weight: 60, reps: 5, rpe: 8));
+
+      final row =
+          await (db.select(db.workoutSets)..where((t) => t.id.equals('set-draft-5-1'))).getSingle();
+      expect(row.weight, 60);
+      expect(row.reps, 5);
+      expect(row.volume, 300);
+      expect(row.rpe, 8);
+    });
+
+    test('updateSet:組數不存在時拋出 StateError', () {
+      final phantom = buildSet(id: 'phantom', workoutExerciseId: 'nowhere', setNumber: 1, weight: 1, reps: 1);
+      expect(() => repository.updateSet(phantom), throwsA(isA<StateError>()));
+    });
+
+    test('deleteSet:刪除中間一組後,剩餘組數重新編號成連續 1..N', () async {
+      await repository.create(buildWorkout(id: 'draft-6', startedAt: DateTime(2026, 1, 7), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-6',
+        workoutId: 'draft-6',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+      await repository.addSet(
+          buildSet(id: 'set-6-1', workoutExerciseId: 'we-draft-6', setNumber: 1, weight: 10, reps: 10));
+      await repository.addSet(
+          buildSet(id: 'set-6-2', workoutExerciseId: 'we-draft-6', setNumber: 2, weight: 20, reps: 8));
+      await repository.addSet(
+          buildSet(id: 'set-6-3', workoutExerciseId: 'we-draft-6', setNumber: 3, weight: 30, reps: 6));
+
+      // 刪除中間那組(setNumber 2)——第三組理當被重編號成 2。
+      await repository.deleteSet('set-6-2', workoutExerciseId: 'we-draft-6');
+
+      final remaining = await (db.select(db.workoutSets)
+            ..where((t) => t.workoutExerciseId.equals('we-draft-6'))
+            ..orderBy([(t) => OrderingTerm(expression: t.setNumber)]))
+          .get();
+      expect(remaining.map((s) => s.id).toList(), ['set-6-1', 'set-6-3']);
+      expect(remaining.map((s) => s.setNumber).toList(), [1, 2]);
+    });
+
+    test('deleteSet:組數不存在時拋出 StateError,不影響其他組', () {
+      expect(
+        () => repository.deleteSet('does-not-exist', workoutExerciseId: 'nowhere'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('discardDraft:等同 delete,exercises/sets 一併清除', () async {
+      await repository.create(buildWorkout(id: 'draft-7', startedAt: DateTime(2026, 1, 8), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-draft-7',
+        workoutId: 'draft-7',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+
+      await repository.discardDraft('draft-7');
+
+      expect(await repository.fetchById('draft-7'), isNull);
+      final remainingExercise =
+          await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-draft-7')))
+              .getSingleOrNull();
+      expect(remainingExercise, isNull);
+    });
+  });
+
+  group('草稿排除(endedAt IS NULL)', () {
+    // 雙向變異:把 `_isCompleted`(workout_repository.dart)從
+    // fetchByDateRange/fetchRecent/countWorkouts/calculateTotalVolume 的
+    // where 子句拿掉,下面四則測試全部會紅(草稿會被計入);加回來即綠。
+    test('fetchByDateRange 不含草稿', () async {
+      final from = DateTime(2026, 1, 1);
+      final to = DateTime(2026, 1, 31);
+      await repository.create(buildWorkout(id: 'completed-in-range', startedAt: DateTime(2026, 1, 10)));
+      await repository.create(
+        buildWorkout(id: 'draft-in-range', startedAt: DateTime(2026, 1, 15), endedAt: null),
+      );
+
+      final result = await repository.fetchByDateRange(from, to);
+
+      expect(result.map((w) => w.id).toSet(), {'completed-in-range'});
+    });
+
+    test('fetchRecent 不含草稿', () async {
+      await repository.create(buildWorkout(id: 'completed-recent', startedAt: DateTime(2026, 1, 1)));
+      await repository.create(
+        buildWorkout(id: 'draft-recent', startedAt: DateTime(2026, 1, 2), endedAt: null),
+      );
+
+      final result = await repository.fetchRecent(10);
+
+      expect(result.map((w) => w.id).toSet(), {'completed-recent'});
+    });
+
+    test('countWorkouts 不含草稿', () async {
+      await repository.create(buildWorkout(id: 'completed-count', startedAt: DateTime(2026, 1, 1)));
+      await repository.create(
+        buildWorkout(id: 'draft-count', startedAt: DateTime(2026, 1, 2), endedAt: null),
+      );
+
+      expect(await repository.countWorkouts(), 1);
+    });
+
+    test('calculateTotalVolume 不含草稿', () async {
+      await repository.create(buildWorkout(
+        id: 'completed-volume',
+        startedAt: DateTime(2026, 1, 1),
+      ).copyWith(totalVolume: 500));
+      await repository.create(buildWorkout(
+        id: 'draft-volume',
+        startedAt: DateTime(2026, 1, 2),
+        endedAt: null,
+      ).copyWith(totalVolume: 9999));
+
+      expect(await repository.calculateTotalVolume(), 500);
     });
   });
 }

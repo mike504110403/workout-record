@@ -30,6 +30,12 @@ import 'package:workout_record/features/dashboard/dashboard_page.dart';
 
 import '../../data/test_helpers.dart';
 
+// endedAt 預設為 startedAt + duration 分鐘(代表「已完成」)——波 3
+// WorkoutRepository 的 fetchByDateRange/fetchRecent/countWorkouts/
+// calculateTotalVolume 改為排除草稿(`endedAt IS NULL`,見
+// .claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md),這份測試檔
+// 的種子全部代表「已完成訓練」,不是波 3 新增的草稿情境,補上 endedAt 才
+// 能繼續被這些查詢計入。
 Workout _buildWorkout({
   required String id,
   required DateTime startedAt,
@@ -43,6 +49,7 @@ Workout _buildWorkout({
     id: id,
     userId: testUserId,
     startedAt: startedAt,
+    endedAt: startedAt.add(Duration(minutes: duration)),
     duration: duration,
     totalVolume: totalVolume,
     totalSets: totalSets,
