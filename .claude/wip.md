@@ -5,13 +5,9 @@
 - **波 0(升 Flutter + web)**、**波 1(登入 + Onboarding)**、**import-minors 波** 均已 merge develop(細節見 git log 與 `.claude/decisions/`)。
 - **波 2 ①帳號隔離:完成,merged**(d81d5f8):owner 認領 + 換帳號警告清資料,依 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`(含「實作補充」節:重種動作庫、血緣消耗時機=換人清除時、清除退休匯入旗標、已知保留範圍)。review:code r1 FAIL→r2 PASS、security r1 FAIL→r2 PASS。
 - **波 2 ②Dashboard:完成,merged**(dff922f):五區塊對等 iOS(今日概覽/快速操作/目標進度/本週統計/最近訓練),`features/dashboard/` + router 分頁切回 invalidate。review 三輪(r3 PASS,M3 真測試經大腦親自變異驗證)。與 iOS 刻意差異:ISO 週一起算、無目標顯示空狀態、最近訓練日期格式 `M/d HH:mm`、不複製 iOS 鼓勵訊息 0-1% 邊界 bug。
-- **merge 後 develop 全驗證(大腦親跑)**:analyze 0 issues、test 195/195、web build 成功。
-- **波 2 ③import minors:實作完成但卡在 review 修復,未 merge**。branch `feature/wave2-import-minors`(commit 9677951,基於 9fac376),worktree `.claude/worktrees/agent-aa0b7abf3e20217d5`。六項功能 reviewer 確認都達標;打回 3 major 修復已派工(session 收斂時進行中,**接手先看該 worktree 的 git log/status 有沒有修復 commit**):
-  1. 還原四檔整檔 dart format(scope creep,只留 ~507 行語意改動)
-  2. `coredata_importer_test.dart:918` 測試名假變異宣稱誠實化 + `:915` 改 set 比對 actualTableName
-  3. `_oldDbTableCounts` 逐表 try/catch 降級(缺表不得弄死 alreadyLanded 補旗標;已裁決採 db-reviewer 方案)+ 補「舊庫缺 ZWORKOUTSETENTITY 仍成功」測試
-  4. 順修:刪 `ImportResult.skippedAlreadyLanded()` 死碼建構子;quoting 對齊;`_oldDbTableCounts` 註解(凍結 schema/交集比對/哪些 key 應相等)
-  - 修完流程:大腦親驗(analyze+test+抽查排版還原幅度)→ code+db 聚焦複審 → merge --no-ff → merge 後全驗證。**注意 merge 衝突**:develop 的帳號隔離波也改了 `coredata_importer_result.dart` / `legacy_prefs_importer.dart`(新增 export 常數),要手解。
+- **收波後 develop 全驗證(大腦親跑,2026-08-04)**:analyze 0 issues、test 200/200、web build 成功。
+- **波 2 ③import minors:完成,merged**(1a8afd8 修復 + merge + 3fa0e9b 補測試):六項複審遺留 minor(真 COUNT 核帳、alreadyCompleted 斷言、exercises 核帳等式、alreadyLanded 舊庫 COUNT、blocked UNIQUE 評估不適用、_ImportTally 重構)+ 修復 3 major(排版 scope creep 還原、測試假變異宣稱誠實化、`_oldDbTableCounts` 缺表 try/catch 降級)。工人被收斂中斷後由大腦收尾:補插核帳等式兩測試 + 排版還原時遺失的 alreadyCompleted tile 測試。**注意:③的修復 commit 未經 reviewer 複審(Mike 指示快速收波),下次開工可考慮補一輪聚焦複審**。
+- **波 2 收波清理完成**:全部 worktree 移除、worktree-agent-* 分支刪除;`feature/wave2-*` 三分支已 merge 保留在地端(推 origin 後可刪)。
 
 ## 波 2 遺留(判斷題,不擋,收下波或 Mike 裁)
 
@@ -49,5 +45,5 @@
 
 ## 下一步
 
-1. **收尾③**:依上方「波 2 ③」段落流程走完 merge。
-2. 開波 3 前:Mike 驗看波 2、裁遺留判斷題、決定 develop 要不要推。
+1. 開波 3(記訓練核心流)前:Mike 驗看波 2、裁遺留判斷題、決定 develop 要不要推(遠端已在 50e6787=收斂點,非大腦所推;未推的只剩③相關 5 個 commit:1a8afd8/97f9961/3fa0e9b/50af296 等)。
+2. 可選:③修復 commit(1a8afd8 + 3fa0e9b)補一輪聚焦複審。
