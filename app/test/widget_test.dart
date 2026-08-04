@@ -6,6 +6,11 @@
 // shell requires a logged-in + onboarded + privacy-agreed SharedPreferences
 // state — see app/lib/router.dart's `resolveAuthRedirect` and
 // app/lib/app.dart's privacy-consent builder gate.
+//
+// 波 2(Dashboard 實作)起,首頁分頁不再是靜態 placeholder,會真的透過
+// repositories 查 Drift DB——沒有 override `appDatabaseProvider` 的話會
+// 卡在開啟真實平台資料庫(需要 platform channel,單元測試環境沒有),造成
+// pumpAndSettle 逾時。比照 app_flow_test.dart 的作法補上 in-memory 測試庫。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,10 +18,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/app.dart';
+import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
 import 'package:workout_record/features/privacy/privacy_consent_controller.dart';
+
+import 'data/test_helpers.dart';
 
 void main() {
   testWidgets('5-tab shell shows all tabs and switches pages', (
@@ -32,10 +40,15 @@ void main() {
       kPrivacyConsentDateKey: DateTime.now().millisecondsSinceEpoch,
     });
     final prefs = await SharedPreferences.getInstance();
+    final db = openTestDatabase();
+    addTearDown(db.close);
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          appDatabaseProvider.overrideWithValue(db),
+        ],
         child: const WorkItOutApp(),
       ),
     );

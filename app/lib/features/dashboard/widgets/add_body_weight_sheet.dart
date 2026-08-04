@@ -1,0 +1,95 @@
+// 記錄體重的 bottom sheet。對應 iOS 版
+// `ios/WorkoutRecord/WorkoutRecord/Sources/Views/BodyWeight/AddBodyWeightSheet.swift`
+// 的角色。
+//
+// 寫入 BodyWeightRepository 與畫面刷新(DashboardController.recordBodyWeight)
+// 刻意在「彈窗還開著、還沒 pop」的時候就 await 完成,pop 動作放在寫入成功
+// 之後——不是先 pop 再讓呼叫端(dashboard_page.dart)在背景繼續寫入。這樣
+// widget test 只需要對「彈窗本身」pumpAndSettle 就能穩定等到寫入真的落地,
+// 不會跟 showModalBottomSheet 的關閉轉場動畫的 Future resolve 時機打架
+// (曾經吃過這個虧:寫入落在 pop 之後的續行程式碼裡,pumpAndSettle 偶爾會
+// 在寫入真正完成前就判定「沒有排程中的 frame」而提前返回,造成間歇性
+// flaky test)。
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../dashboard_controller.dart';
+
+class AddBodyWeightSheet extends ConsumerStatefulWidget {
+  const AddBodyWeightSheet({super.key});
+
+  @override
+  ConsumerState<AddBodyWeightSheet> createState() => _AddBodyWeightSheetState();
+}
+
+class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
+  final _controller = TextEditingController();
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  double? get _parsedWeight {
+    final value = double.tryParse(_controller.text);
+    if (value == null || value <= 0) return null;
+    return value;
+  }
+
+  Future<void> _save() async {
+    final weight = _parsedWeight;
+    if (weight == null || _isSaving) return;
+
+    setState(() => _isSaving = true);
+    await ref.read(dashboardControllerProvider.notifier).recordBodyWeight(weight);
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('記錄體重', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          TextField(
+            key: const Key('bodyWeightInputField'),
+            controller: _controller,
+            autofocus: true,
+            enabled: !_isSaving,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: '體重 (kg)'),
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('saveBodyWeightButton'),
+              onPressed: _parsedWeight != null && !_isSaving ? _save : null,
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('儲存'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
