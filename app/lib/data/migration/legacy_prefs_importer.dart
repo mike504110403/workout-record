@@ -52,6 +52,11 @@ const kLegacyPrefsPersonalDataKeys = <String>[
   'legacy_user_target_weight',
   'legacy_global_settings_json',
   'legacy_current_user_id',
+  // 以下三個同屬前一位帳號的個資(目標與成就進度),不是裝置設定
+  // (security review round 2 補):
+  'legacy_weekly_workout_goal',
+  'legacy_unlocked_achievements_json',
+  'legacy_last_viewed_achievements_date_millis',
 ];
 
 class LegacyPrefsResult {

@@ -130,13 +130,11 @@ void main() {
 
     // 血緣 key 一次性消耗:清除後不得再綁定任何後續帳號。
     expect(prefs.containsKey(kCoreDataImportedUserIdKey), isFalse);
-    // 完成旗標:prefs 與 provider 記憶體值都要核對——router.dart 的
-    // redirect 判斷讀的是 onboardingStatusProvider 的記憶體值,不是 prefs
-    // (blocker 修復:confirmClearAndContinueLogin() 移除 prefs 旗標後必須
-    // ref.invalidate(onboardingStatusProvider),否則新帳號 B 會被 router
-    // 誤判成「已完成 Onboarding」直接送進 /dashboard,落在全空 DB + 無自己
-    // Users row 的狀態)。單驗 prefs 是假防護——provider 沒被 invalidate 時
-    // 這行照樣通過,測不出 blocker。
+    // 完成旗標:prefs 與 provider 記憶體值都核對(router.dart 的 redirect
+    // 讀的是 onboardingStatusProvider 的記憶體值)。注意:這條劇本裡 B 登入
+    // 前經過 signOut(它也 invalidate),所以 confirmClearAndContinueLogin()
+    // 自身 invalidate 的守門測試在 session_controller_test 的「確認清除」
+    // 測試(無 signOut 干擾);這裡驗的是端到端旅程的最終狀態。
     expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
     expect(container.read(onboardingStatusProvider), isFalse);
     expect(
