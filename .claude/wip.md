@@ -1,50 +1,53 @@
 # WIP — 三平台改寫(2026-07-24)
 
-## 現況
+## 現況(2026-08-04 波 2 收斂)
 
-- **CoreData→Drift 匯入已完成並 merge 回 develop**(fixfk 修復 + review chain 通過,commit d481904 / merge 30b993e)。
-- **波 0(升 Flutter + web 平台)完成並 merge 回 develop(2026-07-27,merge c6dedc4)**:Flutter 3.38.5→3.44.8(Dart 3.12.2)、web 平台啟用(drift WasmDatabase + checked-in sqlite3.wasm / drift_worker.js,見 app/lib/data/db/README.md)、DB 連線層改 drift_flutter(native 路徑不變)、CoreData 匯入器 io/web conditional export 分流、iOS 部分 pods 遷 SwiftPM。review chain 通過(1 major 2 minor 已修);merge 後 analyze 零 issue + test 68/68 重跑確認。
-- **依賴 pin 重訂:Mike 選 A(2026-07-27)**——pin 維持現狀(驗證過的版本);sqlite3_flutter_libs 已 EOL,遷移(sqlite3 3.5 native assets + 移除 EOL 套件 + 換 wasm + 重編 worker)**另開獨立波次,勿忘排程**。
-- Review 剩餘 minor(Mike 已准併入下一波,勿忘):匯入失敗持久化 log(spec 4.6)、連續失敗 3 次標記 permanently + UI 手動重試(4.6)、匯入統計持久化(4.5)、legacy_prefs_importer 零測試、template_exercises 的 exerciseId 孤兒 skip 無專屬測試、tableCounts=讀取量非落地量(有孤兒時偏高,要當零遺失證據需另計)。
-- develop 已含:v1.2 Swift 修正、docs/Claude 系統、Flutter scaffold、完整資料層、CoreData 匯入(68 測試)。develop 領先 origin,未推(推前要問 Mike)。
+- **波 0(升 Flutter + web)**、**波 1(登入 + Onboarding)**、**import-minors 波** 均已 merge develop(細節見 git log 與 `.claude/decisions/`)。
+- **波 2 ①帳號隔離:完成,merged**(d81d5f8):owner 認領 + 換帳號警告清資料,依 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`(含「實作補充」節:重種動作庫、血緣消耗時機=換人清除時、清除退休匯入旗標、已知保留範圍)。review:code r1 FAIL→r2 PASS、security r1 FAIL→r2 PASS。
+- **波 2 ②Dashboard:完成,merged**(dff922f):五區塊對等 iOS(今日概覽/快速操作/目標進度/本週統計/最近訓練),`features/dashboard/` + router 分頁切回 invalidate。review 三輪(r3 PASS,M3 真測試經大腦親自變異驗證)。與 iOS 刻意差異:ISO 週一起算、無目標顯示空狀態、最近訓練日期格式 `M/d HH:mm`、不複製 iOS 鼓勵訊息 0-1% 邊界 bug。
+- **merge 後 develop 全驗證(大腦親跑)**:analyze 0 issues、test 195/195、web build 成功。
+- **波 2 ③import minors:實作完成但卡在 review 修復,未 merge**。branch `feature/wave2-import-minors`(commit 9677951,基於 9fac376),worktree `.claude/worktrees/agent-aa0b7abf3e20217d5`。六項功能 reviewer 確認都達標;打回 3 major 修復已派工(session 收斂時進行中,**接手先看該 worktree 的 git log/status 有沒有修復 commit**):
+  1. 還原四檔整檔 dart format(scope creep,只留 ~507 行語意改動)
+  2. `coredata_importer_test.dart:918` 測試名假變異宣稱誠實化 + `:915` 改 set 比對 actualTableName
+  3. `_oldDbTableCounts` 逐表 try/catch 降級(缺表不得弄死 alreadyLanded 補旗標;已裁決採 db-reviewer 方案)+ 補「舊庫缺 ZWORKOUTSETENTITY 仍成功」測試
+  4. 順修:刪 `ImportResult.skippedAlreadyLanded()` 死碼建構子;quoting 對齊;`_oldDbTableCounts` 註解(凍結 schema/交集比對/哪些 key 應相等)
+  - 修完流程:大腦親驗(analyze+test+抽查排版還原幅度)→ code+db 聚焦複審 → merge --no-ff → merge 後全驗證。**注意 merge 衝突**:develop 的帳號隔離波也改了 `coredata_importer_result.dart` / `legacy_prefs_importer.dart`(新增 export 常數),要手解。
 
-## 決策狀態(全部定案 ✅,2026-07-24)
+## 波 2 遺留(判斷題,不擋,收下波或 Mike 裁)
 
-- ✅ 帳號:Apple + Google 雙登入
-- ✅ 隱私改版:掛同步波再改(驗收硬檢核)
-- ✅ Skill:flutter-tester + owasp-mobile-security-checker 已裝(已安全審閱)
-- ✅ 同步架構:**完全自建後端(Go + SQLite + Litestream)+ 自寫簡易同步(updatedAt 增量 + LWW + 墓碑)**;PowerSync 經深挖後由 Mike 否決(雙 schema/約束流失/meta 牆)
-- ✅ 升 Flutter:3.38.5 → 最新 stable(Dart ≥3.11),解 meta 天花板,升完重訂 pin
-- ⏸ 戰爭迷霧(掛同步波前再解):同步 API 細部設計、部署細節(伺服器/Docker/TLS/web 靜態檔)、Auth token 驗證與 session 實作
-- ✅ **DB 帳號隔離:換帳號清本機資料(Mike 2026-08-04 拍板)**,見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`;owner 認領機制 + 血緣 key 一次性消耗,實作掛波 2;②同步波備忘:本機 apple_user_id 不可當帳號 key,伺服器須驗 identityToken+nonce;Android 在同步波前不得上架 Play(release build 只有測試登入);③隱私同意文案「分析/錯誤報告」描述了不存在的收集且強制必勾,維持照抄 iOS 或先拿掉,同步波隱私改版一併解
+- riverpod `defaultRetry` 讓 Dashboard 錯誤畫面 ~38 秒後才出現重試鈕(生產重試路徑無測試);候選:自訂 retry 縮短退避 / loading 分支提早顯示重試。
+- Drift `dateTime()` 秒級精度:同秒多筆時「取最新」排序不定(目前僅測試踩到,已在測試端規避)。
+- intl 已宣告未使用,dashboard 手刻日期格式化——要不要統一,下波前決定。
+- 帳號隔離 code r2 判斷題:退休旗標邏輯搬 migration 側 `retireImports()`、onboarding 清除三步抽私函式、11 表守門改逐表塞資料驗清空。
+- StatCard 抽共用(等波 4 Stats 第二個使用者出現)、GoalProgress 型別化、「首頁該刷新」知識搬 Dashboard 側(波 3 加詳情頁時回看)。
+- 全 repo dart format 專波(波 0 遺留,49/69 檔會動)。
 
-詳見 `.claude/decisions/2026-07-24-三平台雲端同步方向.md`。
+## Mike 待辦
 
-## 工作規則(Mike 2026-07-24 定,memory 有檔)
+- Apple Developer portal 給 `com.mikelin.workitout` 開 Sign in with Apple capability;iOS 真機實測登入。
+- 模擬器/真機驗看波 2:Dashboard 五區塊 + 換帳號警告清資料劇本(測試登入是裝置固定 UUID,驗對話框要 iOS 真機或手改 owner prefs 模擬)。
+- develop 領先 origin 15 commits(2026-08-04 收斂時),要推說一聲(推前必問)。
 
-- UI-first:照使用者操作順序垂直切片,每波可在模擬器/瀏覽器驗看;後端不排前面
-- grill 用 `grilling` skill:一次一題、附推薦答案、確認共識才動工
-- 專有名詞:領域語言進 `CONTEXT.md`,技術術語進 `docs/GLOSSARY.md`,隨決策即時補
-- 社群 skill 優先,裝前安全審閱
+## 決策狀態
 
-## 波次規劃(Mike 2026-07-24 確認)
+全部定案 ✅(同步波前置的戰爭迷霧仍掛:同步 API 細設、部署、Auth token/session;同步波備忘:本機 apple_user_id 不可當帳號 key、Android 同步前不上架 Play、隱私同意文案改版)。詳見 `.claude/decisions/2026-07-24-三平台雲端同步方向.md`。
 
-0. 升 Flutter + 依賴 pin 重訂 + 全驗證 ← **下一波,等 fixfk 工人收工後執行**(避免升版打斷其驗證)
-1. 登入 + Onboarding(UI + 本機 session)
-2. 首頁 Dashboard
-3. 記訓練核心流(開訓練→選動作→記組→完成、模板)
+## 工作規則(Mike 2026-07-24 定)
+
+- UI-first 垂直切片;grill 用 `grilling` skill;領域語言進 `CONTEXT.md`、術語進 `docs/GLOSSARY.md`;社群 skill 裝前安全審閱。
+- 每波:驗收(大腦親跑)+ review chain + Mike 驗看 → merge。
+- brief 模板已於 2026-08-04 補常備紀律(async 失敗路徑、快取生命週期、清除後不變式)——波 2 退件教訓,寫 brief 照抄。
+
+## 波次規劃
+
+3. 記訓練核心流(開訓練→選動作→記組→完成、模板)← **下一波(③merge 收尾後)**
 4. 數據 Stats(fl_chart)
 5. 歷史 + 體重 + 目標 + 成就
 6. 設定(消費 legacy prefs)
-7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review)
+7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review)+ sqlite3_flutter_libs EOL 遷移波、dart format 專波擇機插入
 8. 發布波(三平台)
-
-每波:驗收(大腦親跑)+ review chain + Mike 模擬器/瀏覽器驗看 → merge。
 
 ## 下一步
 
-1. **波 1 已 merge 回 develop(2026-07-30,merge 825a412)**:登入 + Onboarding 5 頁 + 隱私同意 + 本機 session + iOS entitlement。三輪 review(2 blocker、5 major 修畢)通過;merge 後 analyze 零 issue + test 123/123。Apple 真登入僅 iOS release;iOS debug/模擬器/Android/Web 走測試登入(裝置層 UUID 身分);升級血緣改判 `coredata_imported_user_id`。**Mike 待辦:Apple Developer portal 給 `com.mikelin.workitout` 開 Sign in with Apple capability;iOS 真機實測登入(模擬器測不到)**
-2. **import-minors 已 merge 回 develop(2026-08-04,merge a9954bf)**:六項 spec 4.5/4.6 收尾,經三輪修正(one-shot 重試、統計四份帳+核帳快照、alreadyLanded 多表多樣本偵測),終輪 code+db 複審 0 blocker/0 major。merge 衝突(importer io/result、settings_page、測試)大腦親解,merge 後 analyze 零 issue + test 155/155 + web build 成功
-3. **複審遺留 minor(已准掛下波,勿忘)**:_verifiedTableCounts 改真 COUNT 表達式+allTables 遍歷、alreadyCompleted 觸發路徑補斷言、exercises 核帳等式(快照=種子+自訂落地)專屬測試、alreadyLanded 分支順記舊庫 COUNT、blocked UNIQUE 保險絲(可選)、統計參數群聚收 tally 物件、全 repo dart format(波 0 formatter fallout,另開波)
-4. develop 領先 origin 7 個 commit(波 1 五個 + import-minors 兩個 merge),找時機問 Mike 要不要推
-5. **下一波(波 2 Dashboard)開工前置**:等 Mike 決策「DB 層帳號隔離」(見上方待決策①),資料頁工人不得假設隔離已處理
+1. **收尾③**:依上方「波 2 ③」段落流程走完 merge。
+2. 開波 3 前:Mike 驗看波 2、裁遺留判斷題、決定 develop 要不要推。
