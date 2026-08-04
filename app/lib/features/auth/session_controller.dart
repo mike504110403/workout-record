@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/utils/uuid.dart';
+import '../../data/migration/coredata_importer_result.dart' show kCoreDataImportedUserIdKey;
+import '../../data/providers.dart' show appDatabaseProvider;
 import '../onboarding/onboarding_controller.dart' show kOnboardingPersonalDataKeys;
 import '../onboarding/onboarding_status.dart' show kHasCompletedOnboardingKey;
 import 'shared_preferences_provider.dart';
@@ -17,6 +19,14 @@ import 'shared_preferences_provider.dart';
 const kAppleUserIdKey = 'apple_user_id';
 const kAppleUserNameKey = 'apple_user_name';
 const kAppleUserEmailKey = 'apple_user_email';
+
+/// 本機 Drift 資料的擁有者(帳號隔離,見
+/// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)。本機
+/// Drift 永遠只屬於一個帳號:這個 key 存那個帳號的登入身分 id(Apple
+/// userIdentifier 或 [kTestLoginUserIdPrefsKey] 的測試登入 UUID)。跨登出
+/// 持續存在(見 [SessionController.signOut] 的說明),只有偵測到「別的」
+/// 登入身分且使用者二次確認後才會換人(見 [SessionController.confirmClearAndContinueLogin])。
+const kLocalDataOwnerUserIdKey = 'local_data_owner_user_id';
 
 /// 模擬器 / Android / Web 共用的測試登入身分(姓名/信箱固定,id 是裝置產生
 /// 的 UUID,見 [SessionController.signInTest] 開頭註解)。
@@ -29,6 +39,45 @@ const kTestLoginUserIdPrefsKey = 'test_login_user_id';
 
 const _genericLoginErrorMessage = '登入失敗,請稍後再試';
 
+/// 登入流程的結果——controller 不自己彈 UI,只回傳這個型別描述狀態,
+/// 呼叫端(login_page)依此決定要不要彈警告對話框(seam 設計,見帳號隔離
+/// 決策文件與波 2 brief)。同樣的資訊也會反映在 [SessionState.ownerConflict]
+/// 上,方便 UI 用既有的 `ref.listen<SessionState>` 反應式更新;回傳值則讓
+/// controller 測試不需要額外 pump 就能直接斷言結果。
+sealed class LoginOutcome {
+  const LoginOutcome();
+}
+
+/// 登入成功:session 已建立。若這是這台裝置第一次有人登入,也已完成本機
+/// 資料 owner 認領;若登入者本來就是 owner,資料原封不動。
+class LoginSuccess extends LoginOutcome {
+  const LoginSuccess();
+}
+
+/// 登入身分與目前本機資料 owner 不同——尚未清除任何資料、尚未認領、尚未
+/// 建立 session。呼叫端須彈警告對話框二次確認:
+/// - 確認 → 呼叫 [SessionController.confirmClearAndContinueLogin]。
+/// - 取消 → 呼叫 [SessionController.cancelOwnerConflict](或什麼都不做,
+///   狀態就留在 conflict,下一次同一身分登入會再次回傳同一個結果)。
+class LoginOwnerConflict extends LoginOutcome {
+  const LoginOwnerConflict({
+    required this.pendingUserId,
+    required this.pendingUserName,
+    required this.pendingUserEmail,
+  });
+
+  final String pendingUserId;
+  final String pendingUserName;
+  final String pendingUserEmail;
+}
+
+/// 登入失敗(例如 Apple 授權失敗、使用者取消)。錯誤文案走既有的
+/// [SessionState.errorMessage] + `ref.listen` 那條路顯示,這個型別只是讓
+/// 呼叫端能用 switch 窮舉所有結果。
+class LoginFailure extends LoginOutcome {
+  const LoginFailure();
+}
+
 class SessionState {
   const SessionState({
     this.appleUserId,
@@ -36,6 +85,7 @@ class SessionState {
     this.appleUserEmail,
     this.isLoading = false,
     this.errorMessage,
+    this.ownerConflict,
   });
 
   final String? appleUserId;
@@ -43,6 +93,10 @@ class SessionState {
   final String? appleUserEmail;
   final bool isLoading;
   final String? errorMessage;
+
+  /// 非 null 代表目前有一筆待確認的「換帳號」衝突(見 [LoginOwnerConflict])
+  /// ——login_page 應該彈警告對話框,確認/取消後這個欄位就會被清掉。
+  final LoginOwnerConflict? ownerConflict;
 
   bool get isLoggedIn => appleUserId != null && appleUserId!.isNotEmpty;
 
@@ -53,6 +107,8 @@ class SessionState {
     bool? isLoading,
     String? errorMessage,
     bool clearError = false,
+    LoginOwnerConflict? ownerConflict,
+    bool clearOwnerConflict = false,
   }) {
     return SessionState(
       appleUserId: appleUserId ?? this.appleUserId,
@@ -60,6 +116,7 @@ class SessionState {
       appleUserEmail: appleUserEmail ?? this.appleUserEmail,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      ownerConflict: clearOwnerConflict ? null : (ownerConflict ?? this.ownerConflict),
     );
   }
 }
@@ -77,9 +134,10 @@ class SessionController extends Notifier<SessionState> {
 
   /// 真機 Apple ID 登入(對等 iOS `handleAppleIDCredential`)。使用者取消
   /// 授權(canceled)靜默處理,不當錯誤;其他失敗一律給一般化文案,不把
-  /// exception 內容塞進 UI。
-  Future<void> signInWithApple() async {
-    state = state.copyWith(isLoading: true, clearError: true);
+  /// exception 內容塞進 UI。拿到身分後交給 [_completeLoginWithOwnerCheck]
+  /// 做帳號隔離的 owner 檢查(見該方法文件)。
+  Future<LoginOutcome> signInWithApple() async {
+    state = state.copyWith(isLoading: true, clearError: true, clearOwnerConflict: true);
     try {
       final credential = await SignInWithApple.getAppleIDCredential(
         scopes: [
@@ -91,7 +149,7 @@ class SessionController extends Notifier<SessionState> {
       final userId = credential.userIdentifier;
       if (userId == null || userId.isEmpty) {
         state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
-        return;
+        return const LoginFailure();
       }
 
       final fullName = [credential.givenName, credential.familyName]
@@ -100,7 +158,7 @@ class SessionController extends Notifier<SessionState> {
       final userName = fullName.isNotEmpty ? fullName : '用戶';
       final userEmail = credential.email ?? '未提供電子郵件';
 
-      await _persistSession(
+      return _completeLoginWithOwnerCheck(
         userId: userId,
         userName: userName,
         userEmail: userEmail,
@@ -108,20 +166,23 @@ class SessionController extends Notifier<SessionState> {
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) {
         state = state.copyWith(isLoading: false, clearError: true);
-        return;
+        return const LoginFailure();
       }
       state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
     }
   }
 
   /// 模擬器 / Android / Web 的測試登入 fallback(對等 iOS
   /// `handleSimulatorLogin`)。身分不再用共用常數——首次測試登入時生成 UUID
   /// 存進 prefs,之後沿用同一個 id,避免未來接上同步後所有測試登入用戶
-  /// 撞成同一個帳號。
-  Future<void> signInTest() async {
-    state = state.copyWith(isLoading: true, clearError: true);
+  /// 撞成同一個帳號。拿到身分後交給 [_completeLoginWithOwnerCheck] 做帳號
+  /// 隔離的 owner 檢查(見該方法文件)。
+  Future<LoginOutcome> signInTest() async {
+    state = state.copyWith(isLoading: true, clearError: true, clearOwnerConflict: true);
     try {
       final prefs = ref.read(sharedPreferencesProvider);
       var testUserId = prefs.getString(kTestLoginUserIdPrefsKey);
@@ -130,14 +191,90 @@ class SessionController extends Notifier<SessionState> {
         await prefs.setString(kTestLoginUserIdPrefsKey, testUserId);
       }
 
-      await _persistSession(
+      return _completeLoginWithOwnerCheck(
         userId: testUserId,
         userName: kTestLoginUserName,
         userEmail: kTestLoginUserEmail,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
     }
+  }
+
+  /// 帳號隔離核心邏輯(見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`
+  /// 行為規格 1-3),兩條登入路(Apple / 測試登入)拿到身分後都走這裡:
+  /// - 本機還沒有 owner → 認領(寫入 [kLocalDataOwnerUserIdKey] = 這次登入的
+  ///   身分),照常完成登入。血緣 key([kCoreDataImportedUserIdKey])在這個
+  ///   分支刻意不動——第一個認領的帳號要完整享有既有血緣行為(見
+  ///   [confirmClearAndContinueLogin] 的一次性消耗說明)。
+  /// - owner 就是自己 → 資料不動,照常完成登入。
+  /// - owner 是別人 → 不清除、不認領、不建立 session,回傳
+  ///   [LoginOwnerConflict] 讓呼叫端(login_page)彈警告對話框二次確認。
+  Future<LoginOutcome> _completeLoginWithOwnerCheck({
+    required String userId,
+    required String userName,
+    required String userEmail,
+  }) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    final ownerId = prefs.getString(kLocalDataOwnerUserIdKey);
+
+    if (ownerId == null || ownerId.isEmpty) {
+      await prefs.setString(kLocalDataOwnerUserIdKey, userId);
+    } else if (ownerId != userId) {
+      final conflict = LoginOwnerConflict(
+        pendingUserId: userId,
+        pendingUserName: userName,
+        pendingUserEmail: userEmail,
+      );
+      state = state.copyWith(isLoading: false, ownerConflict: conflict);
+      return conflict;
+    }
+
+    await _persistSession(userId: userId, userName: userName, userEmail: userEmail);
+    return const LoginSuccess();
+  }
+
+  /// 警告對話框「確認清除並繼續」後呼叫:清空 Drift 全表(見
+  /// [AppDatabase.clearAllTables])+ Onboarding 個資 prefs
+  /// ([kOnboardingPersonalDataKeys])+ 完成旗標([kHasCompletedOnboardingKey])
+  /// +血緣 key([kCoreDataImportedUserIdKey],一次性消耗——這個 key 只服務
+  /// 「第一個認領本機資料的帳號」,換人時連同它指向的 Users row 一起在
+  /// [AppDatabase.clearAllTables] 裡被清掉,這裡額外刪 key 本身是防禦性
+  /// 收尾,確保沒有殘留的 prefs 值可能被誤讀),然後認領 owner 為這次的
+  /// 登入身分、完成登入。
+  ///
+  /// 呼叫前提:[SessionState.ownerConflict] 不為 null——沒有待確認的衝突時
+  /// 直接 no-op 並回傳 [LoginFailure],不會誤觸發清除。
+  Future<LoginOutcome> confirmClearAndContinueLogin() async {
+    final pending = state.ownerConflict;
+    if (pending == null) return const LoginFailure();
+
+    final db = ref.read(appDatabaseProvider);
+    await db.clearAllTables();
+
+    final prefs = ref.read(sharedPreferencesProvider);
+    for (final key in kOnboardingPersonalDataKeys) {
+      await prefs.remove(key);
+    }
+    await prefs.remove(kHasCompletedOnboardingKey);
+    await prefs.remove(kCoreDataImportedUserIdKey);
+
+    await prefs.setString(kLocalDataOwnerUserIdKey, pending.pendingUserId);
+
+    await _persistSession(
+      userId: pending.pendingUserId,
+      userName: pending.pendingUserName,
+      userEmail: pending.pendingUserEmail,
+    );
+    return const LoginSuccess();
+  }
+
+  /// 警告對話框「取消」後呼叫:不清除任何東西、不認領、不建立 session,
+  /// 只是把待確認的衝突狀態收掉,留在登入頁。
+  void cancelOwnerConflict() {
+    if (state.ownerConflict == null) return;
+    state = state.copyWith(isLoading: false, clearOwnerConflict: true);
   }
 
   /// 清掉目前的錯誤訊息(對等錯誤彈窗顯示過一次就消化掉,是一次性事件)。
@@ -175,9 +312,11 @@ class SessionController extends Notifier<SessionState> {
   /// App,沒有換帳號吃到別人資料的疑慮,Flutter 版三平台 + 未來多帳號同步
   /// 才需要這層保護。隱私同意三個 key 是裝置層級的同意紀錄,不受影響。
   ///
-  /// DB 層帳號隔離(換帳號時清掉 Drift 裡屬於其他 userId 的資料,或查詢一律
-  /// 帶 userId 篩選)待決策(見 review 2026-07-30),本次不做——目前僅清
-  /// prefs 側的個資,Drift 資料表本身不受 signOut 影響。
+  /// DB 層帳號隔離(見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)
+  /// 刻意**不**掛在 signOut 上——[kLocalDataOwnerUserIdKey] 與 Drift 資料
+  /// 都要跨登出持續存在,同帳號登出後回來才能無縫接續使用;真正觸發清除
+  /// 的是下一次登入時偵測到「別的」帳號([_completeLoginWithOwnerCheck] +
+  /// [confirmClearAndContinueLogin]),不是這裡。
   Future<void> signOut() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(kAppleUserIdKey);

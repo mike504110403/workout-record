@@ -6,9 +6,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workout_record/data/db/app_database.dart';
+import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/onboarding/onboarding_controller.dart'
+    show kUserCurrentWeightKey, kUserGenderKey;
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
+
+import '../../data/test_helpers.dart';
 
 Future<ProviderContainer> _containerWithPrefs(Map<String, Object> values) async {
   SharedPreferences.setMockInitialValues(values);
@@ -17,6 +23,26 @@ Future<ProviderContainer> _containerWithPrefs(Map<String, Object> values) async 
     overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
   );
   addTearDown(container.dispose);
+  return container;
+}
+
+/// 帳號隔離測試用:除了 mock prefs,還要疊一顆真的 in-memory Drift DB(換帳號
+/// 衝突確認清除的流程要真的清 Drift,不能只驗 prefs)。呼叫端負責在需要時
+/// 自行 seed 資料;這裡只負責開庫、掛 override、收尾關庫。
+Future<ProviderContainer> _containerWithPrefsAndDb(Map<String, Object> values) async {
+  SharedPreferences.setMockInitialValues(values);
+  final prefs = await SharedPreferences.getInstance();
+  final db = openTestDatabase();
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      appDatabaseProvider.overrideWithValue(db),
+    ],
+  );
+  addTearDown(() async {
+    container.dispose();
+    await db.close();
+  });
   return container;
 }
 
@@ -164,6 +190,262 @@ void main() {
       notifier.clearError();
 
       expect(container.read(sessionControllerProvider).errorMessage, isNull);
+    });
+  });
+
+  // 帳號隔離(見 .claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md):
+  // 本機 Drift 永遠只屬於一個帳號,owner 記在 kLocalDataOwnerUserIdKey。
+  group('帳號隔離 — owner 認領', () {
+    test('無 owner 時,首次登入直接認領——owner key 寫入為這次登入的身分', () async {
+      final container = await _containerWithPrefsAndDb({});
+      final outcome = await container.read(sessionControllerProvider.notifier).signInTest();
+
+      expect(outcome, isA<LoginSuccess>());
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoggedIn, isTrue);
+      expect(state.ownerConflict, isNull);
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), state.appleUserId);
+    });
+
+    test('owner 就是自己時,無 conflict、照常完成登入、Drift 資料不動', () async {
+      final container = await _containerWithPrefsAndDb({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+
+      final first = await notifier.signInTest();
+      expect(first, isA<LoginSuccess>());
+      final owner = container.read(sharedPreferencesProvider).getString(kLocalDataOwnerUserIdKey);
+
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: owner!);
+      final now = DateTime.now();
+      await db.into(db.bodyWeights).insert(
+            BodyWeightsCompanion.insert(
+              id: 'bw1',
+              userId: owner,
+              measuredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      // test_login_user_id 是裝置層級 key,登出不清,重登會沿用同一個身分
+      // ——對應「同帳號重登」情境。
+      await notifier.signOut();
+      final second = await notifier.signInTest();
+
+      expect(second, isA<LoginSuccess>());
+      final state = container.read(sessionControllerProvider);
+      expect(state.appleUserId, owner);
+      expect(state.ownerConflict, isNull);
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), owner);
+
+      final bodyWeights = await db.select(db.bodyWeights).get();
+      expect(bodyWeights, hasLength(1));
+    });
+  });
+
+  group('帳號隔離 — owner 衝突', () {
+    test('owner 是別人時,回傳 conflict,不清資料、不認領、不建立 session', () async {
+      const oldOwner = 'owner-a';
+      final container = await _containerWithPrefsAndDb({
+        kLocalDataOwnerUserIdKey: oldOwner,
+      });
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: oldOwner);
+      final now = DateTime.now();
+      await db.into(db.bodyWeights).insert(
+            BodyWeightsCompanion.insert(
+              id: 'bw1',
+              userId: oldOwner,
+              measuredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      // signInTest() 首次呼叫會生成一個新 UUID 當測試登入身分,必定不等於
+      // oldOwner,對應「異帳號登入」情境。
+      final outcome = await container.read(sessionControllerProvider.notifier).signInTest();
+
+      expect(outcome, isA<LoginOwnerConflict>());
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoggedIn, isFalse);
+      expect(state.ownerConflict, isNotNull);
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), oldOwner);
+
+      final bodyWeights = await db.select(db.bodyWeights).get();
+      expect(bodyWeights, hasLength(1));
+    });
+
+    test(
+        '確認清除:多表清空(Workouts/WorkoutExercises/WorkoutSets/BodyWeights/Users)、'
+        'onboarding 個資與完成旗標消失、隱私三 key 與裝置層級測試登入 id 仍在、'
+        'owner 換成新帳號、session 建立', () async {
+      const oldOwner = 'owner-a';
+      const incomingUserId = 'device-test-uuid';
+      final container = await _containerWithPrefsAndDb({
+        kLocalDataOwnerUserIdKey: oldOwner,
+        kTestLoginUserIdPrefsKey: incomingUserId,
+        kUserGenderKey: '男性',
+        kUserCurrentWeightKey: 70.0,
+        kHasCompletedOnboardingKey: true,
+        'has_agreed_to_analytics': true,
+        'has_agreed_to_privacy': true,
+        'privacy_consent_date': 1234567890,
+      });
+
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: oldOwner);
+      final exerciseId = (await db.select(db.exercises).get()).first.id;
+      final now = DateTime.now();
+      await db.into(db.workouts).insert(
+            WorkoutsCompanion.insert(
+              id: 'w1',
+              userId: oldOwner,
+              startedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await db.into(db.workoutExercises).insert(
+            WorkoutExercisesCompanion.insert(
+              id: 'we1',
+              workoutId: 'w1',
+              exerciseId: exerciseId,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await db.into(db.workoutSets).insert(
+            WorkoutSetsCompanion.insert(
+              id: 'ws1',
+              workoutExerciseId: 'we1',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await db.into(db.bodyWeights).insert(
+            BodyWeightsCompanion.insert(
+              id: 'bw1',
+              userId: oldOwner,
+              measuredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      final notifier = container.read(sessionControllerProvider.notifier);
+      final conflictOutcome = await notifier.signInTest();
+      expect(conflictOutcome, isA<LoginOwnerConflict>());
+
+      final confirmOutcome = await notifier.confirmClearAndContinueLogin();
+      expect(confirmOutcome, isA<LoginSuccess>());
+
+      // 逐表斷言 = 0,參照物是直接 SELECT COUNT,不是清空方法的回傳值。
+      expect(await db.select(db.workouts).get(), isEmpty);
+      expect(await db.select(db.workoutExercises).get(), isEmpty);
+      expect(await db.select(db.workoutSets).get(), isEmpty);
+      expect(await db.select(db.bodyWeights).get(), isEmpty);
+      expect(
+        await (db.select(db.users)..where((t) => t.id.equals(oldOwner))).getSingleOrNull(),
+        isNull,
+      );
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.containsKey(kUserGenderKey), isFalse);
+      expect(prefs.containsKey(kUserCurrentWeightKey), isFalse);
+      expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+      expect(prefs.getBool('has_agreed_to_analytics'), isTrue);
+      expect(prefs.getBool('has_agreed_to_privacy'), isTrue);
+      expect(prefs.getInt('privacy_consent_date'), 1234567890);
+      expect(prefs.getString(kTestLoginUserIdPrefsKey), incomingUserId);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), incomingUserId);
+
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoggedIn, isTrue);
+      expect(state.appleUserId, incomingUserId);
+      expect(state.ownerConflict, isNull);
+    });
+
+    test('取消:資料完好、owner 不變、不認領、不建立 session', () async {
+      const oldOwner = 'owner-a';
+      final container = await _containerWithPrefsAndDb({
+        kLocalDataOwnerUserIdKey: oldOwner,
+      });
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: oldOwner);
+      final now = DateTime.now();
+      await db.into(db.bodyWeights).insert(
+            BodyWeightsCompanion.insert(
+              id: 'bw1',
+              userId: oldOwner,
+              measuredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      final notifier = container.read(sessionControllerProvider.notifier);
+      final conflictOutcome = await notifier.signInTest();
+      expect(conflictOutcome, isA<LoginOwnerConflict>());
+
+      notifier.cancelOwnerConflict();
+
+      final state = container.read(sessionControllerProvider);
+      expect(state.isLoggedIn, isFalse);
+      expect(state.ownerConflict, isNull);
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), oldOwner);
+
+      final bodyWeights = await db.select(db.bodyWeights).get();
+      expect(bodyWeights, hasLength(1));
+    });
+
+    test('沒有待確認的 conflict 時呼叫 confirmClearAndContinueLogin() 是安全的 no-op', () async {
+      final container = await _containerWithPrefsAndDb({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+
+      final outcome = await notifier.confirmClearAndContinueLogin();
+
+      expect(outcome, isA<LoginFailure>());
+      expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
+    });
+  });
+
+  group('帳號隔離 — signOut 不動 owner 與 Drift', () {
+    test('signOut 不清 kLocalDataOwnerUserIdKey、不清 Drift 資料', () async {
+      final container = await _containerWithPrefsAndDb({});
+      final notifier = container.read(sessionControllerProvider.notifier);
+      await notifier.signInTest();
+      final owner = container.read(sharedPreferencesProvider).getString(kLocalDataOwnerUserIdKey);
+
+      final db = container.read(appDatabaseProvider);
+      await seedTestUser(db, id: owner!);
+      final now = DateTime.now();
+      await db.into(db.bodyWeights).insert(
+            BodyWeightsCompanion.insert(
+              id: 'bw1',
+              userId: owner,
+              measuredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+
+      await notifier.signOut();
+
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), owner);
+
+      final bodyWeights = await db.select(db.bodyWeights).get();
+      expect(bodyWeights, hasLength(1));
     });
   });
 }

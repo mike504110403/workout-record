@@ -83,4 +83,33 @@ class AppDatabase extends _$AppDatabase {
       b.insertAll(exercises, buildSeedExerciseCompanions());
     });
   }
+
+  /// 帳號隔離用:清空全部 11 張表(換帳號登入、使用者確認清除後呼叫,見
+  /// `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`)。
+  ///
+  /// 刪除順序手動排成「children 先於 parents」,不靠切換
+  /// `PRAGMA foreign_keys`——SQLite 規定該 pragma 在交易中是 no-op(不在交易
+  /// 裡切又抓不到清空這段操作結尾的時機關掉),排順序才是可攜、
+  /// native/web 兩平台通用的做法,且不需要碰任何平台特定 API。
+  ///
+  /// 清完立刻呼叫 [seedIfEmpty] 補回系統動作庫——那是 App 共用的參照資料
+  /// (`isSystem = true`,`userId` 為 null),不屬於任何帳號,換帳號不該讓
+  /// 新使用者連動作庫都是空的(等同於全新安裝後的 onCreate 行為)。
+  Future<void> clearAllTables() async {
+    await transaction(() async {
+      await delete(workoutSets).go();
+      await delete(workoutExercises).go();
+      await delete(templateExercises).go();
+      await delete(personalRecords).go();
+      await delete(workouts).go();
+      await delete(templates).go();
+      await delete(userGoals).go();
+      await delete(powerLiftRecords).go();
+      await delete(bodyWeights).go();
+      await delete(exercises).go();
+      await delete(users).go();
+
+      await seedIfEmpty();
+    });
+  }
 }
