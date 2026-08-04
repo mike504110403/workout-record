@@ -48,8 +48,8 @@
 ## 波 3 進行中(2026-08-04 開)
 
 - 決策已裁(見 `.claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md`):進行中訓練 = Drift 草稿寫穿(endedAt NULL);種五個系統模板(照 iOS DEBUG mock 定案);兩段式拆工。
-- **第一段(進行中)**:①`exercise-picker-worker`(`feature/wave3-exercise-picker`,選動作器,契約 `showExercisePicker(context, {multiSelect})`)+ ③`template-worker`(`feature/wave3-templates`,模板種子/CRUD/套用,picker 以同簽名 fake 頂替標 `WAVE3-MERGE`)。各自驗收 + review chain(③涉種子加跑 db-reviewer)→ merge 時大腦把 ③ 的 fake 接到 ① 真 picker。
-- **第二段(未開)**:②訓練核心流——開始(自由/模板)、草稿寫穿、記組(重量/次數/RPE/暖身/休息計時)、上一組帶入、即時統計、放棄確認(iOS 是 TODO,我們要做)、完成結算(completeWorkout + OneRM PR 偵測 `createIfNewPR`)、summary 報告、啟動偵測未完成草稿詢問恢復/放棄;Dashboard M3 invalidate 已保證切回首頁刷新。
+- **第一段:完成(2026-08-05)**:①選動作器(review 三輪,merge b3ec808)+ ③模板(migration v1→v2 nullable + 五系統模板種子 + CRUD + applyTemplate;code/db 雙審各兩輪,merge a758ac3)+ 接線(a2508dc,fake→真 picker,crud 測試駕駛真 picker)。develop 親驗:analyze 0、test 261/261、web build ✓。②brief 要點:模板列表入口掛 workout tab(補裁④)、applyTemplate 消費 `AppliedTemplate`(null→3 組×10 次)。
+- **第二段(進行中)**:②訓練核心流——開始(自由/模板)、草稿寫穿、記組(重量/次數/RPE/暖身/休息計時)、上一組帶入、即時統計、放棄確認(iOS 是 TODO,我們要做)、完成結算(completeWorkout + OneRM PR 偵測 `createIfNewPR`)、summary 報告、啟動偵測未完成草稿詢問恢復/放棄;Dashboard M3 invalidate 已保證切回首頁刷新。
 - iOS 基準要點(探路 2026-08-04):進行中純記憶體無恢復(我們改草稿)、AddSetSheet 預設休息 90s 可調 0-300、PR 用 OneRMCalculator(工人讀 iOS 原始碼對等)、匯入路徑統計是複製舊值而新寫入路徑 completeWorkout 現算(語意已對齊,別動)。
 
 ## 下一步
