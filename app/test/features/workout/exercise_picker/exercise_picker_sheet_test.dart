@@ -37,6 +37,18 @@ class _ThrowingCreateExerciseRepository extends ExerciseRepository {
   }
 }
 
+/// `fetchByCategory` 一律拋錯——用來驗證分類切換失敗時,畫面上真的浮出
+/// code review major 1 要求的 inline 錯誤提示(`exercise_picker_category_error`),
+/// 不是靜默吞掉。
+class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
+  _ThrowingFetchByCategoryRepository(super.db);
+
+  @override
+  Future<List<Exercise>> fetchByCategory(String categoryId) async {
+    throw Exception('模擬分類查詢失敗(widget 層級失敗提示測試用)');
+  }
+}
+
 /// 觸發選動作器的最小 host 頁面:一顆按鈕開 sheet,回傳結果(含「尚未有
 /// 結果」與「明確回傳 null」兩種狀態的區分)顯示在畫面上供斷言。
 class _PickerHostPage extends StatefulWidget {
@@ -167,6 +179,22 @@ void main() {
       expect(find.byKey(Key('exercise_row_${first.id}')), findsOneWidget);
       expect(find.byKey(Key('exercise_row_${last.id}')), findsOneWidget);
     });
+
+    testWidgets('分類查詢失敗時浮出 inline 錯誤提示,不靜默吞掉(code review major 1)', (tester) async {
+      final harness = await _setUpHarness(
+        exerciseRepoBuilder: (db) => _ThrowingFetchByCategoryRepository(db),
+      );
+      await _pumpHost(tester, harness);
+      await _openPicker(tester);
+
+      expect(find.byKey(const Key('exercise_picker_category_error')), findsNothing);
+
+      await tester.tap(find.byKey(Key('category_chip_${SeedCategoryIds.back}')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('exercise_picker_category_error')), findsOneWidget);
+      expect(find.text('載入分類失敗,請稍後再試'), findsOneWidget);
+    });
   });
 
   group('即時搜尋', () {
@@ -224,6 +252,50 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('搜尋是全庫搜尋、忽略目前選中的分類;清空搜尋字串後原本選中的分類 chip 依然選中', (
+      tester,
+    ) async {
+      final harness = await _setUpHarness();
+      await _pumpHost(tester, harness);
+      await _openPicker(tester);
+
+      // 先選背部分類。
+      await tester.tap(find.byKey(Key('category_chip_${SeedCategoryIds.back}')));
+      await tester.pumpAndSettle();
+
+      // 搜尋「深蹲」(腿部動作,不屬於背部分類)——命中代表搜尋範圍是全庫,
+      // 不受目前選中的背部分類限制(spec 澄清項,對齊 iOS `searchText` 非空
+      // 時無視 `selectedCategory` 的行為)。用 `widgetWithText(ListTile, ...)`
+      // 而不是裸的 `find.text`——搜尋框自己目前的輸入值也字面上等於
+      // 「深蹲」,裸 `find.text` 會連搜尋框的 EditableText 一起撞到。
+      await tester.enterText(find.byKey(const Key('exercise_picker_search_field')), '深蹲');
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ListTile, '深蹲'), findsOneWidget);
+
+      // 清空搜尋字串,分類 tab 重新出現,且背部分類仍是選中狀態(chip 沒有
+      // 因為搜尋而被悄悄重置成「全部」)。
+      await tester.tap(find.byKey(const Key('exercise_picker_clear_search_button')));
+      await tester.pumpAndSettle();
+
+      final backChip = tester.widget<ChoiceChip>(
+        find.descendant(
+          of: find.byKey(Key('category_chip_${SeedCategoryIds.back}')),
+          matching: find.byType(ChoiceChip),
+        ),
+      );
+      expect(backChip.selected, isTrue);
+      final allChip = tester.widget<ChoiceChip>(
+        find.descendant(
+          of: find.byKey(const Key('category_chip_all')),
+          matching: find.byType(ChoiceChip),
+        ),
+      );
+      expect(allChip.selected, isFalse);
+      // 清單也確實回到背部分類的內容,不是「全部」。
+      expect(find.text('硬舉'), findsOneWidget);
+      expect(find.text('伏地挺身'), findsNothing);
+    });
   });
 
   group('回傳值契約', () {
@@ -268,6 +340,33 @@ void main() {
       expect(ids, containsAll([first.id, second.id]));
       expect(ids.length, 2);
     });
+
+    testWidgets(
+      '多選模式:在分類篩選過的清單(categoryExercises)勾選,確認仍含該動作(code review major 2)',
+      (tester) async {
+        final harness = await _setUpHarness();
+        await _pumpHost(tester, harness, multiSelect: true);
+        await _openPicker(tester);
+
+        // 先切到背部分類——此時畫面顯示的是 `categoryExercises`,不是
+        // `allExercises`。原本的 bug:`_confirmMultiSelect` 只從
+        // `allExercises` 解析勾選 id,若兩份清單的查詢謂詞不一致,在這裡
+        // 勾選的動作會在確認當下無聲消失。
+        await tester.tap(find.byKey(Key('category_chip_${SeedCategoryIds.back}')));
+        await tester.pumpAndSettle();
+
+        final exercises = await harness.exerciseRepo.fetchByCategory(SeedCategoryIds.back);
+        final target = exercises.firstWhere((e) => e.name == '引體向上');
+
+        await tester.tap(find.byKey(Key('exercise_row_${target.id}')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('picker-result:${target.id}'), findsOneWidget);
+      },
+    );
 
     testWidgets('取消(左上角按鈕)回傳 null', (tester) async {
       final harness = await _setUpHarness();
@@ -373,7 +472,7 @@ void main() {
       expect(find.byKey(const Key('quick_add_name_field')), findsOneWidget);
     });
 
-    testWidgets('失敗:解除 loading、浮出 SnackBar 錯誤訊息,表單不關閉(不 fire-and-forget)', (
+    testWidgets('失敗:解除 loading、表單內 inline 顯示錯誤訊息,表單不關閉(不 fire-and-forget)', (
       tester,
     ) async {
       final harness = await _setUpHarness(
@@ -388,6 +487,10 @@ void main() {
       await tester.tap(find.byKey(const Key('quick_add_submit_button')));
       await tester.pumpAndSettle();
 
+      // code review minor 3:錯誤訊息改成表單內的 inline text(key
+      // `quick_add_error_text`),不是 SnackBar——sheet 疊了兩層(選動作器
+      // 90% 高 + 這個表單),SnackBar 找到的 ScaffoldMessenger 可能被蓋住。
+      expect(find.byKey(const Key('quick_add_error_text')), findsOneWidget);
       expect(find.text('新增動作失敗,請稍後再試'), findsOneWidget);
       // 表單仍在畫面上,可以修改後重試(沒有被 pop)。
       expect(find.byKey(const Key('quick_add_name_field')), findsOneWidget);

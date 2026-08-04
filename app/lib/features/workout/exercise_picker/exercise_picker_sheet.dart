@@ -76,8 +76,31 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
     Navigator.of(context).pop([exercise]);
   }
 
+  /// 多選確認:回傳清單依「`allExercises` ∪ `categoryExercises` 的查詢順序」
+  /// 排列(先照 `allExercises` 的順序取出命中的,再補上只存在於
+  /// `categoryExercises`、`allExercises` 沒有的),**不是使用者勾選的先後
+  /// 順序**——契約沒有承諾回傳順序等於勾選順序,這裡先講清楚。
+  ///
+  /// code review major 2:原本只從 `allExercises` 解析勾選 id,但勾選動作
+  /// 可能發生在分類篩選過的 `categoryExercises` 上——若這兩份清單的查詢
+  /// 謂詞(`fetchAll` vs `fetchByCategory`)未來出現任何不一致,勾了的動作
+  /// 會在確認當下無聲消失(id 在 `selectedIds` 裡,但在 `allExercises` 裡
+  /// 找不到對應物件,`where` 直接跳過)。改成對兩份清單的聯集(依 id 去重)
+  /// 解析,不管勾選當下畫面顯示的是哪一份清單都不會遺漏。
   void _confirmMultiSelect(ExercisePickerState state) {
-    final selected = state.allExercises.where((e) => state.selectedIds.contains(e.id)).toList();
+    // `<String, Exercise>{}` 是 LinkedHashMap,保留插入順序——先塞
+    // `allExercises`(fetchAll 依名稱排序的結果),再補只存在於
+    // `categoryExercises`、`allExercises` 沒有的(理論上不會發生,但兩份
+    // 清單來自不同查詢,防禦性地兜底)。`putIfAbsent` 確保重複 id 以先塞入
+    // 的為準,不會被後面覆寫。
+    final combined = <String, Exercise>{};
+    for (final e in state.allExercises) {
+      combined.putIfAbsent(e.id, () => e);
+    }
+    for (final e in state.categoryExercises) {
+      combined.putIfAbsent(e.id, () => e);
+    }
+    final selected = combined.values.where((e) => state.selectedIds.contains(e.id)).toList();
     Navigator.of(context).pop(selected);
   }
 
@@ -86,11 +109,18 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
     final asyncState = ref.watch(exercisePickerControllerProvider);
     final mediaQuery = MediaQuery.of(context);
 
-    return SizedBox(
-      height: mediaQuery.size.height * 0.9,
-      child: SafeArea(
-        child: Column(
-          children: [
+    // 搜尋框打字時鍵盤會從螢幕底部升起(`viewInsets.bottom`)——sheet 高度
+    // 是寫死的 `size.height * 0.9`,不會自動幫我們避開鍵盤(不像
+    // `Scaffold(resizeToAvoidBottomInset: true)` 那樣的自動行為),外層再包
+    // 一層 `Padding` 把整包內容往上推,鍵盤蓋住的是 sheet 底部空白而不是清單
+    // 內容。quick_add_exercise_sheet.dart 的表單已經是這個做法,這裡補齊。
+    return Padding(
+      padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
+      child: SizedBox(
+        height: mediaQuery.size.height * 0.9,
+        child: SafeArea(
+          child: Column(
+            children: [
             _Header(onCancel: () => Navigator.of(context).pop(null), onAdd: _openQuickAdd),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -138,7 +168,8 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
                 ),
                 orElse: () => const SizedBox.shrink(),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -191,7 +222,10 @@ class _Body extends StatelessWidget {
         return _EmptyState(
           key: const Key('exercise_picker_empty_search'),
           icon: Icons.search_off,
-          title: '找不到「${state.searchQuery}」',
+          // trim 過的字串——搜尋框允許使用者打出前後帶空白的查詢(例如按了
+          // 空白鍵才發現找不到東西),空狀態文案不該原樣把那些空白字元也
+          // 顯示出來。
+          title: '找不到「${state.searchQuery.trim()}」',
           subtitle: '試試其他關鍵字或新增自訂動作',
         );
       }
@@ -205,6 +239,23 @@ class _Body extends StatelessWidget {
 
     return Column(
       children: [
+        // 分類查詢失敗的提示(code review major 1):`selectCategory` 失敗時
+        // 不改變 `selectedCategoryId`/`categoryExercises`(畫面停留在切換前
+        // 的分類,不假裝切換成功),用這個 inline banner 告知使用者、不用
+        // SnackBar——sheet 高度撐到螢幕 90%,SnackBar 從 `ScaffoldMessenger`
+        // 找到的通常是背後那個被蓋住的 Scaffold,彈出來也可能整個看不到
+        // (code review minor 3 同樣的顧慮)。
+        if (state.categoryError != null)
+          Container(
+            key: const Key('exercise_picker_category_error'),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Text(
+              state.categoryError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+            ),
+          ),
         _CategoryTabs(selectedCategoryId: state.selectedCategoryId),
         Expanded(
           child: state.visibleExercises.isEmpty
@@ -212,7 +263,6 @@ class _Body extends StatelessWidget {
                   key: Key('exercise_picker_empty_category'),
                   icon: Icons.fitness_center,
                   title: '暫無動作',
-                  subtitle: null,
                 )
               : _ExerciseListView(
                   exercises: state.visibleExercises,
@@ -356,6 +406,10 @@ class _ExerciseTile extends StatelessWidget {
       if (exercise.nameEn != null && exercise.nameEn!.isNotEmpty) exercise.nameEn!,
       if (exercise.primaryMuscleGroup != null) exercise.primaryMuscleGroup!.displayName,
     ];
+    // code review minor 4:原本寫死 `Colors.green`/`Colors.amber`,深色模式
+    // 下配色跟主題其他地方脫節、對比度也沒經過驗證。改用當前 `colorScheme`
+    // 的語意色階,亮/暗兩種主題都能自動取得對應的配色與可讀對比度。
+    final colorScheme = Theme.of(context).colorScheme;
 
     return ListTile(
       key: Key('exercise_row_${exercise.id}'),
@@ -375,10 +429,13 @@ class _ExerciseTile extends StatelessWidget {
               key: Key('exercise_custom_badge_${exercise.id}'),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.green,
+                color: colorScheme.tertiaryContainer,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text('自訂', style: TextStyle(color: Colors.white, fontSize: 11)),
+              child: Text(
+                '自訂',
+                style: TextStyle(color: colorScheme.onTertiaryContainer, fontSize: 11),
+              ),
             ),
           ],
         ],
@@ -386,7 +443,10 @@ class _ExerciseTile extends StatelessWidget {
       subtitle: subtitleParts.isEmpty ? null : Text(subtitleParts.join(' · ')),
       trailing: IconButton(
         key: Key('exercise_favorite_star_${exercise.id}'),
-        icon: Icon(isFavorite ? Icons.star : Icons.star_border, color: isFavorite ? Colors.amber : null),
+        icon: Icon(
+          isFavorite ? Icons.star : Icons.star_border,
+          color: isFavorite ? colorScheme.tertiary : null,
+        ),
         onPressed: onToggleFavorite,
       ),
       onTap: onTap,
@@ -395,7 +455,7 @@ class _ExerciseTile extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({super.key, required this.icon, required this.title, required this.subtitle});
+  const _EmptyState({super.key, required this.icon, required this.title, this.subtitle});
 
   final IconData icon;
   final String title;

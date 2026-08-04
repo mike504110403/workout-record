@@ -58,31 +58,27 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
     if (created != null) {
       Navigator.of(context).pop(created);
     }
-    // 失敗時不 pop——錯誤訊息由下面的 ref.listen 彈 SnackBar,表單留在畫面
-    // 上讓使用者可以修改後重試(常備紀律:非同步失敗路徑要處理,不得
-    // fire-and-forget)。
+    // 失敗時不 pop——錯誤訊息由下面 build() 的 inline error text 顯示,表單
+    // 留在畫面上讓使用者可以修改後重試(常備紀律:非同步失敗路徑要處理,
+    // 不得 fire-and-forget)。
   }
 
   @override
   Widget build(BuildContext context) {
-    // 只在 customExerciseError 真的「新出現」時彈一次 SnackBar,不是每次
-    // rebuild 都彈——比對前後兩次的錯誤訊息是否相同即可,重試又失敗時錯誤
-    // 訊息字串相同不會重彈是可接受的(使用者已經看過同一句錯誤,連續失敗
-    // 不需要重複彈窗轟炸)。
-    ref.listen<AsyncValue<ExercisePickerState>>(exercisePickerControllerProvider, (
-      previous,
-      next,
-    ) {
-      final previousError = previous?.value?.customExerciseError;
-      final nextError = next.value?.customExerciseError;
-      if (nextError != null && nextError != previousError) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(nextError)));
-      }
-    });
-
-    final isSubmitting =
-        ref.watch(exercisePickerControllerProvider).value?.isSubmittingCustomExercise ??
-        false;
+    final pickerState = ref.watch(exercisePickerControllerProvider).value;
+    final isSubmitting = pickerState?.isSubmittingCustomExercise ?? false;
+    // code review minor 3:原本用 `ScaffoldMessenger` 彈 SnackBar,但這個
+    // 表單本身是疊在選動作器(已經撐到螢幕 90% 高)之上的第二層 bottom
+    // sheet,`ScaffoldMessenger.of(context)` 找到的是最底層那個被兩層 sheet
+    // 蓋住的 Scaffold,SnackBar 彈出來可能整個看不見。改成表單內的 inline
+    // error text,不依賴任何外部 Scaffold 的可見範圍。
+    //
+    // 這裡直接讀 `pickerState?.customExerciseError` 顯示,不需要
+    // `ref.listen` 手動比對「是否為新出現的錯誤」才決定要不要彈——inline
+    // text 是「有錯誤就一直顯示,沒有就不顯示」的靜態呈現,不像 SnackBar
+    // 那種「一次性彈出、自動消失」的通知,天生沒有「同一個錯誤要不要重彈」
+    // 的問題。
+    final customExerciseError = pickerState?.customExerciseError;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -138,6 +134,14 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
                 if (value != null) setState(() => _type = value);
               },
             ),
+            if (customExerciseError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                customExerciseError,
+                key: const Key('quick_add_error_text'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
             const SizedBox(height: 16),
             FilledButton(
               key: const Key('quick_add_submit_button'),
