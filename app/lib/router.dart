@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'features/auth/login_page.dart';
 import 'features/auth/session_controller.dart';
+import 'features/dashboard/dashboard_controller.dart';
 import 'features/dashboard/dashboard_page.dart';
 import 'features/history/history_page.dart';
 import 'features/onboarding/onboarding_page.dart';
@@ -35,6 +36,20 @@ String? resolveAuthRedirect({
   }
   return null;
 }
+
+/// 首頁在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序一致。
+const _dashboardBranchIndex = 0;
+
+/// 修復 M3(major):`StatefulShellRoute.indexedStack` 讓分頁切換不會
+/// dispose 頁面,`DashboardController.build()` 只會在 provider 第一次建立
+/// 時跑一次,使用者切去別的分頁再切回首頁不會重新查詢——跨午夜「今日概覽」
+/// 停在昨天、波 3 記完訓練切回首頁數字不更新都是同一個根因。這裡在切到
+/// 首頁分頁時強制 invalidate 一次 dashboardControllerProvider,行為對等
+/// iOS 版每次 `.onAppear` 都重新整理(對照 iOS
+/// `DashboardView.onAppear { viewModel.refresh() }`;spec 缺漏①「iOS
+/// onAppear 刷新」由此修復補齊,不再是差異)。純函式,不吃
+/// BuildContext/WidgetRef,方便單獨單元測試(見 test/router/router_redirect_test.dart)。
+bool shouldRefreshDashboardOnBranchSwitch(int targetIndex) => targetIndex == _dashboardBranchIndex;
 
 /// session / onboarding 狀態改變時通知 GoRouter 重新評估 redirect(例如
 /// 登入、登出、完成 Onboarding)。
@@ -122,7 +137,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _AppShell extends StatelessWidget {
+class _AppShell extends ConsumerWidget {
   const _AppShell({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
@@ -156,15 +171,20 @@ class _AppShell extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       body: navigationShell,
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: (index) => navigationShell.goBranch(
-          index,
-          initialLocation: index == navigationShell.currentIndex,
-        ),
+        onDestinationSelected: (index) {
+          navigationShell.goBranch(
+            index,
+            initialLocation: index == navigationShell.currentIndex,
+          );
+          if (shouldRefreshDashboardOnBranchSwitch(index)) {
+            ref.invalidate(dashboardControllerProvider);
+          }
+        },
         destinations: _destinations,
       ),
     );

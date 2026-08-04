@@ -38,14 +38,29 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
     return value;
   }
 
+  // 修復 M1:先前這裡寫入路徑沒有 try/catch/finally——recordBodyWeight
+  // 拋錯時(例如 DB 寫入失敗、或 m3 修復後 userId 解析不到拋出的
+  // StateError)_isSaving 會永遠卡在 true,欄位與按鈕全部 disable、也沒有
+  // 任何錯誤提示,使用者只能重開 app。改成:寫入包 try,失敗時秀 SnackBar
+  // 錯誤訊息;finally 裡確認 widget 還 mounted 才 setState 解除 loading
+  // (避免 pop 之後畫面已卸載還呼叫 setState 噴 exception)。
   Future<void> _save() async {
     final weight = _parsedWeight;
     if (weight == null || _isSaving) return;
 
     setState(() => _isSaving = true);
-    await ref.read(dashboardControllerProvider.notifier).recordBodyWeight(weight);
-    if (!mounted) return;
-    Navigator.of(context).pop();
+    try {
+      await ref.read(dashboardControllerProvider.notifier).recordBodyWeight(weight);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('儲存失敗，請稍後再試')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override

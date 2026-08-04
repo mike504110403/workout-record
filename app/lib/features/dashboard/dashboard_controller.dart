@@ -54,20 +54,44 @@ class DashboardState {
 
 class DashboardController extends AsyncNotifier<DashboardState> {
   @override
-  Future<DashboardState> build() => _load();
+  Future<DashboardState> build() {
+    // 建立對 sessionControllerProvider 的 watch 依賴(修復 M2:換帳號後
+    // 首頁顯示前帳號快取)——sessionControllerProvider 不是 autoDispose,
+    // 若只在 `_resolveUserId` 內用 `ref.read` 讀一次,session 換人時
+    // build() 不會重跑,goalRepo.fetchByUser 永遠查前一個帳號的 userId。
+    // 這裡直接 watch,session 一變 Riverpod 會自動重新呼叫 build()、
+    // 整份 DashboardState 用新 userId 重新組裝,不留前帳號快取。
+    ref.watch(sessionControllerProvider);
+    return _load();
+  }
 
   /// 對外重新整理(對照 iOS `DashboardViewModel.refresh()`)。記錄體重存檔
   /// 之後、或使用者下拉刷新時呼叫。
+  ///
+  /// 修復 m1:先前這裡會先把 state 設成 `AsyncValue.loading()`,把舊資料
+  /// 整個丟掉,下拉刷新那一瞬間畫面會變成整頁 spinner(見
+  /// dashboard_page.dart 的 `loading:` 分支是整頁置中轉圈,不是區塊級
+  /// skeleton)。改成不主動切成 loading 狀態——`_load()` await 期間 state
+  /// 維持原本的 AsyncData,畫面照舊顯示舊資料;下拉刷新本身已經有
+  /// RefreshIndicator 自己的轉圈當作進行中提示,不需要再讓整頁跳成 spinner。
+  /// (`AsyncValue.copyWithPrevious` 這個版本的 riverpod 標成 `@internal`,
+  /// 不對外開放,所以不採用那個寫法。)
   Future<void> refresh() async {
-    state = const AsyncValue.loading();
     state = await AsyncValue.guard(_load);
   }
 
   /// 記一筆新體重並重新整理(對照 iOS `AddBodyWeightSheet` 存檔後
   /// Dashboard 收到 `.workoutCompleted`/畫面重新 onAppear 的效果)。
+  ///
+  /// 修復 m3:userId 解析不到時(理論上不會發生,見檔案開頭注解)先前是
+  /// 靜默 return——呼叫端(AddBodyWeightSheet._save)完全不知道寫入沒發生,
+  /// 照樣 pop 彈窗,使用者會誤以為體重存成功了。改成拋例外,交給呼叫端的
+  /// try/catch(修復 M1)顯示錯誤、解除 loading。
   Future<void> recordBodyWeight(double weight) async {
     final userId = await _resolveUserId();
-    if (userId == null) return;
+    if (userId == null) {
+      throw StateError('無法識別目前使用者，請重新登入後再試一次');
+    }
 
     final now = DateTime.now();
     final bodyWeightRepo = ref.read(bodyWeightRepositoryProvider);
@@ -92,7 +116,12 @@ class DashboardController extends AsyncNotifier<DashboardState> {
     final now = DateTime.now();
     final weekStart = _startOfWeek(now);
     final startOfToday = DateTime(now.year, now.month, now.day);
-    final endOfToday = startOfToday.add(const Duration(days: 1));
+    // 修復 m2:改用 DateTime(y, m, d+1) 的日曆算術,不用 `Duration(days: 1)`
+    // 位移——夏令時切換日當地一天不是 24 小時,`.add(Duration(days: 1))`
+    // 可能落在錯的鐘點(甚至不是隔天 00:00:00),讓「今日」區間算錯。
+    // DateTime 建構子的月/日欄位允許超出正常範圍,會自動進位(例如
+    // day: 32 自動變成下個月的 1 號),沒有 DST 位移的副作用。
+    final endOfToday = DateTime(now.year, now.month, now.day + 1);
 
     final latestWeight = await bodyWeightRepo.getLatestWeight();
     final weekWorkoutCount = await workoutRepo.countWorkouts(from: weekStart, to: now);
@@ -133,9 +162,13 @@ class DashboardController extends AsyncNotifier<DashboardState> {
   }
 
   /// ISO 8601:週一為一週開始。回傳當週週一 00:00:00。
+  ///
+  /// 修復 m2:改用 DateTime(y, m, d - offset) 的日曆算術,不用
+  /// `Duration(days: ...)` 位移——理由同 `endOfToday`,跨 DST 邊界時
+  /// `.subtract(Duration(days: n))` 可能算出偏差一小時的週一,週統計會
+  /// 把邊界那天的訓練算錯邊。
   DateTime _startOfWeek(DateTime now) {
-    final startOfToday = DateTime(now.year, now.month, now.day);
-    return startOfToday.subtract(Duration(days: startOfToday.weekday - 1));
+    return DateTime(now.year, now.month, now.day - (now.weekday - 1));
   }
 
   /// 對照 iOS `DashboardViewModel.generateMotivationalMessage`。

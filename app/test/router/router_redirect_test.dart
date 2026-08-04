@@ -1,5 +1,10 @@
 // resolveAuthRedirect 是純函式(見 app/lib/router.dart),不吃 BuildContext /
 // GoRouterState,直接窮舉(登入狀態 × Onboarding 狀態 × 目前路徑)矩陣。
+//
+// shouldRefreshDashboardOnBranchSwitch 同樣是純函式(見 app/lib/router.dart
+// 的 M3 修復注解)——決定「切到哪個分頁 index 時該重新整理首頁」的判斷邏輯,
+// 獨立於 _AppShell 的 ref.invalidate 呼叫本身(那一半的行為由
+// dashboard_page_test.dart 的「切頁回訪重新整理(M3)」驗證)。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workout_record/router.dart';
@@ -95,6 +100,22 @@ void main() {
           ),
           isNull,
           reason: 'location=$location 不應被重導向',
+        );
+      }
+    });
+  });
+
+  group('shouldRefreshDashboardOnBranchSwitch', () {
+    test('切到首頁分頁(index 0)時回傳 true', () {
+      expect(shouldRefreshDashboardOnBranchSwitch(0), isTrue);
+    });
+
+    test('切到其他分頁(訓練/數據/歷史/設定)時回傳 false', () {
+      for (final index in [1, 2, 3, 4]) {
+        expect(
+          shouldRefreshDashboardOnBranchSwitch(index),
+          isFalse,
+          reason: 'index=$index 不應觸發首頁重新整理',
         );
       }
     });
