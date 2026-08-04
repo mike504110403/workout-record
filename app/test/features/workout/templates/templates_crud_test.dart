@@ -175,6 +175,75 @@ void main() {
     );
   });
 
+  testWidgets(
+      'code-M-A:編輯模板時清空描述 -> 落地為 null(獨立 SELECT),'
+      '不是被 copyWith 的 ?? 吃掉、悄悄留著舊描述', (tester) async {
+    final harness = await _setUpHarness();
+    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final now = DateTime.now();
+    await repo.create(
+      WorkoutTemplate(
+        id: 'template-with-description',
+        userId: testUserId,
+        name: '有描述的模板',
+        description: '這段描述應該要能被清空',
+        exercises: [
+          TemplateExercise(
+            id: 'template-with-description-te-0',
+            templateId: 'template-with-description',
+            exerciseId: exercises[0].id,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    await _pumpList(tester, harness);
+    await tester.tap(find.byKey(const Key('templateEditButton_template-with-description')));
+    await tester.pumpAndSettle();
+
+    // 表單應該預填既有描述。
+    expect(find.text('這段描述應該要能被清空'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('templateFormDescriptionField')), '');
+    await tester.tap(find.byKey(const Key('templateFormSaveButton')));
+    await tester.pumpAndSettle();
+
+    // 獨立 SELECT,不是讀 controller state——真的落地成 null,不是畫面看起來
+    // 清空了但 DB 還留著舊值(copyWith 修復前的真實 bug,code-reviewer 實測
+    // 重現)。
+    final landed = await repo.fetchById('template-with-description');
+    expect(landed, isNotNull);
+    expect(landed!.description, isNull);
+  });
+
+  testWidgets('minor:controller 層直接嘗試更新系統模板一樣會被擋(先前只測了刪除側)', (tester) async {
+    final harness = await _setUpHarness();
+    await _pumpList(tester, harness);
+
+    final systemTemplate = harness.container
+        .read(templatesControllerProvider)
+        .value!
+        .firstWhere((t) => t.isSystem);
+
+    await expectLater(
+      harness.container.read(templatesControllerProvider.notifier).updateTemplate(
+            existing: systemTemplate,
+            name: '嘗試竄改系統模板名稱',
+            exercises: const [],
+          ),
+      throwsA(isA<StateError>()),
+    );
+
+    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final unchanged = await repo.fetchById(systemTemplate.id);
+    expect(unchanged, isNotNull);
+    expect(unchanged!.name, systemTemplate.name);
+    expect(unchanged.exercises, isNotEmpty); // 沒有被清成空清單
+  });
+
   testWidgets('刪除個人模板:確認對話框確認後從列表消失,資料庫也真的刪除(獨立 SELECT)', (tester) async {
     final harness = await _setUpHarness();
     final exercises = await ExerciseRepository(harness.db).fetchAll();
@@ -263,5 +332,34 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     // 錯誤有明確顯示(SnackBar)。
     expect(find.textContaining('建立模板失敗'), findsOneWidget);
+  });
+
+  testWidgets(
+      'minor:組數欄位打非數字字元 -> 顯示 inline 錯誤且擋下儲存(不是靜默把值變成 null)',
+      (tester) async {
+    final harness = await _setUpHarness();
+    final exercises = await ExerciseRepository(harness.db).fetchAll();
+
+    await _pumpList(tester, harness);
+    await tester.tap(find.byKey(const Key('templateListAddButton')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('templateFormNameField')), '打錯字的模板');
+    await _pickExercisesInForm(tester, [exercises[0].id]);
+
+    final setsFieldKey = Key('templateFormSetsField_${exercises[0].id}');
+    await tester.enterText(find.byKey(setsFieldKey), 'abc');
+    await tester.pump();
+
+    expect(find.text('請輸入正整數'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('templateFormSaveButton')));
+    await tester.pumpAndSettle();
+
+    // 沒有被存進去:還在表單畫面,且資料庫沒有這筆模板。
+    expect(find.byKey(const Key('templateFormNameField')), findsOneWidget);
+    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final landed = await repo.fetchAll(testUserId);
+    expect(landed.where((t) => t.name == '打錯字的模板'), isEmpty);
   });
 }

@@ -149,7 +149,8 @@ void main() {
       expect(exercises.every((e) => e.isSystem), isTrue);
     });
 
-    test('4 個模板、20 個模板動作', () async {
+    test('4 個模板、20 個模板動作(db-M2,已裁:接受重複——fixture 的個人模板'
+        '與系統模板種子部分同名,不跳過不去重,兩區各自完整顯示共存)', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final importer = importerWithSupportDir(copyFixtureAsOldAppSupportDir());
@@ -158,6 +159,16 @@ void main() {
 
       expect(await _importedTemplates(db), hasLength(4));
       expect(await _importedTemplateExercises(db), hasLength(20));
+
+      // db-M2(Mike/大腦已裁:「升級零遺失」硬規則優先於去重/避免撞名)——
+      // fixture 的 4 筆個人模板有名稱跟系統種子撞名(例如「PPL - Push
+      // (推)」),匯入是使用者真資料,不能因為撞名就跳過或合併掉。用斷言
+      // 把這個決定釘住,不是意外:系統模板種子必須仍然完整、恰好 5 筆,
+      // 不會被匯入流程誤刪/誤合併,兩邊各自獨立共存。
+      final systemTemplatesAfterImport = await (db.select(db.templates)
+            ..where((t) => t.isSystem.equals(true)))
+          .get();
+      expect(systemTemplatesAfterImport, hasLength(5));
     });
 
     test('1 個用戶、1 筆體重、3 筆個人紀錄、3 筆三大項紀錄', () async {

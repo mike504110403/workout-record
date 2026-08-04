@@ -12,6 +12,7 @@
 // (AsyncValue.guard 只在成功時才替換 state),並把錯誤往外拋——呼叫端
 // (表單頁)自己 try/catch 顯示浮錯、解除 loading,見
 // template_form_page.dart。
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/uuid.dart';
@@ -51,7 +52,7 @@ class TemplatesController extends AsyncNotifier<List<WorkoutTemplate>> {
         description: description,
         exercises: [
           for (var i = 0; i < exercises.length; i++)
-            _withTemplateId(exercises[i], generateUuidV4(), i),
+            _withFreshId(exercises[i], generateUuidV4(), i),
         ],
         createdAt: now,
         updatedAt: now,
@@ -77,10 +78,13 @@ class TemplatesController extends AsyncNotifier<List<WorkoutTemplate>> {
     await repo.update(
       existing.copyWith(
         name: name,
-        description: description,
+        // 明確傳 Value(description)(不是裸 nullable 參數)——description 是
+        // null 時代表使用者清空了描述,必須真的清成 null,不能被 copyWith
+        // 誤判成「沒傳、維持原值」,見 workout_template.dart 的文件註解。
+        description: Value(description),
         exercises: [
           for (var i = 0; i < exercises.length; i++)
-            _withTemplateId(exercises[i], generateUuidV4(), i),
+            _withFreshId(exercises[i], generateUuidV4(), i),
         ],
         updatedAt: DateTime.now(),
       ),
@@ -124,7 +128,13 @@ class TemplatesController extends AsyncNotifier<List<WorkoutTemplate>> {
     return user?.id;
   }
 
-  TemplateExercise _withTemplateId(TemplateExercise exercise, String id, int orderIndex) {
+  /// minor 改名(先前叫 `_withTemplateId`,名不副實):這裡真正做的事是
+  /// 指派一個新的 [id] 與 [orderIndex]——`templateId` 欄位原封不動照抄
+  /// [exercise.templateId](表單送進來的通常是空字串佔位值),TemplateRepository
+  /// 的 create()/update() 本來就一律用模板自己的 id 重新指派 templateId、
+  /// 不讀這個欄位(見 template_repository.dart),所以這個欄位在這裡實際上
+  /// 是「照抄、不處理」,名字不該叫 `_withTemplateId`。
+  TemplateExercise _withFreshId(TemplateExercise exercise, String id, int orderIndex) {
     return TemplateExercise(
       id: id,
       templateId: exercise.templateId,

@@ -195,5 +195,101 @@ void main() {
         ),
       ),
     );
+
+    // 斷言 4(minor,db-reviewer 補件):alterTable 的「重新建立關聯 index」
+    // 那一步真的把 v1 就存在的 idx_templates_user_id 帶過來,不是巧合對得上
+    // 而已。
+    final indexRows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_templates_user_id'",
+        )
+        .get();
+    expect(indexRows, hasLength(1));
+
+    // 斷言 5(minor):schemaVersion 真的落地成 2,不是程式碼裡寫 2 但
+    // PRAGMA user_version 沒跟著更新這種半吊子狀態。
+    final userVersionRow = await db.customSelect('PRAGMA user_version').getSingle();
+    expect(userVersionRow.read<int>('user_version'), 2);
+  });
+
+  group('db-M1:升級裝置(from < 2)補種系統模板', () {
+    /// 建立一個「exercises 表已有既有系統動作、templates 是空的」v1
+    /// fixture——模擬升級裝置本來就有系統動作,但因為 v1 的
+    /// `Templates.userId` NOT NULL,系統模板(userId = null)從來沒能插進去
+    /// 這個真實情境(db-reviewer 實跑升級後 isSystem = 1 為 0 筆抓到的
+    /// bug)。[existingExerciseNames] 只需要列出這次驗證用得到的名稱——
+    /// `buildSeedTemplateCompanions` 只在乎 exerciseIdByName 裡有沒有它要
+    /// 的名稱,不必真的塞滿 66 筆。
+    void buildV1FixtureWithExercises(String path, List<String> existingExerciseNames) {
+      final rawDb = sqlite3lib.sqlite3.open(path);
+      try {
+        rawDb.execute(_v1Schema);
+        rawDb.execute('PRAGMA user_version = 1;');
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        for (var i = 0; i < existingExerciseNames.length; i++) {
+          rawDb.execute(
+            'INSERT INTO exercises '
+            '(id, name, category_id, type, is_system, is_active, created_at, updated_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            ['v1-exercise-$i', existingExerciseNames[i], 'cat-x', 'free_weight', 1, 1, now, now],
+          );
+        }
+      } finally {
+        rawDb.dispose();
+      }
+    }
+
+    /// kSeedTemplates(seed_data.dart)5 個模板實際用到的全部動作名稱
+    /// (去重,15 個)——手動抄錄,獨立於 seed_data.dart 本身。
+    const allTemplateExerciseNames = [
+      '槓鈴臥推', '上斜啞鈴臥推', '肩推', '側平舉', '三頭下壓',
+      '硬舉', '引體向上', '槓鈴划船', '坐姿划船', '槓鈴彎舉',
+      '深蹲', '羅馬尼亞硬舉', '腿推機', '腿彎舉', '提踵',
+    ];
+
+    test('裝置既有動作齊全 -> 升級後補種 5 個系統模板 + 25 個 template_exercises', () async {
+      final dbPath = p.join(tempDir.path, 'v1_upgrade_full.sqlite');
+      buildV1FixtureWithExercises(dbPath, allTemplateExerciseNames);
+
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+
+      final systemTemplates =
+          await (db.select(db.templates)..where((t) => t.isSystem.equals(true))).get();
+      expect(systemTemplates, hasLength(5));
+
+      final systemTemplateIds = systemTemplates.map((t) => t.id).toSet();
+      final templateExercises = await db.select(db.templateExercises).get();
+      final systemTemplateExercises =
+          templateExercises.where((te) => systemTemplateIds.contains(te.templateId)).toList();
+      expect(systemTemplateExercises, hasLength(25));
+    });
+
+    test(
+        '裝置既有動作缺一筆(側平舉,只有 PPL - Push 用到)-> 升級仍成功,'
+        '只有那個模板被跳過,不 throw、不讓升級/開機失敗', () async {
+      final dbPath = p.join(tempDir.path, 'v1_upgrade_missing_one.sqlite');
+      final namesMissingLateralRaise =
+          allTemplateExerciseNames.where((name) => name != '側平舉').toList();
+      buildV1FixtureWithExercises(dbPath, namesMissingLateralRaise);
+
+      final db = AppDatabase.forTesting(NativeDatabase(File(dbPath)));
+      addTearDown(db.close);
+
+      final systemTemplates =
+          await (db.select(db.templates)..where((t) => t.isSystem.equals(true))).get();
+      expect(
+        systemTemplates,
+        hasLength(4),
+        reason: '缺「側平舉」的 PPL - Push 應該被整筆跳過,其餘 4 個模板用到的名稱都在,正常種完',
+      );
+      expect(systemTemplates.map((t) => t.name), isNot(contains('PPL - Push (推)')));
+
+      final systemTemplateIds = systemTemplates.map((t) => t.id).toSet();
+      final templateExercises = await db.select(db.templateExercises).get();
+      final systemTemplateExercises =
+          templateExercises.where((te) => systemTemplateIds.contains(te.templateId)).toList();
+      expect(systemTemplateExercises, hasLength(20));
+    });
   });
 }

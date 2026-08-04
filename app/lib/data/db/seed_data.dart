@@ -34,6 +34,7 @@
 import 'dart:math';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'app_database.dart';
 
@@ -305,12 +306,18 @@ const List<SeedTemplate> kSeedTemplates = [
 
 /// 將 [kSeedTemplates] 轉成可插入 `Templates` + `TemplateExercises` 表的
 /// Companion 清單。呼叫端(app_database.dart 的 `_seedSystemTemplatesIfEmpty`)
-/// 需先確保 [kSeedExercises] 已經種好,並傳入「動作名稱 -> 已插入的
-/// exercise id」對照表([exerciseIdByName])。
+/// 需先準備好「動作名稱 -> 已存在的 exercise id」對照表([exerciseIdByName])
+/// ——這個查詢來源在 onCreate 是剛插入的 66 筆種子,在 onUpgrade(既有裝置
+/// 升級)是裝置本來就有的 exercises 表內容。
 ///
-/// 找不到對應名稱時丟 [StateError] 而不是靜默略過——系統模板的動作數量是
-/// 被測試鎖住的固定值(對照 iOS mock),名稱對不上代表種子資料本身有誤,
-/// 應該在開發期就讓它炸掉,而不是悄悄種出動作數不對的模板。
+/// **找不到對應名稱時跳過該模板(記一行 log),不拋例外**——這個函式除了
+/// onCreate 會用到,升級路徑(schemaVersion 1 -> 2)也會呼叫同一份邏輯補種
+/// 系統模板;onCreate 的 exercises 是這裡剛種完的,理論上不會對不上,但
+/// onUpgrade 讀的是「裝置既有」的 exercises,任何一筆對不上名稱都不該讓
+/// 整個 App 開不起來(這正是 db-reviewer 抓到的真實 bug:throw 會讓
+/// migration 直接失敗、App 卡在開機畫面)。開發期要抓「種子資料本身寫錯
+/// 名稱」這類問題,靠 `test/data/template_seed_test.dart` 的關聯完整性/
+/// 筆數斷言(獨立於這裡的邏輯),不是靠 production 執行期拋例外。
 ({List<TemplatesCompanion> templates, List<TemplateExercisesCompanion> templateExercises})
     buildSeedTemplateCompanions(Map<String, String> exerciseIdByName) {
   final now = DateTime.now();
@@ -318,6 +325,18 @@ const List<SeedTemplate> kSeedTemplates = [
   final templateExerciseCompanions = <TemplateExercisesCompanion>[];
 
   for (final seedTemplate in kSeedTemplates) {
+    final missingNames = [
+      for (final seedExercise in seedTemplate.exercises)
+        if (!exerciseIdByName.containsKey(seedExercise.exerciseName)) seedExercise.exerciseName,
+    ];
+    if (missingNames.isNotEmpty) {
+      debugPrint(
+        '[seed_data] 系統模板種子「${seedTemplate.name}」整筆跳過:動作 '
+        '$missingNames 在目前裝置的 exercises 表中找不到對應名稱。',
+      );
+      continue;
+    }
+
     final templateId = generateUuidV4();
     templateCompanions.add(
       TemplatesCompanion.insert(
@@ -333,13 +352,7 @@ const List<SeedTemplate> kSeedTemplates = [
 
     for (var i = 0; i < seedTemplate.exercises.length; i++) {
       final seedExercise = seedTemplate.exercises[i];
-      final exerciseId = exerciseIdByName[seedExercise.exerciseName];
-      if (exerciseId == null) {
-        throw StateError(
-          '系統模板種子「${seedTemplate.name}」的動作「${seedExercise.exerciseName}」'
-          '找不到對應的種子動作(kSeedExercises 沒有這個名稱)。',
-        );
-      }
+      final exerciseId = exerciseIdByName[seedExercise.exerciseName]!;
       templateExerciseCompanions.add(
         TemplateExercisesCompanion.insert(
           id: generateUuidV4(),

@@ -69,6 +69,16 @@ class AppDatabase extends _$AppDatabase {
           if (from < 2) {
             // ignore: experimental_member_use
             await m.alterTable(TableMigration(templates));
+            // db-reviewer 抓到的真實 bug:升級裝置在 alterTable 之前一直
+            // 卡在 v1 的 userId NOT NULL 限制,系統模板(userId = null)根本
+            // 插不進去,所以升級路徑永遠沒有系統模板可用(實跑升級後
+            // isSystem = 1 為 0 筆)。約束放鬆之後,這裡照 onCreate 的路徑
+            // 補種——沿用同一個 `_seedSystemTemplatesIfEmpty()`:冪等(已有
+            // isSystem 模板就跳過)、容錯(某個模板的動作名稱在裝置既有
+            // exercises 表中找不到,只跳過那個模板 + log,不會讓升級整個
+            // 失敗,見 seed_data.dart `buildSeedTemplateCompanions` 的文件
+            // 註解)。
+            await _seedSystemTemplatesIfEmpty();
           }
         },
         beforeOpen: (details) async {

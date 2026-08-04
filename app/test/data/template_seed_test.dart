@@ -49,6 +49,11 @@ void main() {
     final systemTemplates =
         await (db.select(db.templates)..where((t) => t.isSystem.equals(true))).get();
 
+    // minor 補件:先鎖住筆數——沒有這行,如果種子完全沒跑(systemTemplates
+    // 是空清單),下面的 for 迴圈零次迭代照樣「通過」,是這批測試裡唯一一條
+    // M2(略過整批種子)這種變異測不出來的,補上讓它變回會紅。
+    expect(systemTemplates, hasLength(5));
+
     for (final template in systemTemplates) {
       final expectedNames = kExpectedSystemTemplateExercises[template.name];
       expect(expectedNames, isNotNull, reason: '未預期的系統模板名稱:${template.name}');

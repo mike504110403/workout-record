@@ -1,6 +1,7 @@
 // TemplateRepository 測試:含 template exercises 的建立、update 整批重建、
 // orderIndex 保序。
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workout_record/data/db/app_database.dart' hide TemplateExercise;
 import 'package:workout_record/data/models/workout_template.dart';
@@ -164,6 +165,33 @@ void main() {
     test('模板不存在時拋出 StateError', () async {
       final template = buildTemplate(id: 'does-not-exist', exercises: []);
       expect(() => repository.update(template), throwsA(isA<StateError>()));
+    });
+  });
+
+  group('fetchAll', () {
+    test(
+        'minor 修復:isSystem = true 的列即使 userId 剛好等於查詢的使用者,'
+        '也不會出現在 fetchAll(userId) 裡(防止跟 fetchSystemTemplates() 重複列出)', () async {
+      final now = DateTime.now();
+      // 邊界情境:一筆 isSystem = true 但 userId 剛好等於 testUserId 的模板
+      // ——理論上系統模板 userId 應該是 null,但匯入來源資料沒有結構性
+      // 保證,直接插一筆這樣的列來驗證 fetchAll 真的把它排除在外。
+      await db.into(db.templates).insert(
+            TemplatesCompanion.insert(
+              id: 'edge-case-system-with-userid',
+              userId: const Value(testUserId),
+              name: '邊界情境系統模板',
+              isSystem: const Value(true),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await repository.create(buildTemplate(id: 'genuinely-personal', exercises: const []));
+
+      final personalTemplates = await repository.fetchAll(testUserId);
+
+      expect(personalTemplates.map((t) => t.id), isNot(contains('edge-case-system-with-userid')));
+      expect(personalTemplates.map((t) => t.id), contains('genuinely-personal'));
     });
   });
 }

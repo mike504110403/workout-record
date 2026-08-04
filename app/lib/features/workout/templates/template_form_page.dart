@@ -47,6 +47,14 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
   late List<TemplateFormExerciseDraft> _exercises;
   bool _saving = false;
 
+  // minor 修復:組數/次數欄位先前打非數字字元會被 int.tryParse 靜默吃成
+  // null,使用者毫無感覺。改成:非數字時顯示 inline 錯誤、且不覆寫既有的
+  // suggestedSets/suggestedReps(避免亂打字元把它清掉),有錯誤時擋下儲存。
+  // key 用 exercise.id——同一個模板裡動作不重複(_pickExercises 已去重),
+  // 可以安全當穩定鍵。
+  final Map<String, String> _setsErrors = {};
+  final Map<String, String> _repsErrors = {};
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -86,7 +94,37 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
   }
 
   void _removeExercise(int index) {
-    setState(() => _exercises.removeAt(index));
+    final exerciseId = _exercises[index].exercise.id;
+    setState(() {
+      _exercises.removeAt(index);
+      _setsErrors.remove(exerciseId);
+      _repsErrors.remove(exerciseId);
+    });
+  }
+
+  /// 組數/次數輸入框共用的 onChanged 邏輯:空字串視為「使用者主動清空」,
+  /// 合法非負整數才寫回 [assign];非數字或負數只記 inline 錯誤,不動
+  /// 既有的值(不再靜默把亂打的字元變成 null)。
+  void _handleNumericInput({
+    required String exerciseId,
+    required String value,
+    required Map<String, String> errors,
+    required void Function(int?) assign,
+  }) {
+    setState(() {
+      if (value.isEmpty) {
+        assign(null);
+        errors.remove(exerciseId);
+        return;
+      }
+      final parsed = int.tryParse(value);
+      if (parsed == null || parsed < 0) {
+        errors[exerciseId] = '請輸入正整數';
+      } else {
+        assign(parsed);
+        errors.remove(exerciseId);
+      }
+    });
   }
 
   Future<void> _save() async {
@@ -97,6 +135,11 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
     }
     if (_exercises.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請至少選擇一個動作')));
+      return;
+    }
+    if (_setsErrors.isNotEmpty || _repsErrors.isNotEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請修正組數/次數欄位裡的錯誤輸入')));
       return;
     }
 
@@ -202,8 +245,16 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
                       key: Key('templateFormSetsField_${_exercises[i].exercise.id}'),
                       initialValue: _exercises[i].suggestedSets?.toString(),
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '組'),
-                      onChanged: (value) => _exercises[i].suggestedSets = int.tryParse(value),
+                      decoration: InputDecoration(
+                        labelText: '組',
+                        errorText: _setsErrors[_exercises[i].exercise.id],
+                      ),
+                      onChanged: (value) => _handleNumericInput(
+                        exerciseId: _exercises[i].exercise.id,
+                        value: value,
+                        errors: _setsErrors,
+                        assign: (parsed) => _exercises[i].suggestedSets = parsed,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -212,8 +263,16 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
                       key: Key('templateFormRepsField_${_exercises[i].exercise.id}'),
                       initialValue: _exercises[i].suggestedReps?.toString(),
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '次'),
-                      onChanged: (value) => _exercises[i].suggestedReps = int.tryParse(value),
+                      decoration: InputDecoration(
+                        labelText: '次',
+                        errorText: _repsErrors[_exercises[i].exercise.id],
+                      ),
+                      onChanged: (value) => _handleNumericInput(
+                        exerciseId: _exercises[i].exercise.id,
+                        value: value,
+                        errors: _repsErrors,
+                        assign: (parsed) => _exercises[i].suggestedReps = parsed,
+                      ),
                     ),
                   ),
                   IconButton(

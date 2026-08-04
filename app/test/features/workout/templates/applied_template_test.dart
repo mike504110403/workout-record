@@ -90,7 +90,9 @@ void main() {
     expect(applied.exercises[2].sets.every((s) => s.reps == 5), isTrue);
   });
 
-  test('suggestedSets 為 null 時產生 0 組(不是預設 1 組——見 applied_template.dart 開頭的 null 語意說明)', () {
+  test(
+      'code-M2(已裁:對齊 iOS)suggestedSets 為 null 時預設 3 組——對齊 '
+      'EnhancedWorkoutFlowView.swift:584 的 `?? 3`,不是先前版本的 `?? 0`', () {
     final exercise = _buildExercise('ex-a', '深蹲');
     final template = _buildTemplate(
       id: 'template-2',
@@ -101,10 +103,12 @@ void main() {
 
     final applied = applyTemplate(template);
 
-    expect(applied.exercises.single.sets, isEmpty);
+    expect(applied.exercises.single.sets, hasLength(3));
   });
 
-  test('suggestedReps 為 null 時,若 suggestedSets 有值,組的 reps 全部是 0', () {
+  test(
+      'code-M2(已裁:對齊 iOS)suggestedReps 為 null 時,組的 reps 全部預設 10——'
+      '對齊 EnhancedWorkoutFlowView.swift:589 的 `?? 10`', () {
     final exercise = _buildExercise('ex-a', '深蹲');
     final template = _buildTemplate(
       id: 'template-3',
@@ -121,7 +125,7 @@ void main() {
     final applied = applyTemplate(template);
 
     expect(applied.exercises.single.sets, hasLength(2));
-    expect(applied.exercises.single.sets.every((s) => s.reps == 0), isTrue);
+    expect(applied.exercises.single.sets.every((s) => s.reps == 10), isTrue);
   });
 
   test('TemplateExercise.exercise 未掛載(null)時,exerciseName 退回空字串而不是拋錯', () {

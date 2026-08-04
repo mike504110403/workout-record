@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/workout_template.dart';
+import 'section_header.dart';
 import 'template_form_page.dart';
 import 'templates_controller.dart';
 
@@ -71,16 +72,16 @@ class TemplatesListPage extends ConsumerWidget {
           if (templates.isEmpty) {
             return const Center(child: Text('尚無可用的模板'));
           }
-          final systemTemplates = templates.where((t) => t.isSystem).toList();
-          final personalTemplates = templates.where((t) => !t.isSystem).toList();
+          final systemTemplates = templates.systemTemplates;
+          final personalTemplates = templates.personalTemplates;
           return ListView(
             children: [
               if (systemTemplates.isNotEmpty) ...[
-                const _SectionHeader('系統模板'),
+                const TemplateSectionHeader('系統模板'),
                 for (final template in systemTemplates) _TemplateTile(template: template),
               ],
               if (personalTemplates.isNotEmpty) ...[
-                const _SectionHeader('我的模板'),
+                const TemplateSectionHeader('我的模板'),
                 for (final template in personalTemplates)
                   _TemplateTile(
                     template: template,
@@ -98,20 +99,6 @@ class TemplatesListPage extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(child: Text('載入模板失敗:$error')),
       ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title);
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
     );
   }
 }
