@@ -6,7 +6,7 @@
 - **波 2 ①帳號隔離:完成,merged**(d81d5f8):owner 認領 + 換帳號警告清資料,依 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`(含「實作補充」節:重種動作庫、血緣消耗時機=換人清除時、清除退休匯入旗標、已知保留範圍)。review:code r1 FAIL→r2 PASS、security r1 FAIL→r2 PASS。
 - **波 2 ②Dashboard:完成,merged**(dff922f):五區塊對等 iOS(今日概覽/快速操作/目標進度/本週統計/最近訓練),`features/dashboard/` + router 分頁切回 invalidate。review 三輪(r3 PASS,M3 真測試經大腦親自變異驗證)。與 iOS 刻意差異:ISO 週一起算、無目標顯示空狀態、最近訓練日期格式 `M/d HH:mm`、不複製 iOS 鼓勵訊息 0-1% 邊界 bug。
 - **收波後 develop 全驗證(大腦親跑,2026-08-04)**:analyze 0 issues、test 200/200、web build 成功。
-- **波 2 ③import minors:完成,merged**(1a8afd8 修復 + merge + 3fa0e9b 補測試):六項複審遺留 minor(真 COUNT 核帳、alreadyCompleted 斷言、exercises 核帳等式、alreadyLanded 舊庫 COUNT、blocked UNIQUE 評估不適用、_ImportTally 重構)+ 修復 3 major(排版 scope creep 還原、測試假變異宣稱誠實化、`_oldDbTableCounts` 缺表 try/catch 降級)。工人被收斂中斷後由大腦收尾:補插核帳等式兩測試 + 排版還原時遺失的 alreadyCompleted tile 測試。**注意:③的修復 commit 未經 reviewer 複審(Mike 指示快速收波),下次開工可考慮補一輪聚焦複審**。
+- **波 2 ③import minors:完成,merged**(1a8afd8 修復 + merge + 3fa0e9b 補測試):六項複審遺留 minor(真 COUNT 核帳、alreadyCompleted 斷言、exercises 核帳等式、alreadyLanded 舊庫 COUNT、blocked UNIQUE 評估不適用、_ImportTally 重構)+ 修復 3 major(排版 scope creep 還原、測試假變異宣稱誠實化、`_oldDbTableCounts` 缺表 try/catch 降級)。工人被收斂中斷後由大腦收尾:補插核帳等式兩測試 + 排版還原時遺失的 alreadyCompleted tile 測試。**補審已完成(2026-08-04):code + db 聚焦複審雙 PASS**(7 個變異全紅、回貼零錯位、merge 交疊無錯位),兩條一行級 minor(手動重試命中時六表相等不成立的文件註記、缺表測試改 key 集合比對)大腦已修。
 - **波 2 收波清理完成**:全部 worktree 移除、worktree-agent-* 分支刪除;`feature/wave2-*` 三分支已 merge 保留在地端(推 origin 後可刪)。
 
 ## 波 2 遺留(判斷題,不擋,收下波或 Mike 裁)
@@ -17,6 +17,8 @@
 - 帳號隔離 code r2 判斷題:退休旗標邏輯搬 migration 側 `retireImports()`、onboarding 清除三步抽私函式、11 表守門改逐表塞資料驗清空。
 - StatCard 抽共用(等波 4 Stats 第二個使用者出現)、GoalProgress 型別化、「首頁該刷新」知識搬 Dashboard 側(波 3 加詳情頁時回看)。
 - 全 repo dart format 專波(波 0 遺留,49/69 檔會動)。
+- `import_retry_tile._messageFor` 的 alreadyLanded 分支是唯一無測試的 skipReason 分支(死碼建構子已刪,補測要手組 ImportResult)。
+- **事實問題待 Mike 答**:舊 App 的 CoreData model 有沒有版本演進?若有,更早版本舊庫缺表(如 power_lift)在**正常匯入路徑**(`_import*` 裸查)仍會三次失敗判死(既有問題非波 2 引入);確定單一凍結版本則關掉此項。
 
 ## Mike 待辦
 
@@ -46,4 +48,4 @@
 ## 下一步
 
 1. 開波 3(記訓練核心流)前:Mike 驗看波 2、裁遺留判斷題、決定 develop 要不要推(遠端已在 50e6787=收斂點,非大腦所推;未推的只剩③相關 5 個 commit:1a8afd8/97f9961/3fa0e9b/50af296 等)。
-2. 可選:③修復 commit(1a8afd8 + 3fa0e9b)補一輪聚焦複審。
+2. ~~③修復補審~~(已完成,雙 PASS)。

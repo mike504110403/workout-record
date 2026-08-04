@@ -1010,7 +1010,15 @@ void main() {
       expect(second.oldDbTableCounts.containsKey('workout_sets'), isFalse);
       expect(second.oldDbTableCounts['workouts'], 1);
       expect(second.oldDbTableCounts['users'], 1);
-      expect(second.oldDbTableCounts.length, 10);
+      // 用 key 集合比對而非寫死長度:失敗時直接看得到差在哪個 key。
+      expect(
+        second.oldDbTableCounts.keys.toSet(),
+        {
+          'users', 'body_weights', 'workouts', 'workout_exercises',
+          'exercises', 'templates', 'template_exercises', 'personal_records',
+          'user_goals', 'power_lift_records',
+        },
+      );
     });
   });
 

@@ -228,7 +228,10 @@ class ImportResult {
   /// - **應精確相等**:workouts / templates / body_weights /
   ///   personal_records / user_goals / power_lift_records——這幾張表原樣
   ///   保留舊庫 id、沒有去重也沒有孤兒略過,alreadyLanded 命中代表資料已經
-  ///   一比一落地,兩邊數字該相等。
+  ///   一比一落地,兩邊數字該相等。**僅限崩潰後下次啟動立刻命中的情境**:
+  ///   若是 permanently failed 期間使用者照常用 App、之後經手動重試才命中
+  ///   alreadyLanded,Drift 側可能已含使用者自行新增的資料而大於舊庫側,
+  ///   不代表出問題。
   /// - **預期會有落差**:`exercises`(Drift 側還含 seedIfEmpty() 的既有種子
   ///   + 惰性補建的佔位動作,舊庫側只有原始筆數,Drift 側通常較大)、
   ///   `template_exercises` / `workout_exercises` / `workout_sets`(結構層
