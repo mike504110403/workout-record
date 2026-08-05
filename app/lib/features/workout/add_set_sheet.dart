@@ -30,6 +30,13 @@ class AddSetResult {
   /// UI 時直接接上真行為(關閉時存組後不自動啟動休息計時器),不複製
   /// iOS 這個「看起來能點但沒用」的缺陷。暖身組永遠不啟動計時器,這顆開關
   /// 只在非暖身組時顯示、生效。
+  ///
+  /// **只有新增組路徑會消費這個值**(`workout_in_progress_view.dart`
+  /// `_openAddSetSheet`:`if (!result.isWarmup && result.autoStartRestTimer)`
+  /// 才啟動計時器)。編輯既有組路徑(`_editSet`)呼叫 [showAddSetSheet] 時
+  /// 傳 `showAutoStartRestTimer: false`,表單根本不渲染這顆開關——編輯一組
+  /// 已經記錄過的資料不該觸發新的休息倒數,不能讓使用者在編輯 sheet 看到
+  /// 一顆點了沒用的開關(code review r2 major:重蹈 iOS 那個死開關的覆轍)。
   final bool autoStartRestTimer;
 }
 
@@ -40,6 +47,11 @@ class AddSetResult {
 /// `let lastSet = exercise.sets.last`)。編輯既有組數時改用 initialWeight/
 /// initialReps/initialRpe/initialIsWarmup/initialRestSeconds 帶入該組本身
 /// 的資料。
+///
+/// [showAutoStartRestTimer] 控制要不要渲染「自動開始休息計時」開關(見
+/// [AddSetResult.autoStartRestTimer] 文件)——新增組路徑(預設 `true`)才有
+/// 意義,編輯既有組路徑(`workout_in_progress_view.dart` `_editSet`)傳
+/// `false` 整顆隱藏,不留一個點了沒用的開關。
 Future<AddSetResult?> showAddSetSheet(
   BuildContext context, {
   required String exerciseName,
@@ -51,6 +63,7 @@ Future<AddSetResult?> showAddSetSheet(
   double? initialRpe,
   bool initialIsWarmup = false,
   int initialRestSeconds = kDefaultRestSeconds,
+  bool showAutoStartRestTimer = true,
 }) {
   return showModalBottomSheet<AddSetResult>(
     context: context,
@@ -66,6 +79,7 @@ Future<AddSetResult?> showAddSetSheet(
       initialRpe: initialRpe,
       initialIsWarmup: initialIsWarmup,
       initialRestSeconds: initialRestSeconds,
+      showAutoStartRestTimer: showAutoStartRestTimer,
     ),
   );
 }
@@ -81,6 +95,7 @@ class _AddSetForm extends StatefulWidget {
     this.initialRpe,
     this.initialIsWarmup = false,
     this.initialRestSeconds = kDefaultRestSeconds,
+    this.showAutoStartRestTimer = true,
   });
 
   final String exerciseName;
@@ -92,6 +107,7 @@ class _AddSetForm extends StatefulWidget {
   final double? initialRpe;
   final bool initialIsWarmup;
   final int initialRestSeconds;
+  final bool showAutoStartRestTimer;
 
   @override
   State<_AddSetForm> createState() => _AddSetFormState();
@@ -226,7 +242,7 @@ class _AddSetFormState extends State<_AddSetForm> {
                 ),
               ],
             ),
-          if (!_isWarmup)
+          if (!_isWarmup && widget.showAutoStartRestTimer)
             SwitchListTile(
               key: const Key('addSetAutoStartRestTimerSwitch'),
               contentPadding: EdgeInsets.zero,

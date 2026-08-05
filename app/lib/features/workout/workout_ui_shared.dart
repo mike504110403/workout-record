@@ -1,6 +1,8 @@
-// 訓練核心流 UI 共用的小工具,避免 add_set_sheet.dart/
-// workout_in_progress_view.dart/workout_summary_sheet.dart 各自抄一份、
-// 改一處漏兩處(code review r1 minor)。
+// 訓練核心流共用的小工具,避免 add_set_sheet.dart/workout_in_progress_view.dart/
+// workout_summary_sheet.dart 各自抄一份、改一處漏兩處(code review r1
+// minor)。**檔名裡的「ui」是歷史命名,不是分層訊號**——`kDefaultRestSeconds`
+// 也被 `workout_controller.dart`(非 UI 層)消費,不要以為這裡只給 widget
+// 檔案 import(code review r2 minor:避免誤導未來的分層判斷)。
 
 /// 整數值不顯示小數點(例如 60 顯示成 `60` 不是 `60.0`),非整數保留原始
 /// 精度。用於重量/RPE 顯示。

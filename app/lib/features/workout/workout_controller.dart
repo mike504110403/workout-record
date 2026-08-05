@@ -141,6 +141,16 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   ///
   /// 接手前驗證 [workoutId] 確實還是「進行中」(`endedAt == null`)且屬於
   /// 目前登入的使用者([workout.userId] 相符)——`checkForRecoverableDraft`
+  ///
+  /// **與 [discardRecoverableDraft] 的守衛不對稱是刻意的**:兩者的
+  /// [workoutId] 都來自同一次 `checkForRecoverableDraft` 呼叫(已經用目前
+  /// userId 過濾過),理論上不需要再驗一次;這裡仍多驗證 userId,是因為
+  /// 「接手」的後果是把資料寫進 [state] 讓使用者以為自己在編輯自己的
+  /// 訓練——如果 async 空窗期間(對話框等使用者確認的那段時間)真的換了
+  /// 帳號,接手到別人的草稿是嚴重錯誤,值得多一道防線;[discardRecoverableDraft]
+  /// 呼叫的 [WorkoutRepository.discardDraft] 本身已有 `endedAt IS NULL`
+  /// 結構守衛,刪錯的代價(頂多是一次無效的 no-op)遠低於接手錯資料,不需要
+  /// 對稱地補 userId 檢查。
   /// 與這裡的呼叫之間有一段 UI 對話框等待使用者確認的空窗期,理論上不會
   /// 有東西在這段期間把草稿結清或換帳號,但驗證失敗時安全地 no-op(不接手
   /// 一筆已經不是「這個使用者的進行中草稿」的資料),好過信任呼叫端傳進來
@@ -155,7 +165,11 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         state = AsyncData(WorkoutFlowState(draft: workout));
       });
 
-  /// 使用者選擇「放棄」上次未完成的草稿:直接刪除,不接手進 [state]。
+  /// 使用者選擇「放棄」上次未完成的草稿:直接刪除,不接手進 [state]。不像
+  /// [resumeDraft] 那樣額外驗證 userId——見 [resumeDraft] 文件「守衛不對稱
+  /// 是刻意的」說明:刪除的代價(`WorkoutRepository.discardDraft` 已有
+  /// `endedAt IS NULL` 結構守衛兜底,誤刪最多是一次 no-op)遠低於接手錯
+  /// 資料,不值得為了對稱而多一次查詢。
   Future<void> discardRecoverableDraft(String workoutId) => _synchronized(() async {
         await ref.read(workoutRepositoryProvider).discardDraft(workoutId);
       });

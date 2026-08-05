@@ -980,7 +980,17 @@ class CoreDataImporter {
                 tally,
               ),
               startedAt: _dateFromCoreData(row['ZSTARTEDAT']),
-              endedAt: Value(_dateFromCoreDataOrNull(row['ZENDEDAT'])),
+              // ZENDEDAT 為 NULL 在舊 CoreData 資料裡代表「這筆訓練從沒被
+              // iOS 端標記完成」(app 中途被殺、或早期版本的資料異常)。波
+              // 3 訓練核心流把 `endedAt IS NULL` 當作「進行中草稿」的權威
+              // 語意(`WorkoutRepository.fetchDraft`)——若原封不動搬過來,
+              // 使用者下次按「開始訓練」時,`startFreeWorkout`/
+              // `startFromTemplate` 的孤兒草稿防線(M2)會把這筆多年前的
+              // 幽靈草稿當成「還沒結束的訓練」靜默接手,而不是真的開始一筆
+              // 新訓練(code review r2 db minor)。用 ZUPDATEDAT(該筆在舊
+              // app 最後一次被寫入的時間)補上 endedAt,讓它落地就是「已
+              // 完成」,不會變成永久幽靈草稿。
+              endedAt: Value(_dateFromCoreDataOrNull(row['ZENDEDAT']) ?? _dateFromCoreData(row['ZUPDATEDAT'])),
               duration: Value(row['ZDURATION'] as int?),
               totalVolume: Value(_doubleOrZero(row['ZTOTALVOLUME'])),
               totalSets: Value((row['ZTOTALSETS'] as int?) ?? 0),

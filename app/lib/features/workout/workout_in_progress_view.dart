@@ -249,6 +249,10 @@ class _ExerciseCard extends ConsumerWidget {
       initialRpe: set.rpe,
       initialIsWarmup: set.isWarmup,
       initialRestSeconds: set.restSeconds ?? kDefaultRestSeconds,
+      // 編輯既有組不該觸發新的休息倒數,整顆開關隱藏不渲染(對照
+      // add_set_sheet.dart `AddSetResult.autoStartRestTimer` 文件——不留一顆
+      // 點了沒用的開關,code review r2 major 修正)。
+      showAutoStartRestTimer: false,
     );
     if (result == null || !context.mounted) return;
 

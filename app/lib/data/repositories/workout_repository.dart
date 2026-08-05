@@ -54,11 +54,15 @@ class WorkoutRepository {
   /// 0..N-1(對照 [deleteSet] 的 renumber 手法——不留編號空洞,避免
   /// controller `addExercise` 用 `draft.exercises.length` 算下一個
   /// orderIndex 時撞號)。單一 transaction,刪除與重編號要嘛都成功要嘛都
-  /// 不生效;找不到該動作(rowsAffected 0)拋 StateError,與同批方法一致。
+  /// 不生效。DELETE 的 where 子句多帶 `t.workoutId.equals(workoutId)` 這道
+  /// 結構守衛(code review r2 db minor):[workoutExerciseId] 若剛好存在、但
+  /// 屬於別筆訓練,不會被這裡誤刪——連帶讓「動作不存在,或不屬於這筆
+  /// 訓練」統一落在 rowsAffected 0 → 拋 StateError 這條路徑,與同批方法
+  /// 一致。
   Future<void> removeExercise(String workoutExerciseId, {required String workoutId}) async {
     await _db.transaction(() async {
       final rowsAffected = await (_db.delete(_db.workoutExercises)
-            ..where((t) => t.id.equals(workoutExerciseId)))
+            ..where((t) => t.id.equals(workoutExerciseId) & t.workoutId.equals(workoutId)))
           .go();
       if (rowsAffected == 0) {
         throw StateError('WorkoutExercise not found: $workoutExerciseId');
