@@ -11,6 +11,7 @@ import 'features/onboarding/onboarding_page.dart';
 import 'features/onboarding/onboarding_status.dart';
 import 'features/settings/settings_page.dart';
 import 'features/stats/stats_page.dart';
+import 'features/stats/workout_stats/workout_stats_controller.dart';
 import 'features/workout/workout_page.dart';
 
 /// 5-tab 導航殼的路由。分頁對應現行 iOS 版 `MainTabView`:
@@ -56,6 +57,18 @@ const _dashboardBranchIndex = 0;
 /// 這條線的行為測在 test/features/dashboard/dashboard_shell_revisit_test.dart
 /// ——純函式測試只守「index 對應」,守不住接線本身有沒有真的呼叫)。
 bool shouldRefreshDashboardOnBranchSwitch(int targetIndex) => targetIndex == _dashboardBranchIndex;
+
+/// 「數據」在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
+/// 一致(首頁 0 / 訓練 1 / 數據 2 / 歷史 3 / 設定 4)。
+const _statsBranchIndex = 2;
+
+/// 波 4 補上的第二個「回訪同一分頁需要 invalidate」案例,同一個理由:
+/// `StatefulShellRoute.indexedStack` 不 dispose 頁面,
+/// `WorkoutStatsController.build()` 只在 provider 第一次建立時跑一次,使用者
+/// 切去別的分頁記完一筆訓練再切回數據分頁,訓練統計子頁的容量趨勢/本週
+/// 統計/最近訓練不會自動反映新資料。純函式,理由與測試慣例同
+/// [shouldRefreshDashboardOnBranchSwitch]。
+bool shouldRefreshStatsOnBranchSwitch(int targetIndex) => targetIndex == _statsBranchIndex;
 
 /// session / onboarding 狀態改變時通知 GoRouter 重新評估 redirect(例如
 /// 登入、登出、完成 Onboarding)。
@@ -189,6 +202,9 @@ class _AppShell extends ConsumerWidget {
           );
           if (shouldRefreshDashboardOnBranchSwitch(index)) {
             ref.invalidate(dashboardControllerProvider);
+          }
+          if (shouldRefreshStatsOnBranchSwitch(index)) {
+            ref.invalidate(workoutStatsControllerProvider);
           }
         },
         destinations: _destinations,

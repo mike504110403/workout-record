@@ -121,4 +121,25 @@ void main() {
       }
     });
   });
+
+  // 波 4 補上的第二個「回訪同一分頁需要 invalidate」案例,純函式那半——
+  // 實際「切分頁真的觸發 invalidate」這條線的行為測在
+  // test/features/stats/stats_shell_revisit_test.dart(理由同上面
+  // shouldRefreshDashboardOnBranchSwitch 的檔頭註解:純函式測試守不住接線
+  // 本身有沒有真的呼叫)。
+  group('shouldRefreshStatsOnBranchSwitch', () {
+    test('切到數據分頁(index 2)時回傳 true', () {
+      expect(shouldRefreshStatsOnBranchSwitch(2), isTrue);
+    });
+
+    test('切到其他分頁(首頁/訓練/歷史/設定)時回傳 false', () {
+      for (final index in [0, 1, 3, 4]) {
+        expect(
+          shouldRefreshStatsOnBranchSwitch(index),
+          isFalse,
+          reason: 'index=$index 不應觸發數據分頁重新整理',
+        );
+      }
+    });
+  });
 }

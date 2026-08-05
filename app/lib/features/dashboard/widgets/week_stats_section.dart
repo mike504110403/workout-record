@@ -1,7 +1,12 @@
 // 本週統計區塊(兩張 StatCard)。對應 iOS 版 DashboardView 的
 // `weekStatsSection` + `Views/Components/StatCardView.swift`。
+//
+// StatCard 本體已抽到 `core/widgets/stat_card.dart` 共用(波 4 stats 訓練
+// 統計子頁也需要同一張卡片,波 2 遺留的抽共用計畫在波 4 兌現)——這裡只保留
+// 「本週統計」這個區塊本身(標題 + 兩張卡片排版),卡片外觀不變。
 import 'package:flutter/material.dart';
 
+import '../../../core/widgets/stat_card.dart';
 import '../dashboard_format.dart';
 
 class WeekStatsSection extends StatelessWidget {
@@ -24,7 +29,7 @@ class WeekStatsSection extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _StatCard(
+              child: StatCard(
                 key: const Key('weekWorkoutCountCard'),
                 icon: Icons.fitness_center,
                 color: Colors.blue,
@@ -34,7 +39,7 @@ class WeekStatsSection extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _StatCard(
+              child: StatCard(
                 key: const Key('weekTotalVolumeCard'),
                 icon: Icons.bar_chart,
                 color: Colors.green,
@@ -45,51 +50,6 @@ class WeekStatsSection extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    super.key,
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.value,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
