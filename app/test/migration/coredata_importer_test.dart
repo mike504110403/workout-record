@@ -378,6 +378,32 @@ void main() {
       expect(sets[1].rpe, 8.5);
       expect(sets[1].restSeconds, 90);
     });
+
+    // code review r2 db minor:`_buildSyntheticOldDb` 的 INSERT INTO
+    // ZWORKOUTENTITY 本來就沒帶 ZENDEDAT 欄位(舊庫預設 NULL,代表這筆訓練
+    // 在 iOS 端從沒被標記完成)——若原樣搬進 Drift,`endedAt IS NULL` 會被
+    // 波 3 訓練核心流的孤兒草稿防線(`WorkoutRepository.fetchDraft`)當成
+    // 「進行中草稿」,使用者下次按開始訓練時會被靜默接手成這筆多年前的
+    // 幽靈草稿。驗證匯入時已用 ZUPDATEDAT 補上 endedAt。
+    test('ZENDEDAT 為 NULL 的舊訓練 → 匯入後 endedAt 用 ZUPDATEDAT 補上,不是永久幽靈草稿',
+        () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'synthetic_endedat_support'))
+        ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      final workout = (await db.select(db.workouts).get()).single;
+      // ZUPDATEDAT 在 _buildSyntheticOldDb 塞的是 0.0(CoreData 參考時間
+      // 2001-01-01),不是隨便斷言 notNull——手算對照 `_dateFromCoreData`
+      // 的轉換公式(2001-01-01 起算 + 978307200 秒 offset = unix epoch)。
+      expect(workout.endedAt, isNotNull);
+      expect(workout.endedAt, DateTime.fromMillisecondsSinceEpoch(978307200 * 1000));
+    });
   });
 
   group('CoreDataImporter - 孤兒防護(結構層 FK)', () {

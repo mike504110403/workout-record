@@ -74,6 +74,10 @@ void main() {
         id: 'landed-while-away',
         userId: testUserId,
         startedAt: now,
+        // 已完成訓練(endedAt 非 null)——波 3 起 fetchByDateRange 排除草稿
+        // (endedAt IS NULL),這裡驗證的是「切回首頁後看到新增的已完成訓練」,
+        // 不是草稿情境。
+        endedAt: now.add(const Duration(minutes: 42)),
         duration: 42,
         totalVolume: 500,
         totalSets: 8,
