@@ -189,10 +189,14 @@ class _StatColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // key 掛在 wrapper(Column)而非 Text 本身,對照 dashboard 慣例與
+    // workout_summary_sheet.dart _StatTile 的修法——測試用
+    // find.descendant(of: find.byKey(...), matching: find.text(...))。
     return Column(
+      key: valueKey,
       children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
-        Text(value, key: valueKey, style: Theme.of(context).textTheme.titleMedium),
+        Text(value, style: Theme.of(context).textTheme.titleMedium),
       ],
     );
   }

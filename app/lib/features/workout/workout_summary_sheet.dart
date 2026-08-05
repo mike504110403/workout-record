@@ -139,13 +139,17 @@ class _StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // key 掛在 wrapper(Card)而非 Text 本身,對照 dashboard 慣例
+    // (week_stats_section.dart/today_overview_section.dart)——測試用
+    // find.descendant(of: find.byKey(...), matching: find.text(...))。
     return Card(
+      key: valueKey,
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(value, key: valueKey, style: Theme.of(context).textTheme.titleMedium),
+            Text(value, style: Theme.of(context).textTheme.titleMedium),
             Text(label, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
