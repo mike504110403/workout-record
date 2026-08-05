@@ -306,17 +306,23 @@ class WorkoutSet {
   }
 }
 
+/// 排除暖身組後,單一動作的容量(重量 × 次數加總)。[nonWarmupTotalVolume]
+/// 對每個動作呼叫這個函式再加總——波 4 stats 訓練統計子頁的容量趨勢圖
+/// (`features/stats/workout_stats/volume_aggregation.dart`)也需要「單一
+/// 動作、排除暖身」的容量(用來算每個動作對所屬肌群的貢獻),原本在那邊
+/// 私下重寫一份幾乎一樣的 fold,抽出來共用,避免重演本檔案上面這段註解
+/// 提到的「兩處一度不同步」。
+double nonWarmupExerciseVolume(WorkoutExercise exercise) =>
+    exercise.sets.where((s) => !s.isWarmup).fold<double>(0, (sum, set) => sum + set.weight * set.reps);
+
 /// 排除暖身組後的總容量(重量 × 次數加總)。對齊 iOS
 /// `WorkoutViewModel.swift:233-236`(`updateTotals()`)與 `:402-405`
 /// (`WorkoutExerciseViewModel.totalVolume`)——兩處皆先
 /// `filter { !$0.isWarmup }` 才加總。`WorkoutRepository.completeWorkout`
 /// (現算已完成訓練的統計)與 `workout_in_progress_view.dart` 的即時統計列
 /// 曾經各自重寫一份這個邏輯,兩處一度不同步,收斂成單一函式共用。
-double nonWarmupTotalVolume(List<WorkoutExercise> exercises) => exercises.fold<double>(
-      0,
-      (sum, e) =>
-          sum + e.sets.where((s) => !s.isWarmup).fold<double>(0, (s, set) => s + set.weight * set.reps),
-    );
+double nonWarmupTotalVolume(List<WorkoutExercise> exercises) =>
+    exercises.fold<double>(0, (sum, e) => sum + nonWarmupExerciseVolume(e));
 
 /// 排除暖身組後的總組數,理由同 [nonWarmupTotalVolume]。
 int nonWarmupTotalSets(List<WorkoutExercise> exercises) =>
