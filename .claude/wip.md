@@ -46,6 +46,13 @@
 7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review;上方前置決策先裁)+ sqlite3_flutter_libs EOL 遷移、dart format 專波擇機插入
 8. 發布波(三平台)
 
+## 波 4 進行中(2026-08-05 開)
+
+- develop 已推(2f86bed)。範圍裁決(Mike):**整個 Stats tab 對等**——三子頁(體重趨勢+紀錄管理/訓練統計/經典三項)+ PR 排行頁;波 5 剩歷史+目標設定頁+成就。
+- 三工人平行(worktree 隔離):A `stats-shell-volume-worker`(shell 三段切換 + 訓練統計子頁:容量趨勢圖 fl_chart+肌群篩選/本週統計/最近訓練/PR 入口;含 StatCard 抽共用至 core/widgets[波 2 遺留兌現]與 router 分支切回 invalidate 比照 dashboard);B `stats-bodyweight-worker`(體重子頁:趨勢圖+目標線+統計+紀錄列表/編輯/刪除,重用 dashboard 的新增 sheet);C `stats-powerlifting-worker`(經典三項子頁:手動 CRUD+系統推估+1RM 趨勢;PR 排行頁 getPRSummary)。
+- 接縫:A 以 placeholder(WAVE4-MERGE 標記)引用議定契約 `BodyWeightTab`/`PowerliftingTab`/`PrListPage`(zero-arg const widget,B/C 各自實作),merge 時大腦換接。
+- 肌群配色照 iOS 固定(胸紅/背藍/腿綠/肩橙/手臂紫/核心黃);自訂動作肌群 null 時照 iOS 名稱推斷 fallback。
+
 ## 下一步
 
-1. Mike 驗看波 2+3 → 裁遺留與推送 → 開波 4(Stats)。
+1. 收 A/B/C → 各自驗收 + review chain(A 涉新讀查詢加 db)→ merge + 接線 → 波 4 收波 + Mike 驗看波 2~4。
