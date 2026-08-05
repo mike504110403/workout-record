@@ -58,6 +58,8 @@ class ManualRecordsSection extends StatelessWidget {
               OneRmTrendChart(records: chartRecords),
             if (records.isNotEmpty) ...[
               const SizedBox(height: 12),
+              // 與 iOS 的刻意差異:iOS 只顯示 .prefix(5),這裡全列——被截掉的
+              // 紀錄在 iOS 上永遠刪不到;CRUD 列表全列才能管理(review 裁定保留)。
               for (final record in records) _ManualRecordRow(record: record, onDelete: onDelete),
             ],
           ],

@@ -34,7 +34,9 @@ class SystemEstimateSection extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('系統推估', style: Theme.of(context).textTheme.titleMedium),
+                // 標題「訓練推估」照 iOS 畫面實際顯示字(PowerliftingView.swift:198);
+                // 「系統推估」只是該段 MARK 註解用詞(code review 對齊)。
+                Text('訓練推估', style: Theme.of(context).textTheme.titleMedium),
                 const Spacer(),
                 if (best != null)
                   Container(
