@@ -2,8 +2,9 @@
 // workout_page.dart `_checkForRecoverableDraft`)。真 in-memory DB + 真
 // repositories,只 override DB/prefs(同 workout_controller_test.dart 的
 // seam 規格)。覆蓋:繼續分支(state 接手草稿、startedAt 一致)、放棄分支
-// (DB 查不到該列)、`_draftCheckStarted` 一次性守衛(同一個 State 存活期間
-// 不重複彈對話框)。
+// (DB 查不到該列)、無草稿分支(不彈對話框)+ 一則「對話框解決後不再彈」的
+// 迴歸煙霧測試(不是 `_draftCheckStarted` 本身的有效雙向變異測試,理由見
+// 該測試內的註解)。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

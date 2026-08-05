@@ -34,11 +34,14 @@ void main() {
   tearDown(() async => db.close());
 
   // endedAt 預設為 startedAt 一小時後(代表「已完成」)——這份測試檔大多數
-  // 案例(fetchByDateRange/completeWorkout/delete)驗證的是完成訓練後的查詢
-  // 行為,不是波 3 新增的草稿語意。草稿(endedAt: null)不計入
-  // fetchByDateRange/fetchRecent/countWorkouts/calculateTotalVolume 的行為
-  // 另外在 `草稿排除(endedAt IS NULL)` group 獨立測試,那裡才會明確傳
-  // `endedAt: null`。
+  // 案例(fetchByDateRange/delete)驗證的是完成訓練後的查詢行為,不是波 3
+  // 新增的草稿語意。`completeWorkout` group 不在此列:completeWorkout 只在
+  // 進行中草稿(endedAt IS NULL)上有效(DB 級冪等守衛,見
+  // workout_repository.dart `completeWorkout` 文件),該 group 底下每個
+  // fixture 都明確傳 `endedAt: null`,不依賴這裡的預設值。草稿(endedAt:
+  // null)不計入 fetchByDateRange/fetchRecent/countWorkouts/
+  // calculateTotalVolume 的行為另外在 `草稿排除(endedAt IS NULL)` group
+  // 獨立測試,那裡才會明確傳 `endedAt: null`。
   Workout buildWorkout({
     required String id,
     required DateTime startedAt,
@@ -453,6 +456,34 @@ void main() {
         () => repository.removeExercise('does-not-exist', workoutId: 'nowhere'),
         throwsA(isA<StateError>()),
       );
+    });
+
+    // 雙向變異(結構守衛):把 DELETE 的 where 子句從
+    // `t.id.equals(workoutExerciseId) & t.workoutId.equals(workoutId)` 改回
+    // 單純 `t.id.equals(workoutExerciseId)`,這則測試會紅——動作會被誤刪
+    // (即使呼叫端傳的 workoutId 跟該動作實際所屬的訓練對不上)。
+    test('removeExercise:workoutExerciseId 存在但屬於別筆訓練 → 結構守衛擋下,不刪、拋出 StateError',
+        () async {
+      await repository.create(buildWorkout(id: 'draft-cross-a', startedAt: DateTime(2026, 1, 11), endedAt: null));
+      await repository.create(buildWorkout(id: 'draft-cross-b', startedAt: DateTime(2026, 1, 11), endedAt: null));
+      final now = DateTime.now();
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-cross-a',
+        workoutId: 'draft-cross-a',
+        exerciseId: exerciseId,
+        createdAt: now,
+        updatedAt: now,
+      ));
+
+      // 傳對的 exercise id,但 workoutId 傳成另一筆(不屬於它的)訓練。
+      expect(
+        () => repository.removeExercise('we-cross-a', workoutId: 'draft-cross-b'),
+        throwsA(isA<StateError>()),
+      );
+
+      final stillThere = await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-cross-a')))
+          .getSingleOrNull();
+      expect(stillThere, isNotNull);
     });
 
     test('removeExercise:移除中間動作後,剩餘動作的 orderIndex 重新編號成連續的 0..N-1', () async {

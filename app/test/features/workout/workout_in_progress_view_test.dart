@@ -162,4 +162,75 @@ void main() {
       expect(await repo.fetchById(workoutId), isNull);
     });
   });
+
+  group('自動開始休息計時開關(code review r2 major:編輯路徑不能是死開關)', () {
+    // 雙向變異:把 _ExerciseCard._openAddSetSheet 裡的
+    // `if (!result.isWarmup && result.autoStartRestTimer)` 改回
+    // `if (!result.isWarmup)`(拿掉 autoStartRestTimer 條件),這則測試會紅
+    // ——關掉開關存新組,restTimerBar 仍然會出現。
+    testWidgets('新增組:關掉「自動開始休息計時」開關再儲存 → 計時器不啟動', (tester) async {
+      final harness = await _setUpHarness();
+      final exercise = await _firstSystemExercise(harness.db);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await harness.container.read(workoutControllerProvider.future);
+      await notifier.startFreeWorkout();
+      await notifier.addExercise(exercise);
+      final workoutExerciseId =
+          harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+
+      await _pumpView(tester, harness);
+
+      await tester.tap(find.byKey(Key('addSetButton_$workoutExerciseId')));
+      await tester.pumpAndSettle();
+
+      // 非暖身組(預設),開關預設開、可見。
+      expect(find.byKey(const Key('addSetAutoStartRestTimerSwitch')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('addSetAutoStartRestTimerSwitch')));
+      await tester.pump();
+
+      await tester.enterText(find.byKey(const Key('addSetWeightField')), '100');
+      await tester.enterText(find.byKey(const Key('addSetRepsField')), '5');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+
+      // 正式組本來存了會自動啟動休息計時器,這裡關掉開關 → 不啟動。
+      expect(find.byKey(const Key('restTimerBar')), findsNothing);
+    });
+
+    // 雙向變異:把 add_set_sheet.dart 的
+    // `if (!_isWarmup && widget.showAutoStartRestTimer)` 改回
+    // `if (!_isWarmup)`(拿掉 showAutoStartRestTimer 條件),這則測試會紅
+    // ——編輯既有組時這顆開關會冒出來,變回一顆使用者點得動、但
+    // `_editSet` 完全不讀 `result.autoStartRestTimer` 的死開關(r2 major 描述
+    // 的問題重現)。
+    testWidgets('編輯既有組:不顯示「自動開始休息計時」開關(編輯不該觸發新的休息倒數)',
+        (tester) async {
+      final harness = await _setUpHarness();
+      final exercise = await _firstSystemExercise(harness.db);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await harness.container.read(workoutControllerProvider.future);
+      await notifier.startFreeWorkout();
+      await notifier.addExercise(exercise);
+      final workoutExerciseId =
+          harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+      await notifier.addSet(workoutExerciseId: workoutExerciseId, weight: 40, reps: 10);
+      final setId = harness.container
+          .read(workoutControllerProvider)
+          .value!
+          .draft!
+          .exercises
+          .single
+          .sets
+          .single
+          .id;
+
+      await _pumpView(tester, harness);
+
+      await tester.tap(find.byKey(Key('editSetButton_$setId')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('addSetAutoStartRestTimerSwitch')), findsNothing);
+    });
+  });
 }
