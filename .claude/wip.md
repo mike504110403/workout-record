@@ -1,71 +1,47 @@
-# WIP — 三平台改寫(2026-07-24)
+# WIP — 三平台改寫(2026-07-24 起)
 
-## 現況(2026-08-05 波 3 收波)
+> **新 session 接手:讀完本檔即可動工。Mike 喊「繼續」= 直接開波 5(流程見下方「下一步」),不需再問。**
 
-- **波 0(升 Flutter + web)、波 1(登入 + Onboarding)、import-minors 波、波 2(帳號隔離 + Dashboard + import 複審收尾)**:全部 merged,細節見 git log 與 `.claude/decisions/`。
-- **波 3(記訓練核心流 + 模板):完成,全部 merged**:
-  - ①選動作器(分類/搜尋/最愛/自訂動作,契約 `showExercisePicker(context, {multiSelect})`;review 三輪)。
-  - ③模板(schema v1→v2 Templates.userId nullable + 五系統模板種子 + CRUD + `applyTemplate`;code/db 雙審各兩輪;接線 fake→真 picker)。
-  - ②訓練核心流(最終 merge):開始畫面(自由/模板/模板管理入口)、**草稿寫穿**(endedAt NULL=進行中,每操作即時落庫,repository 增量方法群)、重啟恢復對話框、進行中畫面(記組 sheet 重量/次數/RPE/暖身/休息 90s 可調、上一組帶入、存組自動休息倒數±15、即時統計、放棄確認框)、完成結算(暖身排除統計對齊 iOS、Epley OneRM、createIfNewPR、summary)、草稿隔離(五讀查詢過濾)、匯入 NULL ZENDEDAT 保險。review:code/db 各三輪(r1 6 major→r2 code 抓編輯路徑死開關→r3 大腦聚焦確認),五核心防護 + 追加 major 全數雙向變異驗證(工人 + 大腦各自親測)。
-- **收波後 develop 全驗證(大腦親跑,2026-08-05)**:analyze 0 issues、**test 328/328**、web build 成功。
-- 決策檔:`2026-08-04-波3訓練流草稿寫穿與系統模板.md`(含四項補裁 + migration 裁決)。
+## 現況(2026-08-05,波 0~4 全部完成並 merged + 已推 origin)
 
-## 同步波(波 7)前置決策(db review 盤點,開工前必裁)
+- **波 0** 升 Flutter 3.44.8 + web 平台;**波 1** 登入 + Onboarding;**import-minors** 匯入核帳收尾;**波 2** 帳號隔離(owner 認領/換帳號清資料)+ Dashboard 五區塊 + 複審收尾;**波 3** 選動作器 + 模板(schema v2 migration + 五系統模板種子)+ 記訓練核心流(草稿寫穿/重啟恢復/記組/休息計時/PR 結算/summary);**波 4** Stats tab 全對等(訓練統計容量趨勢/體重/經典三項三子頁 + PR 排行頁)。
+- **基線(大腦親跑,2026-08-05)**:`flutter analyze` 0 issues、`flutter test` **447/447**、`flutter build web` ✓。schemaVersion 2。
+- 重大決策全在 `.claude/decisions/`(最近三份:2026-08-04 帳號隔離、2026-08-04 波3 草稿寫穿與系統模板含全部補裁、2026-07-24 三平台方向)。
+- 工作流慣例(歷波驗證有效):工人 brief 用 `/brief` 模板(常備紀律+變異逐規則列+張力回報);多工人同 repo 各掛 worktree;跨工人接縫用「議定契約 + WAVE{n}-MERGE placeholder,merge 時大腦換接」;每輪 major 修復必附雙向變異輸出且大腦至少親測一個;merge 後大腦跑全量三指令。
 
-1. 草稿不得被推上雲:push query 必須帶 `endedAt IS NOT NULL`(isSynced 預設 false 含草稿)。
-2. 多裝置草稿衝突:同 userId 兩筆 endedAt NULL 只有 partial unique index 或伺服器仲裁能解(單機已由 controller 查 DB 守住;**勿在無 dedup 步驟下順手加 unique index——匯入可能多筆 NULL 會炸**)。
-3. pull 路徑不得覆蓋/刪除本機草稿。
-4. workout_exercises/workout_sets 無 isSynced/deletedAt——同步只能「整包 workout 取代」;要子列級增量需加欄位(schema 變更)。
-5. 草稿的 workouts.updatedAt 不隨子列變動——若同步靠 updatedAt 衝突偵測要先解。
-(既有備忘:本機 apple_user_id 不可當帳號 key、伺服器驗 identityToken+nonce、Android 同步前不上架 Play、隱私同意文案改版。)
+## 下一步(Mike 喊「繼續」執行 1;其餘等 Mike 開口)
 
-## 遺留(判斷題,不擋,收波/下波裁)
-
-- **波 3 新增**:`getCurrentPR` 無 userId 過濾 + PersonalRecords 無索引(帳號隔離換帳清庫後單機不可達,同步波前處理)、RestTimer adjust 歸零後拉正的防禦缺口、deleteSet renumber 逐列 UPDATE N 次往返、`_draftCheckStarted` 煙霧測試升級(若未來加第二個檢查入口)、startFromTemplate 撞既有草稿時靜默丟棄所選模板(現不可達,變可達時補提示)。
-- **波 2 遺留**:riverpod defaultRetry 38 秒重試鈕、Drift 秒級時間精度、intl 統一、帳號隔離三判斷題(retireImports 搬家/清除三步抽函式/11 表守門逐表塞資料)、StatCard 抽共用(波 4 第二使用者出現時)、GoalProgress 型別化、import_retry alreadyLanded 訊息分支無測試。
-- 全 repo dart format 專波(波 0 遺留)。
-- v1/v2 schema 快照改 drift_dev schema dump + SchemaVerifier(v3 前補)、web 平台 migration smoke。
+1. **開波 5:歷史 + 目標設定頁 + 成就**(體重已在波 4 做完)。流程照慣例:
+   - 探路(兩 haiku Explore 平行):iOS 基準 `ios/.../Views/History/`、`Views/Goals/`(或 GoalSettingsView)、成就相關 Views/ViewModels + FEATURE_MAP Tab4/目標/成就段;Flutter 側盤 history_page placeholder、可用查詢(fetchAll 已排草稿)、UserGoal/PersonalRecord 資產、Dashboard 目標區塊沒接的導航(波 2 遺留:GoalSettingsView 入口)。
+   - 有真分岔先 AskUserQuestion 裁(可能的:成就系統 iOS 有多少實作 vs FEATURE_MAP 願望清單的落差怎麼切;歷史頁編輯/刪除已完成訓練的範圍)。
+   - 拆工平行派(範圍互斥 + worktree),驗收 → review chain → merge 接線 → 收波,全程照本檔慣例。
+2. Mike 驗看波 2~4(見「Mike 待辦」)。
+3. 裁遺留判斷題(見「遺留」,不擋波 5)。
 
 ## Mike 待辦
 
-- **模擬器/瀏覽器驗看波 2+3**:Dashboard 五區塊、換帳號清資料劇本、選動作器、模板(五系統模板/CRUD/套用)、完整記訓練流(開始→記組→休息計時→完成 summary→首頁反映)、重啟恢復草稿劇本。
+- 模擬器/瀏覽器驗看波 2~4:Dashboard、換帳號清資料、選動作器、模板 CRUD/套用、記訓練全流程(開始→記組→休息計時→完成 summary→首頁反映)+ 重啟恢復草稿、Stats 三子頁 + PR 排行。**iOS 刻意差異清單**(驗看時別當 bug):Stats 預設停「訓練統計」非體重、肌群篩選單選、三項手動紀錄全列、date picker 預設輸入模式(可切回日曆)、Dashboard ISO 週一起算、進行中訓練會寫穿草稿且重啟詢問恢復。
 - Apple Developer portal 開 Sign in with Apple capability;iOS 真機實測登入。
-- develop 有新 merge 未推(推前必問;origin 曾由 Mike 自行推至收斂點)。
-- 波 2/3 遺留判斷題要不要掛波 4。
+- 波 5 開工前若想先裁遺留,清單在下方。
 
-## 工作規則(Mike 2026-07-24 定;brief 模板 2026-08-04 起含常備紀律)
+## 遺留(判斷題,不擋;累積自波 2~4 review)
 
-- UI-first 垂直切片;每波:驗收(大腦親跑)+ review chain + Mike 驗看 → merge;修復輪每個帶測試的 major 必附雙向變異輸出。
-- 領域語言進 `CONTEXT.md`、術語進 `docs/GLOSSARY.md`;社群 skill 裝前安全審閱。
+- **架構類**:`_resolveUserId` 五份複本(dashboard/picker/templates/powerlifting/pr)該抽 `features/auth` 共用;format 函式多份(dashboard/stats)該進 core;肌群篩選多選疊線(iOS 對等缺口);riverpod defaultRetry 38 秒重試鈕;intl 統一(date picker 測試依賴未掛 localizations,掛 zh_TW 時要同步改)。
+- **小項**:filter 切換丟飛行中時間範圍切換(毫秒窗口)、波 4 兩處變異存活(軸標籤對齊/時間口徑,程式對無測試釘)、C 線 1RM 趨勢 x 軸標籤重複風險(同 B 線已修型)、`_liftLabels` 兩份、PR 分組 mutable 值物件、accent 色寫死(repo 慣例不一)、首訪雙查存疑(r2 實測未重現)、Drift 秒級時間精度、帳號隔離三判斷題(retireImports 搬家等)、import_retry alreadyLanded 訊息分支無測試、GoalProgress 型別化、「首頁該刷新」知識搬 Dashboard 側。
+- **專波待排**:全 repo dart format(49/69 檔)、sqlite3_flutter_libs EOL 遷移、v1/v2 schema 快照改 drift_dev dump + SchemaVerifier(v3 前)、web 平台 migration smoke。
+
+## 同步波(波 7)前置決策(開工前必裁,db review 盤點)
+
+1. push query 必帶 `endedAt IS NOT NULL`(草稿不得上雲);2. 多裝置草稿衝突要 partial unique index 或伺服器仲裁(**勿在無 dedup 下加 unique index,匯入會炸**);3. pull 不得覆蓋/刪本機草稿;4. 子列無 isSynced/deletedAt→只能整包 workout 取代,子列級增量要加欄位;5. 草稿 updatedAt 不隨子列變動。既有備忘:apple_user_id 不可當帳號 key、伺服器驗 identityToken+nonce、Android 同步前不上架 Play、隱私文案改版、getCurrentPR 無 userId 過濾 + PersonalRecords 無索引(同步波前處理)。
 
 ## 波次規劃
 
-4. 數據 Stats(fl_chart)← **下一波**
-5. 歷史 + 體重 + 目標 + 成就(History 頁會消費波 3 的已完成訓練;目標設定頁補 Dashboard 的導航缺口)
+5. 歷史 + 目標設定 + 成就 ← **下一波**
 6. 設定(消費 legacy prefs)
-7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review;上方前置決策先裁)+ sqlite3_flutter_libs EOL 遷移、dart format 專波擇機插入
+7. 同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security+db review)
 8. 發布波(三平台)
 
-## 波 4:完成,全部 merged(2026-08-05 收波)
+## 工作規則(Mike 定,詳見歷波 git log 與 memory)
 
-- 整個 Stats tab 對等(Mike 裁決):殼三段切換 + 訓練統計(容量趨勢 fl_chart/肌群篩選/本週統計/最近訓練/PR 入口)+ 體重(趨勢圖+目標線+統計卡+CRUD)+ 經典三項(手動 CRUD+訓練推估+1RM 趨勢)+ PR 排行頁。三工人各過 review(A 兩輪、B 兩輪+迷你輪、C 一輪 PASS),接線 commit 165c81c(placeholder 換真身、失效點掛齊含 PR push 前 invalidate、390×844 三子頁 smoke 迴歸防線)。
-- **收波後 develop 全驗證(大腦親跑)**:analyze 0、**test 447/447**、web build ✓。StatCard 已抽 core/widgets(波 2 遺留兌現);router 失效機制升級為 didUpdateWidget 單一掛點(修了 context.go 繞過 invalidate 的真 bug,dashboard 同型洞一併補)。
-- 與 iOS 刻意差異(驗看時留意):Stats 預設停「訓練統計」(iOS 是體重;從 Dashboard 查看進度進來直達)、肌群篩選單選(iOS 多選疊線,記遺留)、三項手動紀錄全列(iOS 只 prefix(5),截掉的刪不到)、date picker 預設輸入模式(可一鍵切回日曆)。
-
-## 波 4 遺留(判斷題,不擋)
-
-- 肌群篩選多選疊線(iOS 對等缺口);時間範圍/軸標籤對齊兩處變異存活(程式對但無測試釘);filter 切換會丟飛行中的時間範圍切換(毫秒級窗口,合併寫回可解);同份資料過濾兩次(型別化可解);首訪雙查(工人自報,r2 reviewer 實測未重現,存疑);en-US date picker 測試依賴未掛 localizations(掛 zh_TW 時要改);_resolveUserId 已五份複本(該抽 features/auth 共用);format 函式 dashboard/stats 多份(該進 core);_liftLabels 兩份該用 PowerLift.value;PR 分組 mutable 值物件;fl_chart 1RM 趨勢 x 軸索引標籤重複風險(C 線,同 B 線已修的型);Colors.orange/blue accent 色寫死(repo 慣例不一致,判斷題)。
-- B 線溢出修復的變異宣稱在最終碼不精確(margin 歸零後單改 ratio 不重現;守門對 d28f6bb 原版驗證成立,大腦親測)——記錄備查,不影響防護有效性。
-
-## ~~波 4 進行中(2026-08-05 開)~~(以下為開波時計畫,留檔)
-
-- develop 已推(2f86bed)。範圍裁決(Mike):**整個 Stats tab 對等**——三子頁(體重趨勢+紀錄管理/訓練統計/經典三項)+ PR 排行頁;波 5 剩歷史+目標設定頁+成就。
-- 三工人平行(worktree 隔離):A `stats-shell-volume-worker`(shell 三段切換 + 訓練統計子頁:容量趨勢圖 fl_chart+肌群篩選/本週統計/最近訓練/PR 入口;含 StatCard 抽共用至 core/widgets[波 2 遺留兌現]與 router 分支切回 invalidate 比照 dashboard);B `stats-bodyweight-worker`(體重子頁:趨勢圖+目標線+統計+紀錄列表/編輯/刪除,重用 dashboard 的新增 sheet);C `stats-powerlifting-worker`(經典三項子頁:手動 CRUD+系統推估+1RM 趨勢;PR 排行頁 getPRSummary)。
-- 接縫:A 以 placeholder(WAVE4-MERGE 標記)引用議定契約 `BodyWeightTab`/`PowerliftingTab`/`PrListPage`(zero-arg const widget,B/C 各自實作),merge 時大腦換接。
-- 肌群配色照 iOS 固定(胸紅/背藍/腿綠/肩橙/手臂紫/核心黃);自訂動作肌群 null 時照 iOS 名稱推斷 fallback。
-
-## 下一步
-
-1. Mike 模擬器/瀏覽器驗看波 2~4(Dashboard、換帳號、模板、記訓練全流程+重啟恢復、Stats 三子頁+PR 排行;iOS 刻意差異清單見波 4 節)。
-2. develop 領先 origin(波 4 全部 commit 未推),要推說一聲。
-3. 裁波 2~4 遺留判斷題 → 開波 5(歷史 + 目標設定頁 + 成就;體重已在波 4 做完)。
+- UI-first 垂直切片;每波:驗收(大腦親跑)+ review chain + Mike 驗看 → merge;dev 推 remote 前必問 Mike。
+- 領域語言 `CONTEXT.md`、術語 `docs/GLOSSARY.md`;社群 skill 裝前安全審閱。
