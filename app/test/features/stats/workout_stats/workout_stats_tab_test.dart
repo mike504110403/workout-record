@@ -12,7 +12,7 @@ import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
-import 'package:workout_record/features/stats/placeholders/pr_list_page.dart';
+import 'package:workout_record/features/stats/pr/pr_list_page.dart';
 import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.dart';
 
 import '../../../data/test_helpers.dart';

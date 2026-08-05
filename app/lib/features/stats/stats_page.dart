@@ -32,8 +32,8 @@
 //    如果實測有感卡頓再考慮改懶載入。
 import 'package:flutter/material.dart';
 
-import 'placeholders/body_weight_tab.dart';
-import 'placeholders/powerlifting_tab.dart';
+import 'body_weight/body_weight_tab.dart';
+import 'powerlifting/powerlifting_tab.dart';
 import 'workout_stats/workout_stats_tab.dart';
 
 class StatsPage extends StatefulWidget {

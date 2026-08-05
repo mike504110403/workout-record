@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/stat_card.dart';
 import '../../../data/models/workout.dart';
-import '../placeholders/pr_list_page.dart';
+import '../pr/pr_list_controller.dart';
+import '../pr/pr_list_page.dart';
 import 'volume_chart_section.dart';
 import 'workout_stats_controller.dart';
 import 'workout_stats_format.dart';
@@ -70,9 +71,14 @@ class _WorkoutStatsContent extends ConsumerWidget {
             ),
             const SizedBox(height: 20),
             _PrEntryCard(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (context) => const PrListPage()),
-              ),
+              onTap: () {
+                // PR 排行頁的 provider 非 autoDispose,push 前失效讓每次
+                // 進入都重新查詢(否則二次進入看到舊快照;WAVE4 merge 接線)。
+                ref.invalidate(prListControllerProvider);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (context) => const PrListPage()),
+                );
+              },
             ),
             const SizedBox(height: 20),
             _WeekStatsRow(

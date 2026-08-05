@@ -10,6 +10,8 @@ import 'features/history/history_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/onboarding/onboarding_status.dart';
 import 'features/settings/settings_page.dart';
+import 'features/stats/body_weight/body_weight_controller.dart';
+import 'features/stats/powerlifting/powerlifting_controller.dart';
 import 'features/stats/stats_page.dart';
 import 'features/stats/workout_stats/workout_stats_controller.dart';
 import 'features/workout/workout_page.dart';
@@ -228,11 +230,14 @@ class _AppShellState extends ConsumerState<_AppShell> {
       ref.invalidate(dashboardControllerProvider);
     }
     if (shouldRefreshStatsOnBranchSwitch(index)) {
+      // 三個子頁 provider 一起失效(IndexedStack 不 dispose、皆非
+      // autoDispose,切回「數據」分頁要主動重新查詢;WAVE4 merge 時由大腦
+      // 接線)。PR 排行頁(prListControllerProvider)不掛這裡——它是
+      // Navigator.push 的獨立頁,每次進入由 PrListPage 自行取得最新狀態。
       ref.invalidate(workoutStatsControllerProvider);
+      ref.invalidate(bodyWeightTabControllerProvider);
+      ref.invalidate(powerliftingControllerProvider);
     }
-    // WAVE4-MERGE:B(體重)/C(三項)兩位工人的 provider 就位後,這裡也要
-    // 補上對應的 invalidate(見 features/stats/stats_page.dart 檔頭的
-    // WAVE4-MERGE 注意事項)。
   }
 
   @override

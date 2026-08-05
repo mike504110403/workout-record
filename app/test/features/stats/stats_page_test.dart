@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:workout_record/data/providers.dart';
-import 'package:workout_record/features/stats/placeholders/body_weight_tab.dart';
-import 'package:workout_record/features/stats/placeholders/powerlifting_tab.dart';
+import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/stats/body_weight/body_weight_tab.dart';
+import 'package:workout_record/features/stats/powerlifting/powerlifting_tab.dart';
 import 'package:workout_record/features/stats/stats_page.dart';
 import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.dart';
 
@@ -17,10 +20,17 @@ Future<void> _pump(WidgetTester tester) async {
   final db = openTestDatabase();
   addTearDown(db.close);
   await seedTestUser(db);
+  // WAVE4 merge 接線後,體重/三項是真子頁(不再是 placeholder),需要
+  // prefs(session/userId 解析)——比照各子頁自身測試的 override 慣例。
+  SharedPreferences.setMockInitialValues(const {});
+  final prefs = await SharedPreferences.getInstance();
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [appDatabaseProvider.overrideWithValue(db)],
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        sharedPreferencesProvider.overrideWithValue(prefs),
+      ],
       child: const MaterialApp(home: StatsPage()),
     ),
   );
@@ -34,7 +44,7 @@ void main() {
     expect(find.byType(WorkoutStatsTab), findsOneWidget);
   });
 
-  testWidgets('切到「體重」分頁,顯示 BodyWeightTab placeholder', (tester) async {
+  testWidgets('切到「體重」分頁,顯示 BodyWeightTab', (tester) async {
     await _pump(tester);
 
     await tester.tap(find.byKey(const Key('statsSegment-0')));
@@ -43,7 +53,7 @@ void main() {
     expect(find.byType(BodyWeightTab), findsOneWidget);
   });
 
-  testWidgets('切到「三項」分頁,顯示 PowerliftingTab placeholder', (tester) async {
+  testWidgets('切到「三項」分頁,顯示 PowerliftingTab', (tester) async {
     await _pump(tester);
 
     await tester.tap(find.byKey(const Key('statsSegment-2')));
