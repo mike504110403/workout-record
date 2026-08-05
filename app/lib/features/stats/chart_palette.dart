@@ -14,10 +14,10 @@ import '../../data/models/exercise.dart';
 /// 肌群篩選 chip 的可選項。`all` 代表「總容量」(不篩選特定肌群)。
 enum MuscleGroupFilter {
   all('總容量'),
-  chest('胸'),
-  back('背'),
-  legs('腿'),
-  shoulders('肩'),
+  chest('胸部'),
+  back('背部'),
+  legs('腿部'),
+  shoulders('肩部'),
   arms('手臂'),
   core('核心');
 

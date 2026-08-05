@@ -48,14 +48,19 @@ const _dashboardBranchIndex = 0;
 /// invalidate 一次 dashboardControllerProvider,對照 iOS
 /// `DashboardView.onAppear { viewModel.refresh() }`。
 ///
-/// 只涵蓋目前唯一的回訪路徑(bottom nav bar 切分頁);之後如果新增其他能
-/// 抵達 /dashboard 的路徑(例如從詳情頁 push 回來、程式化 `context.go`),
-/// 那些路徑不會經過這裡,必須另外一併處理。
-///
 /// 純函式,不吃 BuildContext/WidgetRef,方便單獨單元測試(見
 /// test/router/router_redirect_test.dart;實際「切分頁真的觸發 invalidate」
 /// 這條線的行為測在 test/features/dashboard/dashboard_shell_revisit_test.dart
 /// ——純函式測試只守「index 對應」,守不住接線本身有沒有真的呼叫)。
+///
+/// r2 review 打回記錄(major 2):這個判斷式原本只掛在 `_AppShell` 的
+/// `NavigationBar.onDestinationSelected` callback 裡——只有「點 bottom nav
+/// 分頁圖示」這條路徑會觸發。Dashboard 的「查看進度」快速操作走
+/// `context.go('/stats')` 直接改變路由,不經過 `onDestinationSelected`,
+/// reviewer 實測發現這條路徑切到數據分頁後畫面停在舊資料。改法見
+/// `_AppShellState.didUpdateWidget`:改成觀察 `navigationShell.currentIndex`
+/// 本身的變化(不管是哪條路徑造成的),這個判斷式現在被兩處共用,依然是
+/// 純函式,行為不變。
 bool shouldRefreshDashboardOnBranchSwitch(int targetIndex) => targetIndex == _dashboardBranchIndex;
 
 /// 「數據」在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
@@ -67,7 +72,7 @@ const _statsBranchIndex = 2;
 /// `WorkoutStatsController.build()` 只在 provider 第一次建立時跑一次,使用者
 /// 切去別的分頁記完一筆訓練再切回數據分頁,訓練統計子頁的容量趨勢/本週
 /// 統計/最近訓練不會自動反映新資料。純函式,理由與測試慣例同
-/// [shouldRefreshDashboardOnBranchSwitch]。
+/// [shouldRefreshDashboardOnBranchSwitch](含上面那則 major 2 打回記錄)。
 bool shouldRefreshStatsOnBranchSwitch(int targetIndex) => targetIndex == _statsBranchIndex;
 
 /// session / onboarding 狀態改變時通知 GoRouter 重新評估 redirect(例如
@@ -156,7 +161,17 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _AppShell extends ConsumerWidget {
+/// r2 review 打回記錄(major 2):原本是 `ConsumerWidget`,失效邏輯掛在
+/// `NavigationBar.onDestinationSelected` 這一條路徑上。改成
+/// `ConsumerStatefulWidget` 是為了拿到 `didUpdateWidget`——GoRouter 的
+/// `StatefulShellRoute.indexedStack` 不管分頁切換是透過 bottom nav 點擊
+/// (`goBranch`)還是程式化導航(例如 Dashboard 快速操作的
+/// `context.go('/stats')`)造成,只要 `navigationShell.currentIndex` 真的
+/// 變了,這個 builder 就會用新的 `navigationShell` 重新呼叫,連帶讓
+/// `_AppShell` 的 `didUpdateWidget` 觸發——比掛在單一按鈕的 callback 上更
+/// 底層,涵蓋所有能改變分頁 index 的路徑,不用每加一條新路徑就要多補一處
+/// invalidate。
+class _AppShell extends ConsumerStatefulWidget {
   const _AppShell({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
@@ -190,24 +205,49 @@ class _AppShell extends ConsumerWidget {
   ];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<_AppShell> {
+  @override
+  void didUpdateWidget(covariant _AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldIndex = oldWidget.navigationShell.currentIndex;
+    final newIndex = widget.navigationShell.currentIndex;
+    if (oldIndex == newIndex) return;
+    _refreshForBranch(newIndex);
+  }
+
+  /// 「切進某個分頁」的統一失效點——不管是 bottom nav 點擊還是程式化
+  /// `context.go` 導致的切換,都會經過這裡剛好一次(見類別文件註解)。
+  /// `onDestinationSelected` 不再重複呼叫 `ref.invalidate`,避免同一次切換
+  /// 觸發兩次查詢(選擇:單一掛點,不是「兩處都掛、各自防重入」——後者要
+  /// 多維護一份去重狀態,沒有必要)。
+  void _refreshForBranch(int index) {
+    if (shouldRefreshDashboardOnBranchSwitch(index)) {
+      ref.invalidate(dashboardControllerProvider);
+    }
+    if (shouldRefreshStatsOnBranchSwitch(index)) {
+      ref.invalidate(workoutStatsControllerProvider);
+    }
+    // WAVE4-MERGE:B(體重)/C(三項)兩位工人的 provider 就位後,這裡也要
+    // 補上對應的 invalidate(見 features/stats/stats_page.dart 檔頭的
+    // WAVE4-MERGE 注意事項)。
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: navigationShell,
+      body: widget.navigationShell,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
+        selectedIndex: widget.navigationShell.currentIndex,
         onDestinationSelected: (index) {
-          navigationShell.goBranch(
+          widget.navigationShell.goBranch(
             index,
-            initialLocation: index == navigationShell.currentIndex,
+            initialLocation: index == widget.navigationShell.currentIndex,
           );
-          if (shouldRefreshDashboardOnBranchSwitch(index)) {
-            ref.invalidate(dashboardControllerProvider);
-          }
-          if (shouldRefreshStatsOnBranchSwitch(index)) {
-            ref.invalidate(workoutStatsControllerProvider);
-          }
         },
-        destinations: _destinations,
+        destinations: _AppShell._destinations,
       ),
     );
   }

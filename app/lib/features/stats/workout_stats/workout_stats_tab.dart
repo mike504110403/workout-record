@@ -49,34 +49,40 @@ class _WorkoutStatsContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(workoutStatsControllerProvider.notifier);
 
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          VolumeChartSection(
-            timeRange: state.timeRange,
-            muscleGroupFilter: state.muscleGroupFilter,
-            dataPoints: state.dataPoints,
-            stats: state.stats,
-            onTimeRangeChanged: controller.changeTimeRange,
-            onMuscleGroupFilterChanged: controller.selectMuscleGroupFilter,
-          ),
-          const SizedBox(height: 20),
-          _PrEntryCard(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (context) => const PrListPage()),
+    // 下拉刷新接上 controller.refresh()——比照 dashboard_page.dart 的
+    // RefreshIndicator 慣例。r2 review 打回記錄:refresh() 先前是死碼(定義
+    // 了但沒有任何呼叫端),這裡接上,不是刪掉那個方法。
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            VolumeChartSection(
+              timeRange: state.timeRange,
+              muscleGroupFilter: state.muscleGroupFilter,
+              dataPoints: state.dataPoints,
+              stats: state.stats,
+              onTimeRangeChanged: controller.changeTimeRange,
+              onMuscleGroupFilterChanged: controller.selectMuscleGroupFilter,
             ),
-          ),
-          const SizedBox(height: 20),
-          _WeekStatsRow(
-            weekWorkoutCount: state.weekWorkoutCount,
-            weekTotalVolume: state.weekTotalVolume,
-          ),
-          const SizedBox(height: 20),
-          _RecentWorkoutsSection(recentWorkouts: state.recentWorkouts),
-        ],
+            const SizedBox(height: 20),
+            _PrEntryCard(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (context) => const PrListPage()),
+              ),
+            ),
+            const SizedBox(height: 20),
+            _WeekStatsRow(
+              weekWorkoutCount: state.weekWorkoutCount,
+              weekTotalVolume: state.weekTotalVolume,
+            ),
+            const SizedBox(height: 20),
+            _RecentWorkoutsSection(recentWorkouts: state.recentWorkouts),
+          ],
+        ),
       ),
     );
   }
@@ -114,7 +120,7 @@ class _PrEntryCard extends StatelessWidget {
               const SizedBox(width: 12),
               Text('個人記錄 (PR)', style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
-              const Icon(Icons.chevron_right, color: Colors.grey),
+              Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -176,11 +182,32 @@ class _RecentWorkoutsSection extends StatelessWidget {
       children: [
         Text('最近訓練', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
+        // 對齊 iOS `EmptyWorkoutStatsView`(圖示 + 「尚無訓練記錄」+ 「開始
+        // 你的第一次訓練吧！」兩行文案),r2 review 打回記錄:先前只有單行
+        // 文字、沒有圖示與第二行鼓勵文案。
         if (recentWorkouts.isEmpty)
-          const Padding(
-            key: Key('statsRecentWorkoutsEmpty'),
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: Text('尚無訓練記錄')),
+          Padding(
+            key: const Key('statsRecentWorkoutsEmpty'),
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.directions_walk,
+                    size: 40,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('尚無訓練記錄', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '開始你的第一次訓練吧！',
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
           )
         else
           for (final workout in recentWorkouts) _RecentWorkoutRow(workout: workout),

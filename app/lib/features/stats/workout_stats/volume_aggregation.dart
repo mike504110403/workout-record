@@ -7,12 +7,6 @@ import '../../../data/models/exercise.dart';
 import '../../../data/models/workout.dart';
 import '../chart_palette.dart';
 
-/// 單一動作(排除暖身組)的容量,重量 × 次數加總。與 [nonWarmupTotalVolume]
-/// 同一套排暖身規則,只是作用在單一動作而非整筆訓練。
-double _nonWarmupExerciseVolume(WorkoutExercise exercise) => exercise.sets
-    .where((s) => !s.isWarmup)
-    .fold<double>(0, (sum, set) => sum + set.weight * set.reps);
-
 /// 單日的容量資料點:總容量 + 依肌群拆分的容量(只有「當天有練到」的肌群
 /// 才會是這個 map 的 key——沒練到的肌群不補 0 這個 entry,對齊 iOS
 /// `VolumeDataPoint.muscleGroupVolumes` 只在有動作命中該肌群時才寫入)。
@@ -92,7 +86,7 @@ List<VolumeDataPoint> aggregateVolumeByDate(List<Workout> workouts) {
     acc.total += nonWarmupTotalVolume(workout.exercises);
 
     for (final exercise in workout.exercises) {
-      final volume = _nonWarmupExerciseVolume(exercise);
+      final volume = nonWarmupExerciseVolume(exercise);
       if (volume <= 0) continue;
       final muscleGroup = resolveMuscleGroup(exercise);
       if (muscleGroup == null) continue;
@@ -117,14 +111,19 @@ List<VolumeDataPoint> aggregateVolumeByDate(List<Workout> workouts) {
   return points;
 }
 
-/// 依目前選中的肌群篩選,取出單一資料點對應要畫在圖上的容量值。
-/// `all` 用當日總容量;選了特定肌群時,若當天沒練到該肌群
-/// (`muscleGroupVolumes` 沒有這個 key)回傳 0(圖表上該點落底,不是跳過)。
+/// 依目前選中的肌群篩選,取出單一資料點對應的容量值。`all` 用當日總容量;
+/// 選了特定肌群時,若當天沒練到該肌群(`muscleGroupVolumes` 沒有這個 key)
+/// 回傳 0——**只用在統計摘要**([calculateVolumeStats] 會另外判斷是否要把這
+/// 種「沒練到」的日子排除在平均/最高之外);圖表繪製不用這個函式取值,見
+/// `volume_chart_spots.dart` 的 [MuscleGroupFilter] 是否 `>0` 才產生 mark
+/// (對齊 iOS `VolumeChartView.swift:106`,沒練到的日子整點跳過,不落底畫 0)。
+///
+/// `filter == all` 已提前 return,之後的分支 `filter.primaryMuscleGroup`
+/// 保證非 null(見 [MuscleGroupFilter.primaryMuscleGroup] 的 switch——只有
+/// `all` 回傳 null),不需要再判一次 null。
 double volumeForFilter(VolumeDataPoint point, MuscleGroupFilter filter) {
   if (filter == MuscleGroupFilter.all) return point.totalVolume;
-  final muscleGroup = filter.primaryMuscleGroup;
-  if (muscleGroup == null) return point.totalVolume;
-  return point.muscleGroupVolumes[muscleGroup] ?? 0;
+  return point.muscleGroupVolumes[filter.primaryMuscleGroup!] ?? 0;
 }
 
 /// 圖下統計摘要:平均容量/最高容量/數據點數。對照 iOS
@@ -136,6 +135,16 @@ double volumeForFilter(VolumeDataPoint point, MuscleGroupFilter filter) {
 /// ——不是把沒練到的日子當 0 拉低平均;但「數據點數」這個統計項固定顯示
 /// [dataPoints] 的總天數,不受肌群篩選影響(iOS 用的是
 /// `viewModel.dataPoints.count`,不是篩選後的子集合大小)。
+///
+/// **與 iOS 的刻意差異(空資料/篩選無命中時的「最高容量」)**:iOS
+/// `VolumeChartViewModel.maxVolume` 在完全沒有資料時回退成寫死的 `100`
+/// (那個值原本是給 iOS 圖表 y 軸上限用的 fallback,不是真的「最高容量」)。
+/// 這裡回傳 `0`——因為 [VolumeStats.highest] 在這個 Flutter 版本只用來
+/// 顯示在統計摘要文字上(見 `volume_chart_section.dart` 的
+/// `formatVolumeKg(stats.highest)`),沒有 iOS 那種「拿這個值當圖表 y 軸
+/// 上限」的用途,回傳 `0` 對使用者來說語意更誠實(「目前沒有資料」不該
+/// 顯示一個看起來像是真實數值的 `100`)。r2 review 打回記錄:此差異先前
+/// 只在 PR 回報文字裡提過,沒有落在程式碼裡,這裡補上。
 class VolumeStats {
   const VolumeStats({
     required this.average,
@@ -166,12 +175,14 @@ VolumeStats calculateVolumeStats(
     );
   }
 
-  final muscleGroup = filter.primaryMuscleGroup;
+  // `filter == all` 已在上面提前 return,這裡的 `filter.primaryMuscleGroup`
+  // 保證非 null(理由同 [volumeForFilter] 的文件註解),不需要再判一次。
+  final muscleGroup = filter.primaryMuscleGroup!;
   var total = 0.0;
   var highest = 0.0;
   var count = 0;
   for (final point in dataPoints) {
-    final volume = muscleGroup == null ? null : point.muscleGroupVolumes[muscleGroup];
+    final volume = point.muscleGroupVolumes[muscleGroup];
     if (volume == null) continue;
     total += volume;
     if (volume > highest) highest = volume;

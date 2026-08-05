@@ -88,18 +88,19 @@ class _EmptyChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      key: Key('volumeChartEmptyState'),
+    final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Center(
+      key: const Key('volumeChartEmptyState'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.show_chart, size: 48, color: Colors.grey),
-          SizedBox(height: 12),
-          Text('尚無訓練數據', style: TextStyle(fontWeight: FontWeight.w600)),
-          SizedBox(height: 4),
+          Icon(Icons.show_chart, size: 48, color: mutedColor),
+          const SizedBox(height: 12),
+          const Text('尚無訓練數據', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
           Text(
             '完成訓練後這裡會顯示容量趨勢',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: mutedColor),
           ),
         ],
       ),
@@ -121,6 +122,12 @@ class _VolumeLineChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = chartPalette[filter] ?? Colors.blue;
+    // 軸標籤用的日期清單必須跟 spots 用同一套篩選規則(見
+    // `chartPointsForFilter` 的文件註解)——肌群篩選模式下沒練到的日子會被
+    // 整個跳過,spots 的索引因此是篩選後子集合的連續索引,不是原始
+    // [dataPoints] 的索引,這裡的 `points` 必須對得上,不能直接用
+    // [dataPoints]。
+    final points = chartPointsForFilter(dataPoints, filter);
     final spots = buildVolumeSpots(dataPoints, filter);
     return LineChart(
       LineChartData(
@@ -144,14 +151,14 @@ class _VolumeLineChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 24,
-              interval: (dataPoints.length / 5).clamp(1, dataPoints.length).ceilToDouble(),
+              interval: (points.length / 5).clamp(1, points.isEmpty ? 1 : points.length).ceilToDouble(),
               getTitlesWidget: (value, meta) {
                 final index = value.round();
-                if (index < 0 || index >= dataPoints.length) return const SizedBox.shrink();
+                if (index < 0 || index >= points.length) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    formatChartAxisDate(dataPoints[index].date, timeRange),
+                    formatChartAxisDate(points[index].date, timeRange),
                     style: const TextStyle(fontSize: 10),
                   ),
                 );
@@ -159,16 +166,23 @@ class _VolumeLineChart extends StatelessWidget {
             ),
           ),
         ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: false,
-            barWidth: 2,
-            color: color,
-            dotData: const FlDotData(show: true),
-            belowBarData: BarAreaData(show: true, color: color.withValues(alpha: 0.1)),
-          ),
-        ],
+        // spots 為空時(篩選的肌群在目前範圍內完全沒有任何一天有記錄,但
+        // [dataPoints] 整體不是空的——外層 `dataPoints.isEmpty` 檢查放行到
+        // 這裡)不建立 [LineChartBarData]:對齊 iOS 同一種情境下只是畫出空
+        // 座標軸、沒有任何 mark 的行為,同時避開空 spots 清單餵給
+        // fl_chart 內部 `mostLeftSpot` 等 late 欄位可能未初始化的風險。
+        lineBarsData: spots.isEmpty
+            ? const []
+            : [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: false,
+                  barWidth: 2,
+                  color: color,
+                  dotData: const FlDotData(show: true),
+                  belowBarData: BarAreaData(show: true, color: color.withValues(alpha: 0.1)),
+                ),
+              ],
       ),
     );
   }
