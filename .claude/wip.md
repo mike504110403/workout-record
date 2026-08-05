@@ -46,7 +46,18 @@
 7. 掛同步波:Go 後端 + 同步 + 真 Auth + 隱私改版(強制 security + db review;上方前置決策先裁)+ sqlite3_flutter_libs EOL 遷移、dart format 專波擇機插入
 8. 發布波(三平台)
 
-## 波 4 進行中(2026-08-05 開)
+## 波 4:完成,全部 merged(2026-08-05 收波)
+
+- 整個 Stats tab 對等(Mike 裁決):殼三段切換 + 訓練統計(容量趨勢 fl_chart/肌群篩選/本週統計/最近訓練/PR 入口)+ 體重(趨勢圖+目標線+統計卡+CRUD)+ 經典三項(手動 CRUD+訓練推估+1RM 趨勢)+ PR 排行頁。三工人各過 review(A 兩輪、B 兩輪+迷你輪、C 一輪 PASS),接線 commit 165c81c(placeholder 換真身、失效點掛齊含 PR push 前 invalidate、390×844 三子頁 smoke 迴歸防線)。
+- **收波後 develop 全驗證(大腦親跑)**:analyze 0、**test 447/447**、web build ✓。StatCard 已抽 core/widgets(波 2 遺留兌現);router 失效機制升級為 didUpdateWidget 單一掛點(修了 context.go 繞過 invalidate 的真 bug,dashboard 同型洞一併補)。
+- 與 iOS 刻意差異(驗看時留意):Stats 預設停「訓練統計」(iOS 是體重;從 Dashboard 查看進度進來直達)、肌群篩選單選(iOS 多選疊線,記遺留)、三項手動紀錄全列(iOS 只 prefix(5),截掉的刪不到)、date picker 預設輸入模式(可一鍵切回日曆)。
+
+## 波 4 遺留(判斷題,不擋)
+
+- 肌群篩選多選疊線(iOS 對等缺口);時間範圍/軸標籤對齊兩處變異存活(程式對但無測試釘);filter 切換會丟飛行中的時間範圍切換(毫秒級窗口,合併寫回可解);同份資料過濾兩次(型別化可解);首訪雙查(工人自報,r2 reviewer 實測未重現,存疑);en-US date picker 測試依賴未掛 localizations(掛 zh_TW 時要改);_resolveUserId 已五份複本(該抽 features/auth 共用);format 函式 dashboard/stats 多份(該進 core);_liftLabels 兩份該用 PowerLift.value;PR 分組 mutable 值物件;fl_chart 1RM 趨勢 x 軸索引標籤重複風險(C 線,同 B 線已修的型);Colors.orange/blue accent 色寫死(repo 慣例不一致,判斷題)。
+- B 線溢出修復的變異宣稱在最終碼不精確(margin 歸零後單改 ratio 不重現;守門對 d28f6bb 原版驗證成立,大腦親測)——記錄備查,不影響防護有效性。
+
+## ~~波 4 進行中(2026-08-05 開)~~(以下為開波時計畫,留檔)
 
 - develop 已推(2f86bed)。範圍裁決(Mike):**整個 Stats tab 對等**——三子頁(體重趨勢+紀錄管理/訓練統計/經典三項)+ PR 排行頁;波 5 剩歷史+目標設定頁+成就。
 - 三工人平行(worktree 隔離):A `stats-shell-volume-worker`(shell 三段切換 + 訓練統計子頁:容量趨勢圖 fl_chart+肌群篩選/本週統計/最近訓練/PR 入口;含 StatCard 抽共用至 core/widgets[波 2 遺留兌現]與 router 分支切回 invalidate 比照 dashboard);B `stats-bodyweight-worker`(體重子頁:趨勢圖+目標線+統計+紀錄列表/編輯/刪除,重用 dashboard 的新增 sheet);C `stats-powerlifting-worker`(經典三項子頁:手動 CRUD+系統推估+1RM 趨勢;PR 排行頁 getPRSummary)。
@@ -55,4 +66,6 @@
 
 ## 下一步
 
-1. 收 A/B/C → 各自驗收 + review chain(A 涉新讀查詢加 db)→ merge + 接線 → 波 4 收波 + Mike 驗看波 2~4。
+1. Mike 模擬器/瀏覽器驗看波 2~4(Dashboard、換帳號、模板、記訓練全流程+重啟恢復、Stats 三子頁+PR 排行;iOS 刻意差異清單見波 4 節)。
+2. develop 領先 origin(波 4 全部 commit 未推),要推說一聲。
+3. 裁波 2~4 遺留判斷題 → 開波 5(歷史 + 目標設定頁 + 成就;體重已在波 4 做完)。
