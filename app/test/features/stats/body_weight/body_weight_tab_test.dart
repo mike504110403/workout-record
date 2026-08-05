@@ -162,6 +162,15 @@ Future<_Harness> _setUpHarness({
 /// 呼叫前提:`bodyWeightFormDateButton` 已經在畫面上(表單已開啟)。
 /// [mmddyyyy] 對照 input 模式的 `mm/dd/yyyy` 格式;[hour12] 是 1-12 的
 /// 12 小時制文字;[isAm] 決定 AM/PM。
+///
+/// **locale 依賴**:這裡假設的 `mm/dd/yyyy` 格式、"OK"/"AM"/"PM" 按鈕
+/// 文字,都是 App 目前**沒有掛 `flutter_localizations`**、MaterialApp
+/// 走內建預設 locale(en-US)時 `showDatePicker`/`showTimePicker` 的實際
+/// 輸出(見本檔案開發過程用一支探索性測試實測確認,不是憑印象猜的)。
+/// 之後若替 App 掛上 `zh_TW` 之類的在地化(`flutter_localizations` +
+/// `MaterialApp.localizationsDelegates`/`supportedLocales`),這裡假設的
+/// 日期格式與按鈕文字會跟著換掉(例如 "OK" 可能變成「確定」,日期格式
+/// 可能變成 `yyyy/mm/dd`),屆時要回來同步改這個 helper,不會自動相容。
 Future<void> _pickCustomDateTime(
   WidgetTester tester, {
   required String mmddyyyy,
@@ -344,6 +353,40 @@ void main() {
       expect(gap01, t1.difference(t0).inMilliseconds.toDouble());
       expect(gap12, t2.difference(t1).inMilliseconds.toDouble());
     });
+
+    // review 打回 S1:資料點全部集中在一週內時,沒有明確指定 X 軸刻度
+    // interval,fl_chart 自動算出的間隔可能小於一天,導致同一天被畫上
+    // 好幾個刻度、標籤文字(M/d)重複出現。
+    testWidgets('7 天每日一筆:X 軸標籤不重複(review 打回 S1)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      for (var i = 0; i < 7; i++) {
+        await harness.bodyWeightRepo.create(
+          _entry(id: 'daily-$i', weight: 70.0 + i, measuredAt: now.subtract(Duration(days: 6 - i))),
+        );
+      }
+
+      await _pump(tester, harness);
+
+      final chartArea = find.byKey(const Key('bodyWeightChart'));
+      final dateLabelTexts = tester
+          .widgetList<Text>(find.descendant(of: chartArea, matching: find.byType(Text)))
+          .map((t) => t.data)
+          .whereType<String>()
+          // X 軸標籤格式固定是 `M/d`(見 body_weight_chart.dart 的
+          // getTitlesWidget),用這個 pattern 從畫面上所有文字裡挑出來,
+          // 不會跟圖表其他文字(目標線標籤「目標 xx.x kg」、Y 軸體重刻度)
+          // 混淆。
+          .where((s) => RegExp(r'^\d{1,2}/\d{1,2}$').hasMatch(s))
+          .toList();
+
+      expect(dateLabelTexts, isNotEmpty);
+      expect(
+        dateLabelTexts.toSet().length,
+        dateLabelTexts.length,
+        reason: '不應該有重複的日期標籤,實際渲染出:$dateLabelTexts',
+      );
+    });
   });
 
   group('統計資訊卡', () {
@@ -411,6 +454,62 @@ void main() {
 
       expect(
         find.descendant(of: find.byKey(const Key('bodyWeightStatCard-target')), matching: find.text('—')),
+        findsOneWidget,
+      );
+    });
+
+    // review 打回(產品級,必修):390pt 寬手機(iPhone SE/mini 這個級別)
+    // 三欄統計卡在舊的 childAspectRatio: 1.6 下會 RenderFlex overflow(見
+    // body_weight_stats_grid.dart build() 開頭的修正註解)。這裡直接把
+    // 測試視窗設成 390×844 邏輯像素(devicePixelRatio 設 1.0,physicalSize
+    // 就等於邏輯尺寸,不用另外換算),斷言沒有任何例外被拋出、且六張卡的
+    // 文字都還完整可見——變異(把 childAspectRatio 改回 1.6)必紅。
+    testWidgets('390×844 手機寬度:統計卡六格無 overflow,文字皆可見(review 打回必修)', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final harness = await _setUpHarness();
+      await _seedThreeEntries(harness);
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(id: 'goal-1', userId: testUserId, targetWeight: 70.0, createdAt: now, updatedAt: now),
+      );
+
+      await _pump(tester, harness);
+
+      // 沒有 RenderFlex overflow(或任何其他)例外——debug/test 模式下
+      // overflow 會拋出可被 tester.takeException() 捕捉到的錯誤;release
+      // 模式雖然只是裁字不會整頁崩潰,但裁字本身就是「使用者看不到完整
+      // 數字」的產品級缺陷,test 模式的例外正是偵測它的訊號。
+      expect(tester.takeException(), isNull);
+
+      // 六張卡都渲染出來,文字內容(標籤+數值)完整可見,不是被裁到消失。
+      for (final key in ['current', 'target', 'average', 'max', 'min', 'change']) {
+        expect(find.byKey(Key('bodyWeightStatCard-$key')), findsOneWidget, reason: 'stat card: $key');
+      }
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-current')),
+          matching: find.text('78.0 kg'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-target')),
+          matching: find.text('70.0 kg'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-change')),
+          matching: find.text('+2.0 kg'),
+        ),
         findsOneWidget,
       );
     });

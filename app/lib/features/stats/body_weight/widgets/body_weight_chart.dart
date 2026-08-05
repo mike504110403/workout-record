@@ -2,11 +2,16 @@
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Charts/BodyWeightChartView.swift`：
 // 平滑曲線（isCurved，對齊 iOS `.interpolationMethod(.catmullRom)`）、藍色
 // 漸層面積（上藍下透明）、資料點標記、綠色虛線目標體重水平線（無目標不畫）。
+import 'dart:math' as math;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../data/models/body_weight.dart';
 import '../body_weight_stats.dart';
+
+/// 一天的毫秒數，X 軸標籤的最小刻度間隔——見 `_bottomTitleInterval`。
+const _oneDayMs = 24 * 60 * 60 * 1000;
 
 class BodyWeightChart extends StatelessWidget {
   const BodyWeightChart({
@@ -42,6 +47,26 @@ class BodyWeightChart extends StatelessWidget {
     ];
 
     final target = targetWeight;
+
+    // review 打回 S1:X 軸標籤短跨度重複——沒有明確指定 `interval` 時,
+    // fl_chart 會依圖表寬度自行切出刻度間隔,資料點全部集中在一週內這種
+    // 短時間跨度時,自動算出的間隔可能小於一天,同一天的多個刻度會各自
+    // 顯示一次「M/d」文字,畫面上出現重複標籤。這裡強制刻度間隔至少一天
+    // （`_oneDayMs`），並隨資料橫跨的總時間範圍等比放大（`range / 4`,約
+    // 四個刻度）,兩者取大,減少候選刻度數。
+    //
+    // 但光靠 `interval` 不夠——實測 fl_chart 除了照 interval 等距切出的
+    // 刻度之外,還會額外補一個貼齊 `maxX`(資料最後一筆)的邊界刻度確保
+    // 範圍終點有刻度可看,這個邊界刻度常常跟前一個 interval 刻度落在同一
+    // 天,單靠拉大 interval 治不了這種「邊界刻度」重複。改成在
+    // `getTitlesWidget` 裡用一個閉包變數 `lastShownDate` 追蹤「上一個真的
+    // 畫出來的刻度是哪一天」——fl_chart 依 x 遞增順序逐一呼叫這個
+    // callback,同一天的後續刻度直接回傳 `SizedBox.shrink()`(佔位但不畫
+    // 文字),確保畫面上任何時刻看到的日期標籤都是唯一的。
+    final xs = spots.map((s) => s.x);
+    final rangeMs = spots.isEmpty ? 0.0 : (xs.reduce(math.max) - xs.reduce(math.min));
+    final bottomInterval = math.max(rangeMs / 4, _oneDayMs.toDouble());
+    DateTime? lastShownDate;
 
     return SizedBox(
       key: const Key('bodyWeightChart'),
@@ -99,8 +124,16 @@ class BodyWeightChart extends StatelessWidget {
                 sideTitles: SideTitles(
                   showTitles: true,
                   reservedSize: 24,
+                  interval: bottomInterval,
                   getTitlesWidget: (value, meta) {
                     final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                    final last = lastShownDate;
+                    final isSameDayAsLastShown =
+                        last != null && last.year == date.year && last.month == date.month && last.day == date.day;
+                    if (isSameDayAsLastShown) {
+                      return const SizedBox.shrink();
+                    }
+                    lastShownDate = date;
                     return Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text('${date.month}/${date.day}', style: const TextStyle(fontSize: 10)),

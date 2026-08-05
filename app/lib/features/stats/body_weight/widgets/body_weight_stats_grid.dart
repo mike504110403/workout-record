@@ -16,12 +16,24 @@ class BodyWeightStatsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // review 打回(必修):390pt 寬手機(如 iPhone SE/mini)三欄 +
+    // childAspectRatio: 1.6 時,每格實際高度扣掉 Card 預設 margin(4×2)+
+    // 內距(8×2)後只剩 ~47px,裝不下「標籤 + 數值」兩行文字,
+    // `_StatTile` 內的 Column 會 RenderFlex overflow(release 模式直接把
+    // 溢出的文字裁掉,使用者看不到完整數字)。改成 childAspectRatio: 1.0
+    // （每格接近正方形,留更多垂直空間）＋ Card margin 歸零(GridView 本身
+    // 已經用 crossAxisSpacing/mainAxisSpacing 控制間距,Card 預設的
+    // `EdgeInsets.all(4)` margin只是白白吃掉可用空間,不需要疊加兩層
+    // 間距)。390×844 手機畫布的 widget test 見
+    // test/features/stats/body_weight/body_weight_tab_test.dart「手機寬度
+    // 溢出」——斷言 `tester.takeException()` 為 null、六卡文字皆可見;
+    // 變異(改回 1.6)必紅。
     return GridView.count(
       key: const Key('bodyWeightStatsGrid'),
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 3,
-      childAspectRatio: 1.6,
+      childAspectRatio: 1.0,
       mainAxisSpacing: 8,
       crossAxisSpacing: 8,
       children: [
@@ -89,6 +101,10 @@ class _StatTile extends StatelessWidget {
 
     return Card(
       key: Key('bodyWeightStatCard-$statKey'),
+      // GridView 本身已經用 crossAxisSpacing/mainAxisSpacing 控制格子間的
+      // 間距,Card 預設的 `EdgeInsets.all(4)` margin 只是多疊一層、白白吃掉
+      // 本來就緊繃的可用高度（見上面 build() 的 review 打回註解），歸零。
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: Column(

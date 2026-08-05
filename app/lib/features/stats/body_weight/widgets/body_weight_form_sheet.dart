@@ -74,9 +74,12 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
   // 預設的日曆格子／時鐘轉盤要靠座標手勢或不穩定的「找數字文字」去點選,
   // widget test 很容易因為月份格線佈局、12/24 小時制轉盤角度算法而 flaky。
   // 換成文字輸入模式後,widget test 可以直接用 `tester.enterText` 打一組
-  // 確定的日期/時間字串,決定性、不依賴畫面座標。這是純粹的可測試性考量,
-  // 使用者體感上兩種模式都是 Flutter 內建元件、都有「切換回日曆/轉盤」的
-  // 圖示可以點,不影響功能對等。
+  // 確定的日期/時間字串,決定性、不依賴畫面座標。
+  //
+  // 使用者體感上的實際差異(review 實測確認):對話框預設**直接進入輸入
+  // 模式**(打開就是文字輸入框,不是日曆/轉盤畫面),右上角有一顆圖示可以
+  // 一鍵切回日曆/轉盤——多數使用者仍能無痛切換回熟悉的視覺挑選方式,但
+  // 「一開始看到的畫面長什麼樣」確實變了,不是「完全不影響」。
   Future<void> _pickDate() async {
     final date = await showDatePicker(
       context: context,
