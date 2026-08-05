@@ -13,15 +13,7 @@ import 'rest_timer_bar.dart';
 import 'rest_timer_controller.dart';
 import 'workout_controller.dart';
 import 'workout_summary_sheet.dart';
-
-double _liveTotalVolume(Workout draft) => draft.exercises.fold<double>(
-      0,
-      (sum, e) => sum +
-          e.sets.where((s) => !s.isWarmup).fold<double>(0, (s, set) => s + set.weight * set.reps),
-    );
-
-int _liveTotalSets(Workout draft) =>
-    draft.exercises.fold<int>(0, (sum, e) => sum + e.sets.where((s) => !s.isWarmup).length);
+import 'workout_ui_shared.dart';
 
 class WorkoutInProgressView extends ConsumerWidget {
   const WorkoutInProgressView({super.key});
@@ -135,8 +127,8 @@ class _WorkoutHeaderState extends State<_WorkoutHeader> {
     // 時長從 draft.startedAt 現算——重啟恢復後 startedAt 就是原本的開始
     // 時間,「時長從原 startedAt 續算」不需要額外欄位或邏輯。
     final elapsed = DateTime.now().difference(widget.draft.startedAt);
-    final totalVolume = _liveTotalVolume(widget.draft);
-    final totalSets = _liveTotalSets(widget.draft);
+    final totalVolume = nonWarmupTotalVolume(widget.draft.exercises);
+    final totalSets = nonWarmupTotalSets(widget.draft.exercises);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -230,10 +222,12 @@ class _ExerciseCard extends ConsumerWidget {
             restSeconds: result.restSeconds,
           );
       // 儲存組後自動啟動組間休息倒數(D 規格)——暖身組不啟動(對照 iOS
-      // AddSetSheet 只在 `!isWarmup` 時提供休息秒數選項)。`start()` 內部
-      // 一律先取消既有計時器再重啟,天生涵蓋「休息計時中儲存下一組 →
-      // 重啟計時器」(矩陣)。
-      if (!result.isWarmup) {
+      // AddSetSheet 只在 `!isWarmup` 時提供休息秒數選項),非暖身組時再依
+      // `autoStartRestTimer` 開關決定是否真的啟動(見 add_set_sheet.dart
+      // `AddSetResult.autoStartRestTimer` 文件的與 iOS 刻意差異說明)。
+      // `start()` 內部一律先取消既有計時器再重啟,天生涵蓋「休息計時中
+      // 儲存下一組 → 重啟計時器」(矩陣)。
+      if (!result.isWarmup && result.autoStartRestTimer) {
         ref.read(restTimerControllerProvider.notifier).start(
               seconds: result.restSeconds,
               exerciseName: _displayName,
@@ -254,7 +248,7 @@ class _ExerciseCard extends ConsumerWidget {
       initialReps: set.reps,
       initialRpe: set.rpe,
       initialIsWarmup: set.isWarmup,
-      initialRestSeconds: set.restSeconds ?? 90,
+      initialRestSeconds: set.restSeconds ?? kDefaultRestSeconds,
     );
     if (result == null || !context.mounted) return;
 
@@ -339,8 +333,8 @@ class _ExerciseCard extends ConsumerWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: Text('#${set.setNumber}${set.isWarmup ? ' 暖身' : ''}'),
                 title: Text(
-                  '${_trimZeros(set.weight)} kg × ${set.reps} 次'
-                  '${set.rpe != null ? '  RPE ${_trimZeros(set.rpe!)}' : ''}',
+                  '${trimZeros(set.weight)} kg × ${set.reps} 次'
+                  '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
                 ),
                 subtitle: Text('容量 ${set.volume.toStringAsFixed(0)}'),
                 trailing: Row(
@@ -488,9 +482,4 @@ class _BottomActions extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _trimZeros(double value) {
-  if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-  return value.toString();
 }

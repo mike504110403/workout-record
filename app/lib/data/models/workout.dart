@@ -305,3 +305,19 @@ class WorkoutSet {
     );
   }
 }
+
+/// 排除暖身組後的總容量(重量 × 次數加總)。對齊 iOS
+/// `WorkoutViewModel.swift:233-236`(`updateTotals()`)與 `:402-405`
+/// (`WorkoutExerciseViewModel.totalVolume`)——兩處皆先
+/// `filter { !$0.isWarmup }` 才加總。`WorkoutRepository.completeWorkout`
+/// (現算已完成訓練的統計)與 `workout_in_progress_view.dart` 的即時統計列
+/// 曾經各自重寫一份這個邏輯,兩處一度不同步,收斂成單一函式共用。
+double nonWarmupTotalVolume(List<WorkoutExercise> exercises) => exercises.fold<double>(
+      0,
+      (sum, e) =>
+          sum + e.sets.where((s) => !s.isWarmup).fold<double>(0, (s, set) => s + set.weight * set.reps),
+    );
+
+/// 排除暖身組後的總組數,理由同 [nonWarmupTotalVolume]。
+int nonWarmupTotalSets(List<WorkoutExercise> exercises) =>
+    exercises.fold<int>(0, (sum, e) => sum + e.sets.where((s) => !s.isWarmup).length);

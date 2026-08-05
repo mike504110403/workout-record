@@ -29,8 +29,7 @@ import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import 'one_rm_calculator.dart';
 import 'templates/applied_template.dart';
-
-const _unset = Object();
+import 'workout_ui_shared.dart';
 
 /// 訓練核心流的狀態。[draft] 為 null 代表沒有進行中的訓練(顯示開始畫面);
 /// 非 null 時 `draft.endedAt` 必為 null(進行中草稿)。
@@ -48,18 +47,6 @@ class WorkoutFlowState {
   final bool isAbandoning;
 
   bool get isActive => draft != null;
-
-  WorkoutFlowState copyWith({
-    Object? draft = _unset,
-    bool? isCompleting,
-    bool? isAbandoning,
-  }) {
-    return WorkoutFlowState(
-      draft: identical(draft, _unset) ? this.draft : draft as Workout?,
-      isCompleting: isCompleting ?? this.isCompleting,
-      isAbandoning: isAbandoning ?? this.isAbandoning,
-    );
-  }
 }
 
 /// [WorkoutController.completeWorkout] 的結果。冪等設計的關鍵型別——
@@ -151,10 +138,20 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 使用者選擇「繼續上次訓練」:把草稿接手進 [state](動作/組/起始時間
   /// 全部照 DB 內容還原——duration 顯示由 UI 用 `draft.startedAt` 與現在
   /// 時間現算,不需要額外欄位,見 workout_in_progress_view.dart)。
+  ///
+  /// 接手前驗證 [workoutId] 確實還是「進行中」(`endedAt == null`)且屬於
+  /// 目前登入的使用者([workout.userId] 相符)——`checkForRecoverableDraft`
+  /// 與這裡的呼叫之間有一段 UI 對話框等待使用者確認的空窗期,理論上不會
+  /// 有東西在這段期間把草稿結清或換帳號,但驗證失敗時安全地 no-op(不接手
+  /// 一筆已經不是「這個使用者的進行中草稿」的資料),好過信任呼叫端傳進來
+  /// 的 id 一定還有效。
   Future<void> resumeDraft(String workoutId) => _synchronized(() async {
         if (state.value?.draft != null) return;
+        final userId = await _resolveUserId();
+        if (userId == null) return;
         final workout = await ref.read(workoutRepositoryProvider).fetchById(workoutId);
         if (workout == null) return;
+        if (workout.endedAt != null || workout.userId != userId) return;
         state = AsyncData(WorkoutFlowState(draft: workout));
       });
 
@@ -167,12 +164,23 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
 
   /// 開始自由訓練。已有進行中草稿時 no-op(矩陣:開始訓練連點兩下/已有
   /// 草稿時再按開始,理論上 UI 不可達,這裡是 controller 層的守門)。
+  ///
+  /// 記憶體狀態([state.value?.draft])只擋得住同一個 controller instance
+  /// 內連續呼叫的情境——`build()` 重跑(換帳號、`ref.invalidate` 重試)會
+  /// 讓 [state] 回到乾淨的 idle,但 DB 裡草稿列本身沒有消失。因此開始前
+  /// 一律先查一次 DB([WorkoutRepository.fetchDraft]):查到既有草稿就直接
+  /// 接手進 [state],不會在草稿還沒被使用者明確放棄的情況下多開一筆。
   Future<void> startFreeWorkout() => _synchronized(() async {
         if (state.value?.draft != null) return;
         final userId = await _requireUserId();
+        final repo = ref.read(workoutRepositoryProvider);
+        final existingDraft = await repo.fetchDraft(userId);
+        if (existingDraft != null) {
+          state = AsyncData(WorkoutFlowState(draft: existingDraft));
+          return;
+        }
         final now = DateTime.now();
         final workoutId = generateUuidV4();
-        final repo = ref.read(workoutRepositoryProvider);
         await repo.create(Workout(
           id: workoutId,
           userId: userId,
@@ -186,10 +194,17 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 從模板開始:[template] 已經是 `applyTemplate` 展開好的初始資料
   /// (suggestedSets/Reps 為 null 時的 `?? 3`/`?? 10` 已在 applied_template.dart
   /// 處理過),這裡只負責把它轉成一筆完整的 Workout 一次性寫入。已有進行中
-  /// 草稿時 no-op,同 [startFreeWorkout]。
+  /// 草稿時 no-op,同 [startFreeWorkout](含開始前先查 DB 的孤兒草稿防線,
+  /// 見該方法文件)。
   Future<void> startFromTemplate(AppliedTemplate template) => _synchronized(() async {
         if (state.value?.draft != null) return;
         final userId = await _requireUserId();
+        final repo = ref.read(workoutRepositoryProvider);
+        final existingDraft = await repo.fetchDraft(userId);
+        if (existingDraft != null) {
+          state = AsyncData(WorkoutFlowState(draft: existingDraft));
+          return;
+        }
         final now = DateTime.now();
         final workoutId = generateUuidV4();
 
@@ -220,7 +235,6 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
           ));
         }
 
-        final repo = ref.read(workoutRepositoryProvider);
         await repo.create(Workout(
           id: workoutId,
           userId: userId,
@@ -267,7 +281,9 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
 
   Future<void> removeExercise(String workoutExerciseId) => _synchronized(() async {
         final draft = _requireDraft();
-        await ref.read(workoutRepositoryProvider).removeExercise(workoutExerciseId);
+        await ref
+            .read(workoutRepositoryProvider)
+            .removeExercise(workoutExerciseId, workoutId: draft.id);
         await _refresh(draft.id);
       });
 
@@ -289,7 +305,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     required int reps,
     double? rpe,
     bool isWarmup = false,
-    int restSeconds = 90,
+    int restSeconds = kDefaultRestSeconds,
   }) =>
       _synchronized(() async {
         final draft = _requireDraft();

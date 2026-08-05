@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/workout.dart';
+import 'workout_ui_shared.dart';
 
 /// 顯示結算報告。關閉後回到開始畫面(呼叫端不需要另外處理——訓練完成時
 /// [WorkoutController.completeWorkout] 已經把 state 收回 idle)。
@@ -114,7 +115,7 @@ class _WorkoutSummarySheet extends StatelessWidget {
                             Chip(
                               key: Key('summarySetBadge_${set.id}'),
                               label: Text(
-                                '${_trimZeros(set.weight)}kg × ${set.reps}${set.isWarmup ? ' (暖身)' : ''}',
+                                '${trimZeros(set.weight)}kg × ${set.reps}${set.isWarmup ? ' (暖身)' : ''}',
                               ),
                             ),
                         ],
@@ -163,9 +164,4 @@ String _formatMinutes(int minutes) {
   final mins = minutes % 60;
   if (hours > 0) return '$hours小時$mins分鐘';
   return '$mins分鐘';
-}
-
-String _trimZeros(double value) {
-  if (value == value.roundToDouble()) return value.toStringAsFixed(0);
-  return value.toString();
 }

@@ -49,9 +49,32 @@ class WorkoutRepository {
     });
   }
 
-  /// 從進行中的訓練移除一個動作(其下 sets 透過 FK cascade 一併刪除)。
-  Future<void> removeExercise(String workoutExerciseId) async {
-    await (_db.delete(_db.workoutExercises)..where((t) => t.id.equals(workoutExerciseId))).go();
+  /// 從進行中的訓練移除一個動作(其下 sets 透過 FK cascade 一併刪除),並把
+  /// 同一訓練([workoutId])下剩餘動作的 `orderIndex` 重新編號成連續的
+  /// 0..N-1(對照 [deleteSet] 的 renumber 手法——不留編號空洞,避免
+  /// controller `addExercise` 用 `draft.exercises.length` 算下一個
+  /// orderIndex 時撞號)。單一 transaction,刪除與重編號要嘛都成功要嘛都
+  /// 不生效;找不到該動作(rowsAffected 0)拋 StateError,與同批方法一致。
+  Future<void> removeExercise(String workoutExerciseId, {required String workoutId}) async {
+    await _db.transaction(() async {
+      final rowsAffected = await (_db.delete(_db.workoutExercises)
+            ..where((t) => t.id.equals(workoutExerciseId)))
+          .go();
+      if (rowsAffected == 0) {
+        throw StateError('WorkoutExercise not found: $workoutExerciseId');
+      }
+
+      final remaining = await (_db.select(_db.workoutExercises)
+            ..where((t) => t.workoutId.equals(workoutId))
+            ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+          .get();
+      for (var i = 0; i < remaining.length; i++) {
+        if (remaining[i].orderIndex != i) {
+          await (_db.update(_db.workoutExercises)..where((t) => t.id.equals(remaining[i].id)))
+              .write(db.WorkoutExercisesCompanion(orderIndex: Value(i)));
+        }
+      }
+    });
   }
 
   /// 標記動作完成/取消完成。
@@ -116,11 +139,18 @@ class WorkoutRepository {
     });
   }
 
-  /// 放棄訓練草稿:等同 [delete]——刪除 workout row,exercises/sets 透過
-  /// FK cascade 一併清除。取獨立的名字是為了在呼叫端(controller/測試)
-  /// 讀起來語意明確是「放棄草稿」而非「刪除一筆已完成訓練」,行為上兩者
-  /// 完全相同。
-  Future<void> discardDraft(String workoutId) => delete(workoutId);
+  /// 放棄訓練草稿:刪除 workout row(exercises/sets 透過 FK cascade 一併
+  /// 清除),但**只刪還在進行中的草稿**(`endedAt IS NULL`)——與 [delete]
+  /// 的差異就在這道結構守衛:呼叫端傳入的 id 若剛好是一筆已完成的訓練,
+  /// 這裡不會誤刪任何東西。找不到符合條件的列(id 不存在,或該列
+  /// `endedAt` 已非 null)時 rowsAffected 為 0,靜默視為冪等 no-op,不拋錯
+  /// ——對照 [WorkoutController.abandonWorkout]/`discardRecoverableDraft`
+  /// 的冪等呼叫慣例(連續呼叫兩次都必須安全)。
+  Future<void> discardDraft(String workoutId) async {
+    await (_db.delete(_db.workouts)
+          ..where((t) => t.id.equals(workoutId) & t.endedAt.isNull()))
+        .go();
+  }
 
   // MARK: - Read
 
@@ -129,12 +159,14 @@ class WorkoutRepository {
   /// 不得混進「已完成訓練」語意的查詢裡。[fetchAll]/[fetchByDateRange]/
   /// [fetchRecent]/[countWorkouts]/[calculateTotalVolume] 都套用這個過濾;
   /// [fetchById]/[fetchDraft]/[update]/[delete] 不套用(草稿本身也要能被
-  /// 這些方法讀寫)。
-  Expression<bool> get _isCompleted => _db.workouts.endedAt.isNotNull();
+  /// 這些方法讀寫)。吃明確的 [table] 參數而非隱含捕捉外層 `_db.workouts`
+  /// ——`_db.select`/`_db.selectOnly` 的呼叫端一律把自己查詢用的 table
+  /// 參照(callback 的 `t`,或 `_db.workouts` 本身)傳進來,依賴關係看得到。
+  Expression<bool> _isCompleted(db.$WorkoutsTable table) => table.endedAt.isNotNull();
 
   Future<List<Workout>> fetchAll() async {
     final rows = await (_db.select(_db.workouts)
-          ..where((t) => _isCompleted)
+          ..where((t) => _isCompleted(t))
           ..orderBy([(t) => OrderingTerm(expression: t.startedAt, mode: OrderingMode.desc)]))
         .get();
     return [for (final row in rows) await _hydrate(row)];
@@ -169,7 +201,7 @@ class WorkoutRepository {
 
   Future<List<Workout>> fetchByDateRange(DateTime from, DateTime to) async {
     final rows = await (_db.select(_db.workouts)
-          ..where((t) => t.startedAt.isBetweenValues(from, to) & _isCompleted)
+          ..where((t) => t.startedAt.isBetweenValues(from, to) & _isCompleted(t))
           ..orderBy([(t) => OrderingTerm(expression: t.startedAt, mode: OrderingMode.desc)]))
         .get();
     return [for (final row in rows) await _hydrate(row)];
@@ -177,7 +209,7 @@ class WorkoutRepository {
 
   Future<List<Workout>> fetchRecent(int limit) async {
     final rows = await (_db.select(_db.workouts)
-          ..where((t) => _isCompleted)
+          ..where((t) => _isCompleted(t))
           ..orderBy([(t) => OrderingTerm(expression: t.startedAt, mode: OrderingMode.desc)])
           ..limit(limit))
         .get();
@@ -215,9 +247,13 @@ class WorkoutRepository {
     await (_db.delete(_db.workouts)..where((t) => t.id.equals(id))).go();
   }
 
-  /// 批量刪除舊訓練(清理數據)。
+  /// 批量刪除舊訓練(清理數據)。只清「已完成」的訓練——進行中草稿
+  /// (`endedAt IS NULL`)不管 `startedAt` 多舊都不在清理範圍內,理由同
+  /// [_isCompleted] 文件:草稿不該被「已完成訓練」語意的批次操作誤傷。
   Future<void> deleteOlderThan(DateTime date) async {
-    await (_db.delete(_db.workouts)..where((t) => t.startedAt.isSmallerThanValue(date))).go();
+    await (_db.delete(_db.workouts)
+          ..where((t) => t.startedAt.isSmallerThanValue(date) & _isCompleted(t)))
+        .go();
   }
 
   // MARK: - Statistics
@@ -226,7 +262,7 @@ class WorkoutRepository {
   Future<double> calculateTotalVolume({DateTime? from, DateTime? to}) async {
     final query = _db.selectOnly(_db.workouts)
       ..addColumns([_db.workouts.totalVolume.sum()])
-      ..where(_isCompleted);
+      ..where(_isCompleted(_db.workouts));
     if (from != null) {
       query.where(_db.workouts.startedAt.isBiggerOrEqualValue(from));
     }
@@ -241,7 +277,7 @@ class WorkoutRepository {
   Future<int> countWorkouts({DateTime? from, DateTime? to}) async {
     final query = _db.selectOnly(_db.workouts)
       ..addColumns([_db.workouts.id.count()])
-      ..where(_isCompleted);
+      ..where(_isCompleted(_db.workouts));
     if (from != null) {
       query.where(_db.workouts.startedAt.isBiggerOrEqualValue(from));
     }
@@ -255,45 +291,53 @@ class WorkoutRepository {
   /// 完成訓練:根據目前已記錄的 exercises/sets 重新計算 totalVolume/totalSets/
   /// totalExercises 與 duration 並寫回。對照 Swift ViewModel 完成訓練時
   /// 手動計算後呼叫 `update` 的流程,這裡收斂成 repository 的單一操作。
-  Future<Workout> completeWorkout(String workoutId, {DateTime? endedAt}) async {
-    final workoutRow = await (_db.select(_db.workouts)..where((t) => t.id.equals(workoutId)))
-        .getSingleOrNull();
-    if (workoutRow == null) {
-      throw StateError('Workout not found: $workoutId');
-    }
+  ///
+  /// **DB 級冪等**:UPDATE 的 where 子句多帶一道 `endedAt IS NULL`——對已經
+  /// 完成過的訓練再呼叫一次,不會用這次現算的統計/`endedAt` 覆蓋掉第一次
+  /// 完成時寫入的內容,直接回傳目前已完成的內容。與
+  /// [WorkoutController.completeWorkout] 的記憶體 state 檢查互為兩道防線
+  /// (呼叫端序列化鎖擋住同一個 controller instance 的連續呼叫;這裡擋住
+  /// 繞過 controller 直接呼叫 repository,或 state 已經失準的情境)。
+  /// 整個計算與寫入包在單一 transaction 內,讀到的 exercises/sets 與最終
+  /// 寫入的統計欄位一致,不會被同時發生的其他寫入插隊。
+  Future<Workout> completeWorkout(String workoutId, {DateTime? endedAt}) {
+    return _db.transaction(() async {
+      final workoutRow = await (_db.select(_db.workouts)..where((t) => t.id.equals(workoutId)))
+          .getSingleOrNull();
+      if (workoutRow == null) {
+        throw StateError('Workout not found: $workoutId');
+      }
 
-    final exercises = await _fetchExercisesForWorkout(workoutId);
-    // totalVolume 從 sets 現算(weight × reps),不信任 WorkoutExercise.totalVolume
-    // 欄位——該欄位沒有任何寫入路徑會即時維護,與 totalSets/totalExercises 的現算行為一致。
-    // 暖身組(isWarmup)排除在外,對齊 iOS WorkoutViewModel.swift:294-366
-    // (`updateTotals()`/`WorkoutExerciseViewModel.totalVolume` 皆先
-    // `filter { !$0.isWarmup }` 才加總)——先前版本把全部組數(含暖身組)
-    // 一併算進 totalVolume/totalSets,與 iOS 語意不一致,已修正。
-    final totalVolume = exercises.fold<double>(
-      0,
-      (sum, e) => sum +
-          e.sets
-              .where((set) => !set.isWarmup)
-              .fold<double>(0, (s, set) => s + set.weight * set.reps),
-    );
-    final totalSetsCount =
-        exercises.fold<int>(0, (sum, e) => sum + e.sets.where((set) => !set.isWarmup).length);
-    final resolvedEndedAt = endedAt ?? DateTime.now();
-    final duration = resolvedEndedAt.difference(workoutRow.startedAt).inMinutes;
+      final exercises = await _fetchExercisesForWorkout(workoutId);
+      // totalVolume 從 sets 現算(weight × reps),不信任 WorkoutExercise.totalVolume
+      // 欄位——該欄位沒有任何寫入路徑會即時維護,與 totalSets/totalExercises 的現算行為一致。
+      // 暖身組(isWarmup)排除在外,對齊 iOS WorkoutViewModel.swift:232-235
+      // (`updateTotals()`)與 :402-405(`WorkoutExerciseViewModel.totalVolume`)
+      // ——兩處皆先 `filter { !$0.isWarmup }` 才加總。與
+      // `workout_in_progress_view.dart` 的即時統計列共用同一份加總邏輯
+      // ([nonWarmupTotalVolume]/[nonWarmupTotalSets]),曾經各自重寫一份、
+      // 兩處一度不同步,已收斂。
+      final totalVolume = nonWarmupTotalVolume(exercises);
+      final totalSetsCount = nonWarmupTotalSets(exercises);
+      final resolvedEndedAt = endedAt ?? DateTime.now();
+      final duration = resolvedEndedAt.difference(workoutRow.startedAt).inMinutes;
 
-    await (_db.update(_db.workouts)..where((t) => t.id.equals(workoutId))).write(
-      db.WorkoutsCompanion(
-        endedAt: Value(resolvedEndedAt),
-        duration: Value(duration),
-        totalVolume: Value(totalVolume),
-        totalSets: Value(totalSetsCount),
-        totalExercises: Value(exercises.length),
-        updatedAt: Value(DateTime.now()),
-        isSynced: const Value(false),
-      ),
-    );
+      await (_db.update(_db.workouts)
+            ..where((t) => t.id.equals(workoutId) & t.endedAt.isNull()))
+          .write(
+        db.WorkoutsCompanion(
+          endedAt: Value(resolvedEndedAt),
+          duration: Value(duration),
+          totalVolume: Value(totalVolume),
+          totalSets: Value(totalSetsCount),
+          totalExercises: Value(exercises.length),
+          updatedAt: Value(DateTime.now()),
+          isSynced: const Value(false),
+        ),
+      );
 
-    return (await fetchById(workoutId))!;
+      return (await fetchById(workoutId))!;
+    });
   }
 
   // MARK: - Conversion
