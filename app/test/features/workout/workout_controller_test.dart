@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/data/db/app_database.dart'
     hide Workout, WorkoutExercise, WorkoutSet, Exercise;
 import 'package:workout_record/data/models/exercise.dart';
+import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/personal_record_repository.dart';
@@ -23,7 +24,31 @@ import '../../data/test_helpers.dart';
 
 typedef _Harness = ({AppDatabase db, ProviderContainer container});
 
-Future<_Harness> _setUpHarness() async {
+/// M4 失敗路徑測試專用:模擬 `WorkoutRepository.completeWorkout` 寫入失敗。
+/// 只覆寫這一個方法,其餘沿用真實實作,對照
+/// templates_crud_test.dart `_ThrowingCreateTemplateRepository` 既有慣例。
+class _ThrowingCompleteWorkoutRepository extends WorkoutRepository {
+  _ThrowingCompleteWorkoutRepository(super.db, super.exerciseRepository);
+
+  @override
+  Future<Workout> completeWorkout(String workoutId, {DateTime? endedAt}) async {
+    throw Exception('模擬完成訓練寫入失敗(失敗路徑測試用)');
+  }
+}
+
+/// M4 失敗路徑測試專用:模擬 `WorkoutRepository.discardDraft` 寫入失敗。
+class _ThrowingDiscardDraftRepository extends WorkoutRepository {
+  _ThrowingDiscardDraftRepository(super.db, super.exerciseRepository);
+
+  @override
+  Future<void> discardDraft(String workoutId) async {
+    throw Exception('模擬放棄訓練寫入失敗(失敗路徑測試用)');
+  }
+}
+
+Future<_Harness> _setUpHarness({
+  WorkoutRepository Function(AppDatabase db)? workoutRepoBuilder,
+}) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
@@ -33,6 +58,8 @@ Future<_Harness> _setUpHarness() async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
+      if (workoutRepoBuilder != null)
+        workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
     ],
   );
   addTearDown(() async {
@@ -125,6 +152,74 @@ void main() {
 
       final rows = await (harness.db.select(harness.db.workouts)).get();
       expect(rows, hasLength(1));
+    });
+
+    // M2:兩條孤兒路徑(錯誤重試 ref.invalidate 後、換帳號往返後)的共同根因
+    // 是「state 回到 idle,但 DB 裡的草稿列沒有消失」——`ref.invalidate` 讓
+    // `build()` 重跑正是這個根因最直接的重現手法:新的 controller instance
+    // 記憶體裡沒有任何草稿,若 startFreeWorkout/startFromTemplate 只信任
+    // 記憶體狀態就會誤建第二筆。
+    //
+    // 雙向變異:把 startFreeWorkout 開頭新增的
+    // `final existingDraft = await repo.fetchDraft(userId); if (existingDraft
+    // != null) { ...; return; }` 拿掉,這則測試會紅(DB 草稿列從 1 筆變 2 筆)。
+    test('startFreeWorkout:state 因 invalidate 重跑回 idle 後,DB 已有草稿 → 接手既有草稿,不建第二筆',
+        () async {
+      final harness = await _setUpHarness();
+      await harness.container.read(workoutControllerProvider.future);
+      final firstNotifier = harness.container.read(workoutControllerProvider.notifier);
+      await firstNotifier.startFreeWorkout();
+      final firstDraftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+
+      // 模擬「build() 重跑回 idle,但 DB 草稿沒有消失」的孤兒情境(錯誤重試
+      // ref.invalidate/換帳號往返共同的根因)。
+      harness.container.invalidate(workoutControllerProvider);
+      await harness.container.read(workoutControllerProvider.future);
+      expect(harness.container.read(workoutControllerProvider).value!.draft, isNull);
+
+      final freshNotifier = harness.container.read(workoutControllerProvider.notifier);
+      await freshNotifier.startFreeWorkout();
+
+      final rows = await (harness.db.select(harness.db.workouts)).get();
+      expect(rows, hasLength(1));
+      expect(harness.container.read(workoutControllerProvider).value!.draft!.id, firstDraftId);
+    });
+
+    // 雙向變異同上:把 startFromTemplate 開頭新增的既有草稿查詢/接手邏輯
+    // 拿掉,這則測試會紅(DB 草稿列從 1 筆變 2 筆,且接手的內容會是模板展開
+    // 出來的新動作,不是原本自由訓練的空草稿)。
+    test('startFromTemplate:state 因 invalidate 重跑回 idle 後,DB 已有草稿 → 接手既有草稿,不套用模板',
+        () async {
+      final harness = await _setUpHarness();
+      final exercise = await _firstSystemExercise(harness.db);
+      await harness.container.read(workoutControllerProvider.future);
+      final firstNotifier = harness.container.read(workoutControllerProvider.notifier);
+      await firstNotifier.startFreeWorkout();
+      final firstDraftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+
+      harness.container.invalidate(workoutControllerProvider);
+      await harness.container.read(workoutControllerProvider.future);
+
+      final freshNotifier = harness.container.read(workoutControllerProvider.notifier);
+      final applied = AppliedTemplate(
+        templateId: 'template-orphan',
+        templateName: '孤兒草稿測試模板',
+        exercises: [
+          AppliedTemplateExercise(
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            sets: const [AppliedTemplateSet(weight: 0, reps: 10)],
+          ),
+        ],
+      );
+      await freshNotifier.startFromTemplate(applied);
+
+      final rows = await (harness.db.select(harness.db.workouts)).get();
+      expect(rows, hasLength(1));
+      final state = harness.container.read(workoutControllerProvider).value!;
+      expect(state.draft!.id, firstDraftId);
+      expect(state.draft!.templateId, isNull); // 接手的是原本的自由訓練草稿,不是模板套用結果
+      expect(state.draft!.exercises, isEmpty);
     });
   });
 
@@ -283,11 +378,10 @@ void main() {
     });
 
     // 雙向變異(放棄冪等):把 abandonWorkout() 開頭的
-    // `if (draft == null) return;` 拿掉,這則測試會炸(第二次呼叫在草稿已經
-    // 被刪除後,`WorkoutRepository.discardDraft` 對不存在的 id 呼叫
-    // `delete` 是 no-op 不會拋錯,但如果之後 abandonWorkout 邏輯改成先讀
-    // draft 再操作,就會在這裡命中——這則測試釘住「不管內部怎麼實作,呼叫
-        // 兩次都必須安全」這個外部可觀察契約)。
+    // `if (draft == null) return;` 早退改成用 `draft!` 強制解包繼續往下走,
+    // 這則測試會炸——第二次呼叫時 `state.value?.draft` 已經是 null,
+    // `draft!.id` 會拋出 Null check operator used on a null value。這則測試
+    // 釘住的是外部可觀察契約:不管內部怎麼實作,呼叫兩次都必須安全。
     test('放棄確認後再放棄 → no-op', () async {
       final notifier = harness.container.read(workoutControllerProvider.notifier);
       final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
@@ -423,6 +517,99 @@ void main() {
       final notifier = harness.container.read(workoutControllerProvider.notifier);
 
       expect(() => notifier.addExercise(exercise), throwsA(isA<StateError>()));
+    });
+
+    // M4:completeWorkout 的 catch 復位邏輯——`WorkoutRepository.completeWorkout`
+    // 寫入拋錯時,rethrow 給呼叫端之前必須先把 isCompleting 復位、草稿留在
+    // state(不能讓 UI 卡在 loading、也不能讓草稿憑空消失讓使用者無從重試)。
+    //
+    // 雙向變異:把 completeWorkout() 的 `catch (_) { state = AsyncData(
+    // WorkoutFlowState(draft: draft)); rethrow; }` 改成只 `rethrow` 不復位
+    // state,這則測試會紅(isCompleting 停在 true、或 draft 維持 completeWorkout
+    // 呼叫前一刻設成 isCompleting:true 的那個中間態)。
+    test('completeWorkout 失敗路徑:寫入拋錯 → rethrow,isCompleting 復位且草稿還在', () async {
+      final harness = await _setUpHarness(
+        workoutRepoBuilder: (db) => _ThrowingCompleteWorkoutRepository(db, ExerciseRepository(db)),
+      );
+      await harness.container.read(workoutControllerProvider.future);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await notifier.startFreeWorkout();
+      final draftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+
+      await expectLater(notifier.completeWorkout(), throwsA(isA<Exception>()));
+
+      final state = harness.container.read(workoutControllerProvider).value!;
+      expect(state.isCompleting, isFalse);
+      expect(state.draft, isNotNull);
+      expect(state.draft!.id, draftId);
+    });
+
+    // M4:abandonWorkout 的 catch 復位邏輯,理由同上——`WorkoutRepository.
+    // discardDraft` 寫入拋錯時,rethrow 前先復位 isAbandoning、草稿留在
+    // state。
+    //
+    // 雙向變異:把 abandonWorkout() 的 catch 區塊改成只 `rethrow` 不復位
+    // state,這則測試會紅(isAbandoning 停在 true)。
+    test('abandonWorkout 失敗路徑:寫入拋錯 → rethrow,isAbandoning 復位且草稿還在', () async {
+      final harness = await _setUpHarness(
+        workoutRepoBuilder: (db) => _ThrowingDiscardDraftRepository(db, ExerciseRepository(db)),
+      );
+      await harness.container.read(workoutControllerProvider.future);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await notifier.startFreeWorkout();
+      final draftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+
+      await expectLater(notifier.abandonWorkout(), throwsA(isA<Exception>()));
+
+      final state = harness.container.read(workoutControllerProvider).value!;
+      expect(state.isAbandoning, isFalse);
+      expect(state.draft, isNotNull);
+      expect(state.draft!.id, draftId);
+    });
+  });
+
+  group('PR 判定排除暖身組', () {
+    // M6:`_recordPersonalRecords` 的 `if (set.isWarmup) continue;` 若被拿掉,
+    // 暖身組(刻意設比正式組更高的重量,1RM 會更高)會被誤判為 PR 來源,
+    // 這則測試會紅在兩個地方:newPersonalRecordCount 變成 2、且
+    // `oneRepMax`(若只斷言正式組那筆)會因為暖身組先建立、正式組的 1RM
+    // 反而不是「新 PR」而不被建立(`isNewPR` 用「比現有最高 1RM 高」判斷)。
+    //
+    // 雙向變異:把 workout_controller.dart `_recordPersonalRecords` 裡的
+    // `if (set.isWarmup) continue;` 拿掉,這則測試會紅。
+    test('完成訓練:暖身組(重量刻意高於正式組)不建立 PR,只有正式組建立,數值與 achievedAt 手算核對',
+        () async {
+      final harness = await _setUpHarness();
+      final exercise = await _firstSystemExercise(harness.db);
+      final prRepo = PersonalRecordRepository(harness.db, ExerciseRepository(harness.db));
+      await harness.container.read(workoutControllerProvider.future);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+
+      await notifier.startFreeWorkout();
+      final startedAt = harness.container.read(workoutControllerProvider).value!.draft!.startedAt;
+      await notifier.addExercise(exercise);
+      final workoutExerciseId =
+          harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+
+      // 暖身組:100kg x 5 下,1RM(Epley)= 100 * (1 + 5/30) = 116.666...7
+      await notifier.addSet(
+          workoutExerciseId: workoutExerciseId, weight: 100, reps: 5, isWarmup: true);
+      // 正式組:60kg x 8 下,1RM(Epley)= 60 * (1 + 8/30) = 76
+      await notifier.addSet(workoutExerciseId: workoutExerciseId, weight: 60, reps: 8);
+      await notifier.setExerciseCompleted(workoutExerciseId, isCompleted: true);
+
+      final outcome = await notifier.completeWorkout();
+
+      expect(outcome, isA<WorkoutCompleted>());
+      expect((outcome as WorkoutCompleted).newPersonalRecordCount, 1);
+
+      final prs = await prRepo.fetchByExercise(exercise.id);
+      expect(prs, hasLength(1));
+      // 手算 Epley:60 * (1 + 8/30) = 76,不是照抄被測程式碼算出來的。
+      expect(prs.single.oneRepMax, closeTo(76.0, 0.0001));
+      expect(prs.single.weight, 60);
+      expect(prs.single.reps, 8);
+      expect(prs.single.achievedAt, startedAt);
     });
   });
 }

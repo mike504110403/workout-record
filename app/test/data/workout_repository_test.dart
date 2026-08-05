@@ -59,11 +59,10 @@ void main() {
     );
   }
 
-  // 注意:completeWorkout() 是把每個 WorkoutExercise.totalVolume 欄位加總,
-  // 並不是即時從 sets 的 weight*reps 重新計算(見下方 completeWorkout 測試
-  // 前的說明與回報的資料層問題)。這裡比照「正常使用流程」預先算好
-  // totalVolume/totalSets 才組出 WorkoutExercise,反映呼叫端(未來的
-  // ViewModel)必須自行維護這兩個欄位的前提。
+  // 注意:completeWorkout() 是從 sets 的 weight*reps 現算 totalVolume(見
+  // 下方 completeWorkout 測試群組),不信任 WorkoutExercise.totalVolume 欄位
+  // ——這裡仍先算好 totalVolume/totalSets 才組出 WorkoutExercise,單純是
+  // 比照「正常使用流程」的資料形狀,不是 completeWorkout 實際依賴它。
   WorkoutExercise buildExercise({
     required String id,
     required String workoutId,
@@ -167,6 +166,10 @@ void main() {
       await repository.create(buildWorkout(
         id: 'workout-2',
         startedAt: DateTime(2026, 1, 10, 8, 0),
+        // completeWorkout 只在進行中草稿(endedAt IS NULL)上有效(DB 級冪等
+        // 守衛,見 workout_repository.dart completeWorkout 文件)——明確傳
+        // null,不依賴 buildWorkout 「沒傳就當已完成」的預設值。
+        endedAt: null,
         exercises: [
           buildExercise(
             id: 'we-2a',
@@ -242,6 +245,8 @@ void main() {
       await repository.create(buildWorkout(
         id: 'workout-warmup',
         startedAt: DateTime(2026, 1, 10, 8, 0),
+        // 同上:completeWorkout 只在進行中草稿上有效,明確傳 null。
+        endedAt: null,
         exercises: [
           WorkoutExercise(
             id: 'we-warmup',
@@ -278,6 +283,40 @@ void main() {
       expect(completed.totalVolume, 200);
       expect(completed.totalSets, 1);
     });
+
+    // 雙向變異(DB 級冪等):把 UPDATE 的 where 子句從
+    // `t.id.equals(workoutId) & t.endedAt.isNull()` 改回單純
+    // `t.id.equals(workoutId)`,這則測試會紅——第二次呼叫會用
+    // `secondEndedAt`/現算的新統計覆寫掉第一次完成時寫入的內容。
+    test('completeWorkout 冪等:對已完成的訓練再次呼叫 → 不覆寫既有 endedAt/統計', () async {
+      await repository.create(buildWorkout(
+        id: 'workout-idempotent',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        endedAt: null,
+        exercises: [
+          buildExercise(
+            id: 'we-idempotent',
+            workoutId: 'workout-idempotent',
+            sets: [
+              buildSet(
+                  id: 'set-idempotent-1', workoutExerciseId: 'we-idempotent', setNumber: 1, weight: 50, reps: 10),
+            ],
+          ),
+        ],
+      ));
+
+      final firstEndedAt = DateTime(2026, 1, 10, 9, 0);
+      final first = await repository.completeWorkout('workout-idempotent', endedAt: firstEndedAt);
+      expect(first.totalVolume, 500);
+      expect(first.endedAt, firstEndedAt);
+
+      final secondEndedAt = DateTime(2026, 1, 10, 12, 0);
+      final second = await repository.completeWorkout('workout-idempotent', endedAt: secondEndedAt);
+
+      expect(second.endedAt, firstEndedAt); // 沒被第二次呼叫的 secondEndedAt 覆蓋
+      expect(second.duration, first.duration);
+      expect(second.totalVolume, 500);
+    });
   });
 
   group('delete', () {
@@ -310,6 +349,24 @@ void main() {
           await (db.select(db.workoutSets)..where((t) => t.workoutExerciseId.equals('we-3')))
               .get();
       expect(remainingSets, isEmpty);
+    });
+
+    // 雙向變異(草稿排除守衛):把 deleteOlderThan 的 where 子句從
+    // `t.startedAt.isSmallerThanValue(date) & _isCompleted(t)` 改回單純
+    // `t.startedAt.isSmallerThanValue(date)`,這則測試會紅——舊的進行中草稿
+    // 會被一併清掉。
+    test('deleteOlderThan:只清已完成的舊訓練,進行中草稿不管多舊都不清', () async {
+      await repository.create(buildWorkout(id: 'old-completed', startedAt: DateTime(2020, 1, 1)));
+      await repository.create(buildWorkout(
+        id: 'old-draft',
+        startedAt: DateTime(2020, 1, 1),
+        endedAt: null,
+      ));
+
+      await repository.deleteOlderThan(DateTime(2025, 1, 1));
+
+      expect(await repository.fetchById('old-completed'), isNull);
+      expect(await repository.fetchById('old-draft'), isNotNull);
     });
   });
 
@@ -379,7 +436,7 @@ void main() {
       await repository.addSet(buildSet(
           id: 'set-draft-3-1', workoutExerciseId: 'we-draft-3', setNumber: 1, weight: 10, reps: 5));
 
-      await repository.removeExercise('we-draft-3');
+      await repository.removeExercise('we-draft-3', workoutId: 'draft-3');
 
       final remainingExercise =
           await (db.select(db.workoutExercises)..where((t) => t.id.equals('we-draft-3')))
@@ -389,6 +446,54 @@ void main() {
           await (db.select(db.workoutSets)..where((t) => t.id.equals('set-draft-3-1')))
               .getSingleOrNull();
       expect(remainingSet, isNull);
+    });
+
+    test('removeExercise:動作不存在時拋出 StateError', () {
+      expect(
+        () => repository.removeExercise('does-not-exist', workoutId: 'nowhere'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('removeExercise:移除中間動作後,剩餘動作的 orderIndex 重新編號成連續的 0..N-1', () async {
+      await repository.create(buildWorkout(id: 'draft-orderidx', startedAt: DateTime(2026, 1, 9), endedAt: null));
+      final now = DateTime.now();
+      for (final entry in [('we-oi-1', 0), ('we-oi-2', 1), ('we-oi-3', 2)]) {
+        await repository.addExerciseToWorkout(WorkoutExercise(
+          id: entry.$1,
+          workoutId: 'draft-orderidx',
+          exerciseId: exerciseId,
+          orderIndex: entry.$2,
+          createdAt: now,
+          updatedAt: now,
+        ));
+      }
+
+      // 移除中間那個(orderIndex 1)——第三個理當被重編號成 1。
+      await repository.removeExercise('we-oi-2', workoutId: 'draft-orderidx');
+
+      final remaining = await (db.select(db.workoutExercises)
+            ..where((t) => t.workoutId.equals('draft-orderidx'))
+            ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+          .get();
+      expect(remaining.map((e) => e.id).toList(), ['we-oi-1', 'we-oi-3']);
+      expect(remaining.map((e) => e.orderIndex).toList(), [0, 1]);
+
+      // 重編號後再新增一個動作,controller 端用 `draft.exercises.length` 算
+      // 下一個 orderIndex(2)——驗證不會撞號(既有的兩個是 0/1)。
+      await repository.addExerciseToWorkout(WorkoutExercise(
+        id: 'we-oi-4',
+        workoutId: 'draft-orderidx',
+        exerciseId: exerciseId,
+        orderIndex: remaining.length,
+        createdAt: now,
+        updatedAt: now,
+      ));
+      final afterAdd = await (db.select(db.workoutExercises)
+            ..where((t) => t.workoutId.equals('draft-orderidx'))
+            ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+          .get();
+      expect(afterAdd.map((e) => e.orderIndex).toList(), [0, 1, 2]);
     });
 
     test('setExerciseCompleted:更新 isCompleted 欄位', () async {
@@ -480,7 +585,7 @@ void main() {
       );
     });
 
-    test('discardDraft:等同 delete,exercises/sets 一併清除', () async {
+    test('discardDraft:進行中草稿 → 刪除,exercises/sets 一併清除(FK cascade)', () async {
       await repository.create(buildWorkout(id: 'draft-7', startedAt: DateTime(2026, 1, 8), endedAt: null));
       final now = DateTime.now();
       await repository.addExerciseToWorkout(WorkoutExercise(
@@ -499,12 +604,42 @@ void main() {
               .getSingleOrNull();
       expect(remainingExercise, isNull);
     });
+
+    // 雙向變異(M1 結構守衛):把 discardDraft 的 where 子句從
+    // `t.id.equals(workoutId) & t.endedAt.isNull()` 改回單純
+    // `t.id.equals(workoutId)`(即等同 [delete]),這則測試會紅——已完成的
+    // 訓練會被誤刪。
+    test('discardDraft:對已完成的訓練呼叫 → 結構守衛擋下,不刪任何東西(不等同 delete)', () async {
+      final endedAt = DateTime(2026, 1, 8, 9, 30);
+      await repository.create(buildWorkout(id: 'completed-not-draft', startedAt: DateTime(2026, 1, 8), endedAt: endedAt));
+
+      await repository.discardDraft('completed-not-draft');
+
+      final stillThere = await repository.fetchById('completed-not-draft');
+      expect(stillThere, isNotNull);
+      expect(stillThere!.endedAt, endedAt);
+    });
+
+    test('discardDraft:id 不存在時靜默冪等,不拋錯', () async {
+      await repository.discardDraft('does-not-exist');
+    });
   });
 
   group('草稿排除(endedAt IS NULL)', () {
     // 雙向變異:把 `_isCompleted`(workout_repository.dart)從
-    // fetchByDateRange/fetchRecent/countWorkouts/calculateTotalVolume 的
-    // where 子句拿掉,下面四則測試全部會紅(草稿會被計入);加回來即綠。
+    // fetchAll/fetchByDateRange/fetchRecent/countWorkouts/calculateTotalVolume
+    // 的 where 子句拿掉,下面五則測試全部會紅(草稿會被計入);加回來即綠。
+    test('fetchAll 不含草稿', () async {
+      await repository.create(buildWorkout(id: 'completed-all', startedAt: DateTime(2026, 1, 1)));
+      await repository.create(
+        buildWorkout(id: 'draft-all', startedAt: DateTime(2026, 1, 2), endedAt: null),
+      );
+
+      final result = await repository.fetchAll();
+
+      expect(result.map((w) => w.id).toSet(), {'completed-all'});
+    });
+
     test('fetchByDateRange 不含草稿', () async {
       final from = DateTime(2026, 1, 1);
       final to = DateTime(2026, 1, 31);
