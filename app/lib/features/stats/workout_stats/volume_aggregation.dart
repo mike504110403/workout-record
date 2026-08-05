@@ -113,10 +113,11 @@ List<VolumeDataPoint> aggregateVolumeByDate(List<Workout> workouts) {
 
 /// 依目前選中的肌群篩選,取出單一資料點對應的容量值。`all` 用當日總容量;
 /// 選了特定肌群時,若當天沒練到該肌群(`muscleGroupVolumes` 沒有這個 key)
-/// 回傳 0——**只用在統計摘要**([calculateVolumeStats] 會另外判斷是否要把這
-/// 種「沒練到」的日子排除在平均/最高之外);圖表繪製不用這個函式取值,見
-/// `volume_chart_spots.dart` 的 [MuscleGroupFilter] 是否 `>0` 才產生 mark
-/// (對齊 iOS `VolumeChartView.swift:106`,沒練到的日子整點跳過,不落底畫 0)。
+/// 回傳 0。**唯一的 production 呼叫端是圖表的 `buildVolumeSpots`**
+/// (volume_chart_spots.dart),且它只吃 `chartPointsForFilter` 已過濾
+/// (該肌群 >0)的點——所以 `?? 0` 分支在圖表路徑不可達,保留為純防禦
+/// (目前只有單元測試會走到);[calculateVolumeStats] 不呼叫這個函式,
+/// 它直接讀 `muscleGroupVolumes` 並自行處理「沒練到的日子」的排除。
 ///
 /// `filter == all` 已提前 return,之後的分支 `filter.primaryMuscleGroup`
 /// 保證非 null(見 [MuscleGroupFilter.primaryMuscleGroup] 的 switch——只有
