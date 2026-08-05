@@ -3,8 +3,16 @@
 import '../../../data/models/body_weight.dart';
 
 /// 統計資訊卡片所需的彙總數字。無資料時全部欄位為 null（`target` 除外——
-/// 目標體重獨立於是否有體重紀錄，即使一筆紀錄都沒有，只要
-/// `UserGoalRepository` 有設定目標，卡片仍要顯示目標值）。
+/// 目標體重獨立於是否有體重紀錄，`computeBodyWeightSummary` 這個純函式在
+/// `entriesDescByMeasuredAt` 為空時仍會照傳入的 [targetWeight] 原樣回傳）。
+///
+/// **這只是純函式層的行為，不代表 UI 一定會渲染它**：`BodyWeightTab` 在
+/// 紀錄清單為空時整個切到 `EmptyBodyWeightView`（對齊 iOS
+/// `BodyWeightView` 的 `if viewModel.bodyWeights.isEmpty` 分支），完全不會
+/// 建置 `BodyWeightStatsGrid`，所以「無紀錄但有設定目標」這個組合實際上
+/// 不會顯示在畫面上——這裡刻意不讓純函式自己決定「有目標就該顯示」，
+/// 顯示與否是 UI 層（`body_weight_tab.dart`）的職責，純函式只負責忠實
+/// 計算，不夾帶顯示邏輯的假設。
 class BodyWeightSummary {
   const BodyWeightSummary({
     this.current,

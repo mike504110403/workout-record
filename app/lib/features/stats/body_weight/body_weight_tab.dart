@@ -34,7 +34,12 @@ class BodyWeightTab extends StatelessWidget {
             child: CircularProgressIndicator(),
           ),
           error: (error, stackTrace) => _BodyWeightError(
-            onRetry: () => ref.read(bodyWeightTabControllerProvider.notifier).refresh(),
+            // `ref.invalidate` 而不是 `.refresh()`——對齊 dashboard_page.dart
+            // `dashboardErrorRetryButton` 的既有慣例：invalidate 讓 provider
+            // 整個重跑一次 build()/_load()，`.refresh()` 是 controller 自己
+            // 對外開放的「資料已存在、只是想重新查一次」方法，語意上不是給
+            // 「目前卡在 AsyncError、根本沒有舊資料可以保留」的這個分支用的。
+            onRetry: () => ref.invalidate(bodyWeightTabControllerProvider),
           ),
         );
       },
@@ -57,7 +62,7 @@ class _BodyWeightError extends StatelessWidget {
           children: [
             const Text('載入失敗，請稍後再試'),
             const SizedBox(height: 12),
-            OutlinedButton(
+            FilledButton(
               key: const Key('bodyWeightErrorRetryButton'),
               onPressed: onRetry,
               child: const Text('重試'),

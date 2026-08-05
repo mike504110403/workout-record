@@ -30,8 +30,15 @@ class BodyWeightChart extends StatelessWidget {
     // 完全反過來（widget test 的「排序反轉必紅」變異案例就是在驗證這個
     // 轉換確實發生）。
     final ascending = sortBodyWeightsAscending(entriesDesc);
+    // x 值用 `measuredAt` 的毫秒時間戳，不是陣列索引——對齊 iOS
+    // `BodyWeightChartView` 用 `Chart { LineMark(x: .value("日期",
+    // point.date), ...) }` 讓 X 軸真的是時間軸：兩筆紀錄間隔一天跟間隔一個
+    // 月在圖上要是不同的水平距離，用索引（0, 1, 2, …）會讓資料點永遠等距
+    // 排列，量測間隔失真（review 打回項目：「不等距種子 → spots x 值反映
+    // 真實間隔」測試就是在守這件事）。
     final spots = [
-      for (var i = 0; i < ascending.length; i++) FlSpot(i.toDouble(), ascending[i].weight),
+      for (final entry in ascending)
+        FlSpot(entry.measuredAt.millisecondsSinceEpoch.toDouble(), entry.weight),
     ];
 
     final target = targetWeight;
@@ -83,11 +90,25 @@ class BodyWeightChart extends StatelessWidget {
                   ),
               ],
             ),
-            titlesData: const FlTitlesData(
-              topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              leftTitles: AxisTitles(
+            titlesData: FlTitlesData(
+              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              // X 軸月/日標籤——對齊 iOS `BodyWeightChartView.chartXAxis`
+              // 的 `AxisValueLabel(format: .dateTime.month().day())`。
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 24,
+                  getTitlesWidget: (value, meta) {
+                    final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('${date.month}/${date.day}', style: const TextStyle(fontSize: 10)),
+                    );
+                  },
+                ),
+              ),
+              leftTitles: const AxisTitles(
                 sideTitles: SideTitles(showTitles: true, reservedSize: 40),
               ),
             ),

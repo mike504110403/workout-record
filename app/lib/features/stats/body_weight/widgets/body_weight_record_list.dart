@@ -53,7 +53,10 @@ class BodyWeightRecordList extends StatelessWidget {
           TextButton(
             key: const Key('deleteBodyWeightConfirmButton'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('刪除', style: TextStyle(color: Colors.red)),
+            child: Text(
+              '刪除',
+              style: TextStyle(color: Theme.of(dialogContext).colorScheme.error),
+            ),
           ),
         ],
       ),
@@ -105,7 +108,7 @@ class _BodyWeightRow extends StatelessWidget {
             ),
             IconButton(
               key: Key('deleteBodyWeightButton-${entry.id}'),
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
               onPressed: onDelete,
               tooltip: '刪除',
             ),

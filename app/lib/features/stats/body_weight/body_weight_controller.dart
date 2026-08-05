@@ -13,10 +13,18 @@
 // 同款寫法——**不是** autoDispose，state 在沒有任何 listener 時仍常駐；
 // 失效只有兩條路徑：
 //   1. 顯式呼叫：CRUD（addEntry/updateEntry/deleteEntry）成功後一律呼叫
-//      `refresh()` 重新查詢，讓列表/圖表/統計卡即時反映最新資料。
+//      `refresh()` 重新查詢，讓列表/圖表/統計卡即時反映最新資料；載入失敗
+//      時畫面提供的重試按鈕走 `ref.invalidate(bodyWeightTabControllerProvider)`
+//      （對齊 dashboard_page.dart `dashboardErrorRetryButton` 的既有慣例）。
 //   2. session 變動：`build()` 用 `ref.watch(sessionControllerProvider
 //      .select((s) => s.appleUserId))` 訂閱身分變化，換帳號時 Riverpod
-//      會自動重跑 build()，不會殘留前帳號的快取。
+//      會自動重跑 build()。**但這只保證 `targetWeight` 換成新帳號的值**
+//      （`UserGoalRepository.fetchByUser(userId)` 本身就是依 userId 查詢）——
+//      `entriesDesc` 來自 `BodyWeightRepository.fetchAll()`，該方法**沒有
+//      userId 過濾**（資料層既有行為，不在本波「不碰 repositories/」的範圍
+//      內修），换帳號後列表/圖表看到的仍是全體使用者混在一起的體重紀錄，
+//      不是「乾淨換帳號、不留前帳號快取」的完整保證，只是不會保留
+//      *readonly 查詢結果* 的記憶體快取而已。
 // 承接的 Stats 殼（stats_page.dart，工人 A 範圍）若要在「切走再切回」時
 // 主動重新整理（對照 dashboard 側 router.dart 的 revisit invalidate 慣例），
 // 需要在殼那邊另外掛 `ref.invalidate(bodyWeightTabControllerProvider)`——
@@ -109,6 +117,14 @@ class BodyWeightTabController extends AsyncNotifier<BodyWeightTabState> {
   /// 要能忠實寫入 null，所以繞開 copyWith、直接建構整包物件交給
   /// `BodyWeightRepository.update`（它本來就吃完整物件，逐欄位寫入，不是
   /// 差量 patch）。
+  ///
+  /// `isSynced`/`updatedAt` 不需要在這裡自己算——`BodyWeightRepository.
+  /// update()` 本身在 SQL 層寫死 `isSynced: false`、`updatedAt:
+  /// Value(DateTime.now())`（見該方法），完全忽略傳入物件上的這兩個欄位。
+  /// `updatedAt` 仍要填一個值只是因為 `BodyWeight` 建構子把它列為必填
+  /// 參數，這裡沿用 [original.updatedAt] 當佔位值（`isSynced` 則直接省略、
+  /// 吃建構子預設的 `false`），不佔位成看似有意義、實際上會被忽略的
+  /// `DateTime.now()`，避免誤導未來的讀者以為這個值真的會被寫進 DB。
   Future<void> updateEntry({
     required BodyWeight original,
     required double weight,
@@ -123,9 +139,8 @@ class BodyWeightTabController extends AsyncNotifier<BodyWeightTabState> {
         weight: weight,
         measuredAt: measuredAt,
         note: note,
-        isSynced: false,
         createdAt: original.createdAt,
-        updatedAt: DateTime.now(),
+        updatedAt: original.updatedAt,
       ),
     );
     await refresh();

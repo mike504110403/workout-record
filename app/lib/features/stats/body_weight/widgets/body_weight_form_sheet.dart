@@ -70,18 +70,27 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
     return value;
   }
 
+  // `initialEntryMode: .input` 而不是預設的 calendar/dial——理由是可測試性:
+  // 預設的日曆格子／時鐘轉盤要靠座標手勢或不穩定的「找數字文字」去點選,
+  // widget test 很容易因為月份格線佈局、12/24 小時制轉盤角度算法而 flaky。
+  // 換成文字輸入模式後,widget test 可以直接用 `tester.enterText` 打一組
+  // 確定的日期/時間字串,決定性、不依賴畫面座標。這是純粹的可測試性考量,
+  // 使用者體感上兩種模式都是 Flutter 內建元件、都有「切換回日曆/轉盤」的
+  // 圖示可以點,不影響功能對等。
   Future<void> _pickDate() async {
     final date = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2000),
       lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialEntryMode: DatePickerEntryMode.input,
     );
     if (date == null || !mounted) return;
 
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_selectedDate),
+      initialEntryMode: TimePickerEntryMode.input,
     );
     if (!mounted) return;
 
@@ -173,19 +182,33 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
             decoration: const InputDecoration(labelText: '備註（選填）'),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              key: const Key('bodyWeightFormSaveButton'),
-              onPressed: _parsedWeight != null && !_isSaving ? _save : null,
-              child: _isSaving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(_isEditing ? '更新' : '儲存'),
-            ),
+          Row(
+            children: [
+              // 對照 iOS `AddBodyWeightSheet` 工具列的「取消」按鈕——單純
+              // 關閉表單、不寫入任何資料，不需要經過 controller。
+              Expanded(
+                child: OutlinedButton(
+                  key: const Key('bodyWeightFormCancelButton'),
+                  onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+                  child: const Text('取消'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: FilledButton(
+                  key: const Key('bodyWeightFormSaveButton'),
+                  onPressed: _parsedWeight != null && !_isSaving ? _save : null,
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_isEditing ? '更新' : '儲存'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
