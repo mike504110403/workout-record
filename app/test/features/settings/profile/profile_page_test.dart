@@ -123,7 +123,7 @@ void main() {
     expect(genderToggle.selected, {'男性'});
   });
 
-  testWidgets('全空時,姓名欄用登入身分姓名(kAppleUserNameKey)當一次性預填建議', (tester) async {
+  testWidgets('全空時,姓名欄用登入身分姓名(kAppleUserNameKey)當一次性預填建議,但不回寫 user_name', (tester) async {
     final container = await _buildContainer(
       prefsSeed: {
         kAppleUserIdKey: 'apple-user-1',
@@ -133,6 +133,26 @@ void main() {
     await _pushProfilePage(tester, container);
 
     expect(find.text('Apple Login Name'), findsOneWidget);
+
+    // review 退回(存活變異):先前只斷言畫面顯示建議,沒有斷言「只預填不
+    // 回寫」這半語義——光是看到建議、還沒按下儲存,`user_name` 必須仍是
+    // null。直接查 prefs,不是只看畫面。
+    final prefs = container.read(sharedPreferencesProvider);
+    expect(prefs.getString(kUserNameKey), isNull);
+
+    // 沒按儲存就離開(pop)再重進:建議依然來自 apple 名,且 user_name 依然
+    // 是 null——證明不是「第一次進頁的建議」湊巧沒被斷言到回寫,而是真的
+    // 從未回寫過,重進一次也不會，比如未來若誰不小心在 build() 裡加了
+    // 「順手回寫」也會被這裡的第二次斷言逮到。
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('openProfileButton')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('openProfileButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Apple Login Name'), findsOneWidget);
+    expect(prefs.getString(kUserNameKey), isNull);
   });
 
   testWidgets('儲存:prefs 三個 key 寫入正確型別與值', (tester) async {
