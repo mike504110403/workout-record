@@ -4,8 +4,11 @@
 // 算好的欄位(totalVolume/totalSets/totalExercises 已排除暖身組,見
 // workout_repository.dart),這裡不重算。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format/weight_format.dart' as weight_format;
 import '../../data/models/workout.dart';
+import '../settings/preferences/weight_unit.dart';
 import 'workout_ui_shared.dart';
 
 /// 顯示結算報告。關閉後回到開始畫面(呼叫端不需要另外處理——訓練完成時
@@ -25,14 +28,15 @@ Future<void> showWorkoutSummarySheet(
   );
 }
 
-class _WorkoutSummarySheet extends StatelessWidget {
+class _WorkoutSummarySheet extends ConsumerWidget {
   const _WorkoutSummarySheet({required this.workout, required this.newPersonalRecordCount});
 
   final Workout workout;
   final int newPersonalRecordCount;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return FractionallySizedBox(
       heightFactor: 0.85,
       child: Scaffold(
@@ -71,7 +75,7 @@ class _WorkoutSummarySheet extends StatelessWidget {
                   ),
                   _StatTile(
                     label: '總容量',
-                    value: '${workout.totalVolume.toStringAsFixed(0)} kg',
+                    value: weight_format.formatWeight(workout.totalVolume, unit, decimals: 0),
                     valueKey: const Key('summaryVolumeValue'),
                   ),
                   _StatTile(
@@ -115,7 +119,7 @@ class _WorkoutSummarySheet extends StatelessWidget {
                             Chip(
                               key: Key('summarySetBadge_${set.id}'),
                               label: Text(
-                                '${trimZeros(set.weight)}kg × ${set.reps}${set.isWarmup ? ' (暖身)' : ''}',
+                                '${trimZeros(kgToDisplay(set.weight, unit))}${unitSuffix(unit)} × ${set.reps}${set.isWarmup ? ' (暖身)' : ''}',
                               ),
                             ),
                         ],

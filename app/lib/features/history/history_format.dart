@@ -3,6 +3,12 @@
 // 額外 `initializeDateFormatting`),獨立一份而非共用 dashboard/其他
 // feature 的版本——本波 brief 範圍界線只允許動 `features/history/`,不跨
 // feature import(同 `workout_stats_format.dart` 開頭注解的理由)。
+//
+// 重量/容量格式化波 6 起薄轉發至 `core/format/weight_format.dart`(原本
+// 「4 份 format 函式各 feature 一份」是舊慣例;波 6 起收斂成共用一份、依
+// `WeightUnit` 換算顯示值,呼叫端一律要傳目前單位)。
+import '../../core/format/weight_format.dart' as weight_format;
+import '../settings/preferences/weight_unit.dart';
 
 /// 對照 iOS `.formatted(date: .abbreviated, time: .omitted)` 的視覺效果
 /// (History 列表/詳情頁只顯示日期,不顯示時間——時間對「哪天練了什麼」
@@ -18,13 +24,15 @@ String formatMonthLabel(DateTime month) => '${month.year}年${month.month}月';
 /// 性地當 0 分鐘處理,不讓畫面顯示「null 分鐘」)。
 String formatDurationMinutes(int? minutes) => '${minutes ?? 0} 分鐘';
 
-/// 對照 iOS `String(format: "%.0f kg", volume)`。
-String formatVolumeKg(double volume) => '${volume.toStringAsFixed(0)} kg';
+/// 對照 iOS `String(format: "%.0f kg", volume)`(lb 模式換算顯示值 + 字尾)。
+String formatVolumeKg(double volume, WeightUnit unit) =>
+    weight_format.formatWeight(volume, unit, decimals: 0);
 
 /// review 打回 MINOR-3:動作明細直印 `set.weight`(double)會顯示「60.0 kg」
 /// 這種不必要的尾綴——照 dashboard_format.dart:19 慣例補一位小數格式化。
-/// 對照 iOS `String(format: "%.1f kg", weight)`。
-String formatWeightKg(double weight) => '${weight.toStringAsFixed(1)} kg';
+/// 對照 iOS `String(format: "%.1f kg", weight)`(lb 模式換算顯示值 + 字尾)。
+String formatWeightKg(double weight, WeightUnit unit) =>
+    weight_format.formatWeight(weight, unit, decimals: 1);
 
 /// 容量分布卡的百分比文字,對照 iOS
 /// `String(format: "(%.0f%%)", exercise.percentage)`。

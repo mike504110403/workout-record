@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../settings/preferences/weight_unit.dart';
 import '../../../workout/one_rm_calculator.dart';
 import '../powerlifting_controller.dart';
 
@@ -31,6 +32,7 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
     super.dispose();
   }
 
+  /// 輸入框裡的原始值——當前顯示單位(kg 或 lb),不是儲存單位。
   double? get _parsedWeight {
     final value = double.tryParse(_weightController.text);
     if (value == null || value <= 0) return null;
@@ -43,6 +45,9 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
     return value;
   }
 
+  /// 預覽用 1RM——直接用當前顯示單位的輸入值算(公式對 weight 是線性齊次,
+  /// 用顯示單位算出來的結果換算回 kg 再換算回顯示單位是同一個數字,不需要
+  /// 先轉 kg 再轉回來)。
   double? get _previewOneRepMax {
     final weight = _parsedWeight;
     final reps = _parsedReps;
@@ -65,11 +70,16 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
     final reps = _parsedReps;
     if (weight == null || reps == null || _isSaving) return;
 
+    // 使用者輸入視為當前顯示單位的值,反向換算成 kg 才是入庫值(儲存一律
+    // kg——見 weight_unit.dart 契約)。
+    final unit = ref.read(weightUnitProvider);
+    final weightKg = displayToKg(weight, unit);
+
     setState(() => _isSaving = true);
     try {
       final note = _noteController.text.trim();
       await ref.read(powerliftingControllerProvider.notifier).addManualRecord(
-            weight: weight,
+            weight: weightKg,
             reps: reps,
             achievedAt: _date,
             note: note.isEmpty ? null : note,
@@ -88,6 +98,7 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
 
   @override
   Widget build(BuildContext context) {
+    final unit = ref.watch(weightUnitProvider);
     final canSave = _parsedWeight != null && _parsedReps != null && !_isSaving;
     final preview = _previewOneRepMax;
 
@@ -110,7 +121,7 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
             autofocus: true,
             enabled: !_isSaving,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '重量 (kg)'),
+            decoration: InputDecoration(labelText: '重量 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
@@ -141,7 +152,7 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
           if (preview != null) ...[
             const SizedBox(height: 12),
             Text(
-              '推估 1RM：${preview.toStringAsFixed(1)} kg',
+              '推估 1RM：${preview.toStringAsFixed(1)} ${unitSuffix(unit)}',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/workout.dart';
+import '../settings/preferences/weight_unit.dart';
 import 'history_list_controller.dart';
 import 'widgets/delete_workout_dialog.dart';
 import 'widgets/history_empty_state.dart';
@@ -81,7 +82,7 @@ class _HistoryListRow extends ConsumerWidget {
   /// 動畫。這樣失敗時卡片會留在原地(不會誤消失),loading 遮罩、錯誤
   /// SnackBar 才有意義。
   Future<bool> _confirmAndDelete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDeleteWorkoutDialog(context, workout);
+    final confirmed = await showDeleteWorkoutDialog(context, workout, ref.read(weightUnitProvider));
     if (confirmed != true) return false;
     try {
       await ref.read(historyListControllerProvider.notifier).deleteWorkout(workout.id);

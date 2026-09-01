@@ -4,8 +4,10 @@
 // 差異:iOS 的 TodayWorkoutCard 只顯示時長/總容量/組數三個指標,這裡照
 // brief 需求多加「動作數」第四個指標(`workout.totalExercises`)。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_format.dart';
 
 class TodayOverviewSection extends StatelessWidget {
@@ -36,13 +38,14 @@ class TodayOverviewSection extends StatelessWidget {
   }
 }
 
-class _TodayWorkoutCard extends StatelessWidget {
+class _TodayWorkoutCard extends ConsumerWidget {
   const _TodayWorkoutCard({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: const Key('todayWorkoutCard'),
       child: Padding(
@@ -70,7 +73,7 @@ class _TodayWorkoutCard extends StatelessWidget {
                   child: _Metric(label: '訓練時長', value: '${workout.duration ?? 0} 分鐘'),
                 ),
                 Expanded(
-                  child: _Metric(label: '總容量', value: formatVolumeKg(workout.totalVolume)),
+                  child: _Metric(label: '總容量', value: formatVolumeKg(workout.totalVolume, unit)),
                 ),
                 Expanded(
                   child: _Metric(label: '組數', value: '${workout.totalSets}'),
@@ -146,13 +149,14 @@ class _NoWorkoutTodayCard extends StatelessWidget {
   }
 }
 
-class _BodyWeightMiniCard extends StatelessWidget {
+class _BodyWeightMiniCard extends ConsumerWidget {
   const _BodyWeightMiniCard({required this.currentWeight});
 
   final double? currentWeight;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       key: const Key('bodyWeightMiniCard'),
@@ -173,7 +177,7 @@ class _BodyWeightMiniCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    currentWeight != null ? formatWeightKg(currentWeight!) : '尚未記錄',
+                    currentWeight != null ? formatWeightKg(currentWeight!, unit) : '尚未記錄',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: currentWeight == null ? colorScheme.onSurfaceVariant : null,

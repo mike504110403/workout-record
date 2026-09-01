@@ -2,7 +2,9 @@
 // 篩選 chips + 統計摘要。對應 iOS `Views/Charts/VolumeChartView.swift`。
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../settings/preferences/weight_unit.dart';
 import '../chart_palette.dart';
 import 'chart_time_range.dart';
 import 'volume_aggregation.dart';
@@ -108,7 +110,7 @@ class _EmptyChart extends StatelessWidget {
   }
 }
 
-class _VolumeLineChart extends StatelessWidget {
+class _VolumeLineChart extends ConsumerWidget {
   const _VolumeLineChart({
     required this.dataPoints,
     required this.filter,
@@ -120,7 +122,8 @@ class _VolumeLineChart extends StatelessWidget {
   final ChartTimeRange timeRange;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final color = chartPalette[filter] ?? Colors.blue;
     // 軸標籤用的日期清單必須跟 spots 用同一套篩選規則(見
     // `chartPointsForFilter` 的文件註解)——肌群篩選模式下沒練到的日子會被
@@ -128,7 +131,11 @@ class _VolumeLineChart extends StatelessWidget {
     // [dataPoints] 的索引,這裡的 `points` 必須對得上,不能直接用
     // [dataPoints]。
     final points = chartPointsForFilter(dataPoints, filter);
-    final spots = buildVolumeSpots(dataPoints, filter);
+    // buildVolumeSpots 回傳值恆 kg(資料層,不動——維持既有 widget test 對
+    // 「資料層」的斷言基準);y 軸顯示值在這裡換算,資料本身不變。
+    final spots = [
+      for (final spot in buildVolumeSpots(dataPoints, filter)) FlSpot(spot.x, kgToDisplay(spot.y, unit)),
+    ];
     return LineChart(
       LineChartData(
         minY: 0,
@@ -218,13 +225,14 @@ class _MuscleGroupChips extends StatelessWidget {
   }
 }
 
-class _StatsRow extends StatelessWidget {
+class _StatsRow extends ConsumerWidget {
   const _StatsRow({required this.stats});
 
   final VolumeStats stats;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Row(
       children: [
         Expanded(
@@ -233,7 +241,7 @@ class _StatsRow extends StatelessWidget {
             icon: Icons.bar_chart,
             color: Colors.blue,
             title: '平均容量',
-            value: formatVolumeKg(stats.average),
+            value: formatVolumeKg(stats.average, unit),
           ),
         ),
         const VerticalDivider(),
@@ -243,7 +251,7 @@ class _StatsRow extends StatelessWidget {
             icon: Icons.arrow_upward,
             color: Colors.green,
             title: '最高容量',
-            value: formatVolumeKg(stats.highest),
+            value: formatVolumeKg(stats.highest, unit),
           ),
         ),
         const VerticalDivider(),

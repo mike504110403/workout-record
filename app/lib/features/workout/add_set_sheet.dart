@@ -4,7 +4,9 @@
 // iOS 那邊是獨立檔案,這裡刻意收斂成同一個表單少一份重複,呼叫端
 // (workout_in_progress_view.dart)決定要不要帶 initial* 值)。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/preferences/weight_unit.dart';
 import 'workout_ui_shared.dart';
 
 class AddSetResult {
@@ -17,6 +19,8 @@ class AddSetResult {
     required this.autoStartRestTimer,
   });
 
+  /// 一律 kg(儲存值)——sheet 內部負責把使用者輸入的當前顯示單位值換算成
+  /// kg 才 pop 出去,呼叫端不需要知道使用者用的是 kg 還是 lb。
   final double weight;
   final int reps;
   final double? rpe;
@@ -84,7 +88,7 @@ Future<AddSetResult?> showAddSetSheet(
   );
 }
 
-class _AddSetForm extends StatefulWidget {
+class _AddSetForm extends ConsumerStatefulWidget {
   const _AddSetForm({
     required this.exerciseName,
     required this.setNumber,
@@ -110,10 +114,10 @@ class _AddSetForm extends StatefulWidget {
   final bool showAutoStartRestTimer;
 
   @override
-  State<_AddSetForm> createState() => _AddSetFormState();
+  ConsumerState<_AddSetForm> createState() => _AddSetFormState();
 }
 
-class _AddSetFormState extends State<_AddSetForm> {
+class _AddSetFormState extends ConsumerState<_AddSetForm> {
   late final TextEditingController _weightController;
   late final TextEditingController _repsController;
   late final TextEditingController _rpeController;
@@ -128,9 +132,13 @@ class _AddSetFormState extends State<_AddSetForm> {
   @override
   void initState() {
     super.initState();
+    // initialWeight/previousWeight 是 kg(儲存值)——預填輸入框前先換算成
+    // 當前顯示單位(kgToDisplay),編輯既有組數時才不會顯示錯的數字。
+    final unit = ref.read(weightUnitProvider);
     final weight = widget.initialWeight ?? widget.previousWeight;
+    _weightController =
+        TextEditingController(text: weight != null ? trimZeros(kgToDisplay(weight, unit)) : '');
     final reps = widget.initialReps ?? widget.previousReps;
-    _weightController = TextEditingController(text: weight != null ? trimZeros(weight) : '');
     _repsController = TextEditingController(text: reps != null ? '$reps' : '');
     _rpeController =
         TextEditingController(text: widget.initialRpe != null ? trimZeros(widget.initialRpe!) : '');
@@ -157,13 +165,17 @@ class _AddSetFormState extends State<_AddSetForm> {
       double.tryParse(_weightController.text) != null && int.tryParse(_repsController.text) != null;
 
   void _save() {
-    final weight = double.tryParse(_weightController.text);
+    final enteredWeight = double.tryParse(_weightController.text);
     final reps = int.tryParse(_repsController.text);
-    if (weight == null || reps == null) return;
+    if (enteredWeight == null || reps == null) return;
     final rpeText = _rpeController.text.trim();
     final rpe = rpeText.isEmpty ? null : double.tryParse(rpeText);
+    // 使用者輸入視為當前顯示單位的值,反向換算成 kg 才是 AddSetResult 的
+    // 契約值(儲存一律 kg)。
+    final unit = ref.read(weightUnitProvider);
+    final weightKg = displayToKg(enteredWeight, unit);
     Navigator.of(context).pop(AddSetResult(
-      weight: weight,
+      weight: weightKg,
       reps: reps,
       rpe: rpe,
       isWarmup: _isWarmup,
@@ -174,6 +186,7 @@ class _AddSetFormState extends State<_AddSetForm> {
 
   @override
   Widget build(BuildContext context) {
+    final unit = ref.watch(weightUnitProvider);
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -192,7 +205,7 @@ class _AddSetFormState extends State<_AddSetForm> {
             key: const Key('addSetWeightField'),
             controller: _weightController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '重量 (kg)'),
+            decoration: InputDecoration(labelText: '重量 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 8),

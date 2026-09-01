@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_controller.dart';
 
 class AddBodyWeightSheet extends ConsumerStatefulWidget {
@@ -32,6 +33,7 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
     super.dispose();
   }
 
+  /// 輸入框裡的原始值——當前顯示單位(kg 或 lb),不是儲存單位。
   double? get _parsedWeight {
     final value = double.tryParse(_controller.text);
     if (value == null || value <= 0) return null;
@@ -47,10 +49,14 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
   Future<void> _save() async {
     final weight = _parsedWeight;
     if (weight == null || _isSaving) return;
+    // 使用者輸入視為當前顯示單位的值,反向換算成 kg 才是入庫值(儲存一律
+    // kg——見 weight_unit.dart 契約)。
+    final unit = ref.read(weightUnitProvider);
+    final weightKg = displayToKg(weight, unit);
 
     setState(() => _isSaving = true);
     try {
-      await ref.read(dashboardControllerProvider.notifier).recordBodyWeight(weight);
+      await ref.read(dashboardControllerProvider.notifier).recordBodyWeight(weightKg);
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
@@ -65,6 +71,7 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final unit = ref.watch(weightUnitProvider);
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -84,7 +91,7 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
             autofocus: true,
             enabled: !_isSaving,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '體重 (kg)'),
+            decoration: InputDecoration(labelText: '體重 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _save(),
           ),

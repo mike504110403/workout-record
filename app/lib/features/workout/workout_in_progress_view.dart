@@ -6,7 +6,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format/weight_format.dart' as weight_format;
 import '../../data/models/workout.dart';
+import '../settings/preferences/weight_unit.dart';
 import 'add_set_sheet.dart';
 import 'exercise_picker/exercise_picker_sheet.dart';
 import 'rest_timer_bar.dart';
@@ -96,16 +98,16 @@ class _EmptyExercisesPrompt extends StatelessWidget {
 /// 訓練時長每秒跳 + 即時統計(總容量/已完成組數/動作數,對照
 /// `WorkoutInProgressView.workoutHeader`)。獨立 `StatefulWidget` 只為了
 /// `Timer.periodic` 驅動的每秒重繪,不影響其餘畫面的 rebuild 範圍。
-class _WorkoutHeader extends StatefulWidget {
+class _WorkoutHeader extends ConsumerStatefulWidget {
   const _WorkoutHeader({required this.draft});
 
   final Workout draft;
 
   @override
-  State<_WorkoutHeader> createState() => _WorkoutHeaderState();
+  ConsumerState<_WorkoutHeader> createState() => _WorkoutHeaderState();
 }
 
-class _WorkoutHeaderState extends State<_WorkoutHeader> {
+class _WorkoutHeaderState extends ConsumerState<_WorkoutHeader> {
   Timer? _ticker;
 
   @override
@@ -124,6 +126,7 @@ class _WorkoutHeaderState extends State<_WorkoutHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final unit = ref.watch(weightUnitProvider);
     // 時長從 draft.startedAt 現算——重啟恢復後 startedAt 就是原本的開始
     // 時間,「時長從原 startedAt 續算」不需要額外欄位或邏輯。
     final elapsed = DateTime.now().difference(widget.draft.startedAt);
@@ -143,7 +146,7 @@ class _WorkoutHeaderState extends State<_WorkoutHeader> {
           ),
           _StatColumn(
             label: '總容量',
-            value: '${totalVolume.toStringAsFixed(0)} kg',
+            value: weight_format.formatWeight(totalVolume, unit, decimals: 0),
             valueKey: const Key('workoutTotalVolumeValue'),
           ),
           _StatColumn(
@@ -308,6 +311,7 @@ class _ExerciseCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: Key('exerciseCard_${exercise.id}'),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -337,10 +341,10 @@ class _ExerciseCard extends ConsumerWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: Text('#${set.setNumber}${set.isWarmup ? ' 暖身' : ''}'),
                 title: Text(
-                  '${trimZeros(set.weight)} kg × ${set.reps} 次'
+                  '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
                   '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
                 ),
-                subtitle: Text('容量 ${set.volume.toStringAsFixed(0)}'),
+                subtitle: Text('容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

@@ -1,17 +1,20 @@
 // 單一動作的 PR 卡片。對應 iOS `PRView.PRCard`(不含肌群標籤——分組標題
 // 已經顯示肌群,卡片內不重複)。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/personal_record.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../pr_format.dart';
 
-class PrSummaryCard extends StatelessWidget {
+class PrSummaryCard extends ConsumerWidget {
   const PrSummaryCard({super.key, required this.summary});
 
   final PRSummary summary;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final pr = summary.currentPR;
     return Card(
       key: Key('prSummaryCard-${summary.exerciseId}'),

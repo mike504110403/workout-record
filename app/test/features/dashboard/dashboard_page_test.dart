@@ -27,6 +27,7 @@ import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/dashboard/dashboard_controller.dart';
 import 'package:workout_record/features/dashboard/dashboard_page.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 
 import '../../data/test_helpers.dart';
 
@@ -143,10 +144,14 @@ class _DashboardHarness {
 /// 用來測「dashboard_page.dart 的 error 分支重試按鈕真的有效」的測試需要
 /// 這個——不關掉的話,riverpod 自己的自動重試會搶在我們斷言/按按鈕之前
 /// 就把 flaky repo 重試到成功,測試斷言不到穩定的 error 畫面。
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(stub 期恆回 kg,波 6
+/// 顯示層改造在 lb 模式的回歸測試靠這個 override 驗證——不依賴另一位工人
+/// 的持久化真身進度)。
 Future<_DashboardHarness> _setUpHarness({
   Map<String, Object> extraPrefs = const {},
   BodyWeightRepository Function(AppDatabase db)? bodyWeightRepoBuilder,
   bool disableAutoRetry = false,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
@@ -164,6 +169,7 @@ Future<_DashboardHarness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (bodyWeightRepoBuilder != null)
         bodyWeightRepositoryProvider.overrideWithValue(bodyWeightRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -807,6 +813,94 @@ void main() {
       expect(find.textContaining('載入失敗'), findsNothing);
       expect(find.byKey(const Key('dashboardErrorRetryButton')), findsNothing);
       expect(find.byKey(const Key('noWorkoutTodayCard')), findsOneWidget);
+    });
+  });
+
+  // 波 6:重量顯示層改造——override weightUnitProvider 成 lb,驗證今日概覽
+  // (總容量/當前體重)、最近訓練列表卡片、記錄體重輸入框(顯示 + 反向換算
+  // 入庫)三個消費點。變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言
+  // 必紅(不是拿手抄的 2.20462 係數比對,期望值一律用 `kgToDisplay` 現算)。
+  group('重量單位(lb 模式)', () {
+    testWidgets('今日概覽總容量/當前體重換算成 lb 顯示,字尾正確', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'today-lb',
+          startedAt: DateTime.now(),
+          duration: 75,
+          totalVolume: 5230,
+          totalSets: 24,
+          totalExercises: 6,
+        ),
+      );
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(
+        BodyWeight(
+          id: 'bw-lb',
+          userId: testUserId,
+          weight: 71.2,
+          measuredAt: now,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await _pumpDashboard(tester, harness);
+
+      final expectedVolume = '${kgToDisplay(5230, WeightUnit.lb).toStringAsFixed(0)} lb';
+      final expectedWeight = '${kgToDisplay(71.2, WeightUnit.lb).toStringAsFixed(1)} lb';
+      // 這筆今日訓練同時也出現在「最近訓練」列表(同 iOS 對照的既有行為),
+      // 總容量字串會在畫面上出現兩次——限定在 todayWorkoutCard 子樹內斷言。
+      final todayCard = find.byKey(const Key('todayWorkoutCard'));
+      expect(find.descendant(of: todayCard, matching: find.text(expectedVolume)), findsOneWidget);
+      expect(find.text(expectedWeight), findsOneWidget);
+      // kg 版字串不該殘留(排除漏接 provider、恆用 kg 的變異)。
+      expect(find.text('5230 kg'), findsNothing);
+      expect(find.text('71.2 kg'), findsNothing);
+    });
+
+    testWidgets('最近訓練列表卡片總容量換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'recent-lb',
+          startedAt: DateTime.now().subtract(const Duration(days: 1)),
+          totalVolume: 1000,
+        ),
+      );
+
+      await _pumpDashboard(tester, harness);
+
+      final expectedVolume = '${kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0)} lb';
+      expect(find.text(expectedVolume), findsOneWidget);
+      expect(find.text('1000 kg'), findsNothing);
+    });
+
+    testWidgets('記錄體重輸入框:label 顯示 lb,輸入 220.5 lb 換算存成約 100kg', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+
+      await _pumpDashboard(tester, harness);
+
+      await tester.tap(find.byKey(const Key('quickActionRecordWeight')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('體重 (lb)'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('bodyWeightInputField')), '220.5');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saveBodyWeightButton')));
+      await tester.pumpAndSettle();
+
+      final latest = await harness.bodyWeightRepo.getLatestWeight();
+      expect(latest, isNotNull);
+      // 期望值用 displayToKg 現算,不手抄係數——220.5 / kLbPerKg ≈
+      // 100.017kg(220.5lb 本身就不是剛好 100kg 換算出來的整數,誤差界只
+      // 針對「這個換算函式本身」的浮點捨入,給 0.001kg 足夠寬容。
+      expect(latest!.weight, closeTo(displayToKg(220.5, WeightUnit.lb), 0.001));
+      // Drift dateTime 欄位是秒級精度,weight 是 REAL 欄位不受影響,但保留
+      // 較寬鬆的「大約 100kg」語意斷言(brief 範例的驗收語意),誤差界對齊
+      // 220.5lb 與 100kg 之間的實際換算差(約 0.017kg)。
+      expect(latest.weight, closeTo(100.0, 0.02));
     });
   });
 }

@@ -5,17 +5,20 @@
 // // TODO: Get from user settings)`：這裡把「// TODO」補上，用真正的
 // `UserGoalRepository.targetWeight`）。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_format.dart';
 import '../body_weight_stats.dart';
 
-class BodyWeightStatsGrid extends StatelessWidget {
+class BodyWeightStatsGrid extends ConsumerWidget {
   const BodyWeightStatsGrid({super.key, required this.summary});
 
   final BodyWeightSummary summary;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     // review 打回(必修):390pt 寬手機(如 iPhone SE/mini)三欄 +
     // childAspectRatio: 1.6 時,每格實際高度扣掉 Card 預設 margin(4×2)+
     // 內距(8×2)後只剩 ~47px,裝不下「標籤 + 數值」兩行文字,
@@ -41,31 +44,37 @@ class BodyWeightStatsGrid extends StatelessWidget {
           statKey: 'current',
           label: '當前體重',
           value: summary.current,
+          unit: unit,
         ),
         _StatTile(
           statKey: 'target',
           label: '目標體重',
           value: summary.target,
+          unit: unit,
         ),
         _StatTile(
           statKey: 'average',
           label: '平均',
           value: summary.average,
+          unit: unit,
         ),
         _StatTile(
           statKey: 'max',
           label: '最高',
           value: summary.max,
+          unit: unit,
         ),
         _StatTile(
           statKey: 'min',
           label: '最低',
           value: summary.min,
+          unit: unit,
         ),
         _StatTile(
           statKey: 'change',
           label: '變化',
           value: summary.change,
+          unit: unit,
           signed: true,
         ),
       ],
@@ -78,12 +87,14 @@ class _StatTile extends StatelessWidget {
     required this.statKey,
     required this.label,
     required this.value,
+    required this.unit,
     this.signed = false,
   });
 
   final String statKey;
   final String label;
   final double? value;
+  final WeightUnit unit;
 
   /// 變化幅度要帶正負號（對照 iOS `BodyWeightStatItem` 的上下箭頭 +
   /// `abs(value)`，這裡簡化成文字直接帶正負號，語意等價：正值代表增加、
@@ -96,8 +107,8 @@ class _StatTile extends StatelessWidget {
     final displayValue = v == null
         ? '—'
         : signed
-            ? '${v > 0 ? '+' : ''}${formatBodyWeightKg(v)}'
-            : formatBodyWeightKg(v);
+            ? '${v > 0 ? '+' : ''}${formatBodyWeightKg(v, unit)}'
+            : formatBodyWeightKg(v, unit);
 
     return Card(
       key: Key('bodyWeightStatCard-$statKey'),

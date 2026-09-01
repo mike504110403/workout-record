@@ -6,14 +6,16 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/body_weight.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_stats.dart';
 
 /// 一天的毫秒數，X 軸標籤的最小刻度間隔——見 `_bottomTitleInterval`。
 const _oneDayMs = 24 * 60 * 60 * 1000;
 
-class BodyWeightChart extends StatelessWidget {
+class BodyWeightChart extends ConsumerWidget {
   const BodyWeightChart({
     super.key,
     required this.entriesDesc,
@@ -25,11 +27,12 @@ class BodyWeightChart extends StatelessWidget {
   final List<BodyWeight> entriesDesc;
 
   /// 目標體重；null 時不畫目標線（對照 iOS `targetWeight: Double?` 的
-  /// `if let target = targetWeight` 判斷）。
+  /// `if let target = targetWeight` 判斷）。儲存值恆 kg。
   final double? targetWeight;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     // 畫圖前先轉成 measuredAt 由舊到新——`entriesDesc` 是新到舊（列表用的
     // 既有順序），若這裡漏掉這一步、直接拿原始順序畫圖，折線的左右方向會
     // 完全反過來（widget test 的「排序反轉必紅」變異案例就是在驗證這個
@@ -41,12 +44,15 @@ class BodyWeightChart extends StatelessWidget {
     // 月在圖上要是不同的水平距離，用索引（0, 1, 2, …）會讓資料點永遠等距
     // 排列，量測間隔失真（review 打回項目：「不等距種子 → spots x 值反映
     // 真實間隔」測試就是在守這件事）。
+    // 資料點本身（entry.weight）恆 kg 不動，這裡只換算「畫進圖表的顯示
+    // y 值」——對照 volume_chart_section.dart 的同一套作法。
     final spots = [
       for (final entry in ascending)
-        FlSpot(entry.measuredAt.millisecondsSinceEpoch.toDouble(), entry.weight),
+        FlSpot(entry.measuredAt.millisecondsSinceEpoch.toDouble(), kgToDisplay(entry.weight, unit)),
     ];
 
-    final target = targetWeight;
+    final rawTarget = targetWeight;
+    final target = rawTarget == null ? null : kgToDisplay(rawTarget, unit);
 
     // review 打回 S1:X 軸標籤短跨度重複——沒有明確指定 `interval` 時,
     // fl_chart 會依圖表寬度自行切出刻度間隔,資料點全部集中在一週內這種
@@ -110,7 +116,7 @@ class BodyWeightChart extends StatelessWidget {
                       show: true,
                       alignment: Alignment.topRight,
                       style: const TextStyle(color: Colors.green, fontSize: 11),
-                      labelResolver: (line) => '目標 ${line.y.toStringAsFixed(1)} kg',
+                      labelResolver: (line) => '目標 ${line.y.toStringAsFixed(1)} ${unitSuffix(unit)}',
                     ),
                   ),
               ],

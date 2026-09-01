@@ -50,6 +50,7 @@ import 'package:workout_record/data/repositories/body_weight_repository.dart';
 import 'package:workout_record/data/repositories/user_goal_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/body_weight/body_weight_format.dart';
 import 'package:workout_record/features/stats/body_weight/body_weight_tab.dart';
 
@@ -131,9 +132,13 @@ class _Harness {
 /// dashboard_page_test.dart 的同名參數:build() 拋出 Exception 時框架本身
 /// 就會自動重試,不關掉的話 flaky repo 會被框架搶在斷言/按重試按鈕之前就
 /// 自動重試成功,測試斷言不到穩定的 error 畫面)。
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(stub 期恆回 kg,波 6
+/// 顯示層改造在 lb 模式的回歸測試靠這個 override 驗證——不依賴另一位工人
+/// 的持久化真身進度,見 dashboard_page_test.dart 同名參數的既有慣例)。
 Future<_Harness> _setUpHarness({
   BodyWeightRepository Function(AppDatabase db)? bodyWeightRepoBuilder,
   bool disableAutoRetry = false,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
@@ -148,6 +153,7 @@ Future<_Harness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (bodyWeightRepoBuilder != null)
         bodyWeightRepositoryProvider.overrideWithValue(bodyWeightRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -900,6 +906,133 @@ void main() {
       expect(find.byKey(const Key('bodyWeightErrorRetryButton')), findsNothing);
       expect(find.byKey(const Key('bodyWeightStatsGrid')), findsOneWidget);
       expect(find.byKey(const Key('emptyBodyWeightView')), findsNothing);
+    });
+  });
+
+  // 波 6:重量顯示層改造——override weightUnitProvider 成 lb,驗證統計卡
+  // /趨勢圖(含目標線)/紀錄列表/輸入表單(顯示+反向換算入庫+編輯帶入)四個
+  // 消費點。變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言必紅(不是
+  // 拿手抄的 2.20462 係數比對,期望值一律用 kgToDisplay/displayToKg 現算)。
+  group('重量單位(lb 模式)', () {
+    testWidgets('統計卡六格換算成 lb 顯示,字尾正確', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _seedThreeEntries(harness);
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(id: 'goal-1', userId: testUserId, targetWeight: 70.0, createdAt: now, updatedAt: now),
+      );
+
+      await _pump(tester, harness);
+
+      // 手算(kg):current=78.0, target=70.0, average=76.0, max=78.0,
+      // min=74.0, change=+2.0——換算期望值一律用 kgToDisplay 現算。
+      String lb(double kg) => '${kgToDisplay(kg, WeightUnit.lb).toStringAsFixed(1)} lb';
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-current')), matching: find.text(lb(78.0))),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-target')), matching: find.text(lb(70.0))),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-average')), matching: find.text(lb(76.0))),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-max')), matching: find.text(lb(78.0))),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-min')), matching: find.text(lb(74.0))),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-change')),
+          matching: find.text('+${lb(2.0)}'),
+        ),
+        findsOneWidget,
+      );
+      // kg 版字串不該殘留(排除漏接 provider、恆用 kg 的變異)。
+      expect(find.text('78.0 kg'), findsNothing);
+    });
+
+    testWidgets('趨勢圖資料點與目標線換算成 lb 顯示值,資料點本身(entry.weight)不受影響', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _seedThreeEntries(harness);
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(id: 'goal-1', userId: testUserId, targetWeight: 70.0, createdAt: now, updatedAt: now),
+      );
+
+      await _pump(tester, harness);
+
+      final chart = _findLineChart(tester);
+      final spots = chart.data.lineBarsData.single.spots;
+      expect(spots.length, 3);
+      expect(spots.first.y, closeTo(kgToDisplay(74.0, WeightUnit.lb), 0.001));
+      expect(spots.last.y, closeTo(kgToDisplay(78.0, WeightUnit.lb), 0.001));
+      expect(chart.data.extraLinesData.horizontalLines.single.y, closeTo(kgToDisplay(70.0, WeightUnit.lb), 0.001));
+
+      // 資料層(DB)不受顯示層換算影響——恆 kg。
+      final all = await harness.bodyWeightRepo.fetchAll();
+      expect(all.any((e) => e.weight == 78.0), isTrue);
+    });
+
+    testWidgets('紀錄列表換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _seedThreeEntries(harness);
+
+      await _pump(tester, harness);
+
+      final expected = '${kgToDisplay(78.0, WeightUnit.lb).toStringAsFixed(1)} lb';
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightRow-bw-newest')), matching: find.text(expected)),
+        findsOneWidget,
+      );
+      expect(find.text('78.0 kg'), findsNothing);
+    });
+
+    testWidgets('輸入表單:label 顯示 lb,輸入 220.5 lb 換算存成約 100kg', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _seedThreeEntries(harness);
+      await _pump(tester, harness);
+
+      await tester.tap(find.byKey(const Key('addBodyWeightButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('體重 (lb)'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('bodyWeightFormWeightField')), '220.5');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bodyWeightFormSaveButton')));
+      await tester.pumpAndSettle();
+
+      final all = await harness.bodyWeightRepo.fetchAll();
+      final created = all.firstWhere((e) => !['bw-newest', 'bw-oldest', 'bw-middle'].contains(e.id));
+      // 期望值用 displayToKg 現算,不手抄係數。
+      expect(created.weight, closeTo(displayToKg(220.5, WeightUnit.lb), 0.001));
+      expect(created.weight, closeTo(100.0, 0.02));
+    });
+
+    testWidgets('編輯既有紀錄:表單帶入值已換算成 lb(反向 kgToDisplay)', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _seedThreeEntries(harness);
+      await _pump(tester, harness);
+
+      // middle 是 76.0kg → lb ≈ 167.6,含小數,不會被 _stripTrailingZero
+      // 裁成整數字串(用真實換算值斷言,不手抄係數)。
+      await tester.ensureVisible(find.byKey(const Key('editBodyWeightButton-bw-middle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('editBodyWeightButton-bw-middle')));
+      await tester.pumpAndSettle();
+
+      final weightField = tester.widget<TextField>(find.byKey(const Key('bodyWeightFormWeightField')));
+      final expectedLb = kgToDisplay(76.0, WeightUnit.lb);
+      final expectedText =
+          expectedLb == expectedLb.roundToDouble() ? expectedLb.toStringAsFixed(0) : expectedLb.toString();
+      expect(weightField.controller?.text, expectedText);
     });
   });
 }

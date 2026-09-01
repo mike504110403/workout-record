@@ -1,7 +1,9 @@
 // 三項總和 + 三項最佳成績並列卡。對應 iOS `PowerliftingView.totalCard`。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/power_lift_record.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
 
 const _liftLabels = {
@@ -10,7 +12,7 @@ const _liftLabels = {
   PowerLift.deadlift: '硬舉',
 };
 
-class TotalLiftCard extends StatelessWidget {
+class TotalLiftCard extends ConsumerWidget {
   const TotalLiftCard({
     super.key,
     required this.totalLifts,
@@ -21,7 +23,8 @@ class TotalLiftCard extends StatelessWidget {
   final Map<PowerLift, PowerLiftRecord?> bestByLift;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       key: const Key('totalLiftCard'),
@@ -44,21 +47,22 @@ class TotalLiftCard extends StatelessWidget {
               children: [
                 Text(
                   key: const Key('totalLiftValue'),
-                  formatWeight(totalLifts),
+                  formatWeight(totalLifts, unit),
                   style: Theme.of(context)
                       .textTheme
                       .displaySmall
                       ?.copyWith(fontWeight: FontWeight.bold, color: colorScheme.primary),
                 ),
                 const SizedBox(width: 4),
-                Text('kg', style: Theme.of(context).textTheme.titleMedium),
+                Text(unitSuffix(unit), style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                for (final lift in PowerLift.values) _BestLiftColumn(lift: lift, record: bestByLift[lift]),
+                for (final lift in PowerLift.values)
+                  _BestLiftColumn(lift: lift, record: bestByLift[lift], unit: unit),
               ],
             ),
           ],
@@ -69,10 +73,11 @@ class TotalLiftCard extends StatelessWidget {
 }
 
 class _BestLiftColumn extends StatelessWidget {
-  const _BestLiftColumn({required this.lift, required this.record});
+  const _BestLiftColumn({required this.lift, required this.record, required this.unit});
 
   final PowerLift lift;
   final PowerLiftRecord? record;
+  final WeightUnit unit;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +93,7 @@ class _BestLiftColumn extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          record == null ? '--' : formatWeight(record!.oneRepMax),
+          record == null ? '--' : formatWeight(record!.oneRepMax, unit),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
       ],

@@ -1,11 +1,13 @@
 // 體重紀錄列表（按 measuredAt 降序，對照 iOS `BodyWeightView.weightList` +
 // `BodyWeightRow`）。每列可編輯（開表單帶原值）、可刪除（先跳確認對話框）。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/body_weight.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_format.dart';
 
-class BodyWeightRecordList extends StatelessWidget {
+class BodyWeightRecordList extends ConsumerWidget {
   const BodyWeightRecordList({
     super.key,
     required this.entriesDesc,
@@ -21,7 +23,8 @@ class BodyWeightRecordList extends StatelessWidget {
   final ValueChanged<BodyWeight> onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -30,20 +33,21 @@ class BodyWeightRecordList extends StatelessWidget {
         for (final entry in entriesDesc)
           _BodyWeightRow(
             entry: entry,
+            unit: unit,
             onEdit: () => onEdit(entry),
-            onDelete: () => _confirmDelete(context, entry),
+            onDelete: () => _confirmDelete(context, entry, unit),
           ),
       ],
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, BodyWeight entry) async {
+  Future<void> _confirmDelete(BuildContext context, BodyWeight entry, WeightUnit unit) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         key: const Key('deleteBodyWeightDialog'),
         title: const Text('刪除這筆體重紀錄？'),
-        content: Text('${formatBodyWeightDateTime(entry.measuredAt)} · ${formatBodyWeightKg(entry.weight)}'),
+        content: Text('${formatBodyWeightDateTime(entry.measuredAt)} · ${formatBodyWeightKg(entry.weight, unit)}'),
         actions: [
           TextButton(
             key: const Key('deleteBodyWeightCancelButton'),
@@ -70,11 +74,13 @@ class BodyWeightRecordList extends StatelessWidget {
 class _BodyWeightRow extends StatelessWidget {
   const _BodyWeightRow({
     required this.entry,
+    required this.unit,
     required this.onEdit,
     required this.onDelete,
   });
 
   final BodyWeight entry;
+  final WeightUnit unit;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -86,7 +92,7 @@ class _BodyWeightRow extends StatelessWidget {
       child: ListTile(
         onTap: onEdit,
         title: Text(
-          formatBodyWeightKg(entry.weight),
+          formatBodyWeightKg(entry.weight, unit),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         subtitle: Column(
