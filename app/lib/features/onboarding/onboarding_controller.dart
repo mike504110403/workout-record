@@ -23,6 +23,7 @@ import '../../data/models/body_weight.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import '../auth/shared_preferences_provider.dart';
+import '../settings/profile/profile_controller.dart' show kUserNameKey;
 import 'onboarding_status.dart';
 
 const kUserGenderKey = 'user_gender';
@@ -36,7 +37,17 @@ const kUserWeightUnitKey = 'user_weight_unit';
 /// SessionController.signOut() 用來精準清除 Onboarding 個資的 key 清單——
 /// 顯式列舉取代原本「掃描所有 `user_` 前綴 key」的隱式假設,哪些 key 算
 /// Onboarding 個資由這裡明確定義。
+///
+/// `kUserNameKey`(2026-09-01 波 6 core review 修復輪追加)雖然定義在
+/// `settings/profile/profile_controller.dart`(個人資料頁姓名欄,onboarding
+/// 精靈本身不收集姓名,見該檔開頭注解),但同樣是「換帳號/登出必須清掉」的
+/// 個資——沒進這份清單會導致前一位使用者的姓名殘留、預填給新帳號(review
+/// blocker)。從 profile_controller.dart import 常數而非複製字面值,避免兩處
+/// key 名漂移;此處與 profile_controller.dart 互相 import 形成循環引用,
+/// Dart 對 library 循環 import 沒有限制,`flutter analyze`/`flutter test`
+/// 通過即為證。
 const kOnboardingPersonalDataKeys = <String>[
+  kUserNameKey,
   kUserGenderKey,
   kUserAgeKey,
   kUserHeightKey,

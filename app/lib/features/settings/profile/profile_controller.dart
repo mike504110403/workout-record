@@ -18,6 +18,22 @@
 // 預填建議——只影響初始文字,不會回寫 kAppleUserNameKey 或 user_name;使用
 // 者真的按下「儲存」才會把當下欄位文字寫進 user_name。
 //
+// 清空語義(2026-09-01 波 6 core review 修復輪,MAJOR):上面的預填鏈只回答
+// 「user_name 沒有值時要顯示什麼建議」,但沒回答「使用者明確清空過一次之後
+// 呢」——姓名/身高原本用 `_firstNonEmpty`/`?? legacyHeight` 判斷「沒有」,
+// 清空存檔後 stored 值變成空字串/null,下一次 build() 又被判定成「沒有」,
+// legacy/apple 建議因此把舊值原封不動帶回來,使用者的「清空」意圖被悄悄
+// 撤銷。目標語義(已裁):使用者明確存過一次檔之後,legacy/apple 建議鏈永久
+// 停用,之後只看 stored 值本身(空就是空,不會再被建議填回)——用
+// [kProfileFilledOnceKey] 這個旗標實作「一次性消費」:`save()` 每次成功
+// 存檔都會設為 true,`build()` 一旦看到這個旗標,姓名/身高就不再諮詢
+// legacy_*/apple 建議,直接以 stored 值(可能是 null/空)為準。旗標設下去
+// 之後不會再清掉(即使之後又把值改回非空)——語意是「這個使用者的個人資料頁
+// 已經被主動存過檔,從此以後這個人自己的輸入(含刻意清空)才是唯一真相」,
+// 不是每次清空才切換,避免只用「值是否為空」這種脆弱訊號反推使用者意圖。
+// 性別維持原本邏輯不受影響:`SegmentedButton` 一定選中三個選項之一,沒有
+// 「清空」這個狀態可以表達,不需要這層一次性消費語義。
+//
 // 性別 legacy 值域:legacy_user_gender 是 iOS ProfileView.Gender 的
 // rawValue("男性"/"女性"/"不指定",直接複製過來的中文字串),跟本頁
 // `kProfileGenderOptions` 剛好同一組字面值,不需要轉換;若值不在值域內
@@ -48,6 +64,11 @@ const kUserNameKey = 'user_name';
 const kLegacyUserNameKey = 'legacy_user_name';
 const kLegacyUserGenderKey = 'legacy_user_gender';
 const kLegacyUserHeightKey = 'legacy_user_height';
+
+/// 「legacy/apple 建議一次性消費」旗標——姓名/身高清空語義的核心,見本檔
+/// 開頭注解。`save()` 存檔成功即設 true,`build()` 看到 true 就不再諮詢
+/// legacy_*/apple 建議鏈。
+const kProfileFilledOnceKey = 'profile_filled_once';
 
 /// 性別選項值域,對照 iOS `ProfileView.Gender`(SettingsView.swift)——三個
 /// 中文字面值本身就是儲存值,不是額外的 enum 對照表。
@@ -84,7 +105,16 @@ class _RealProfilePrefsWriter implements ProfilePrefsWriter {
     required String gender,
     required double? heightCm,
   }) async {
-    await prefs.setString(kUserNameKey, name);
+    // 姓名同身高一樣,留空存檔要移除 key、不是寫一個空字串佔位(2026-09-01
+    // review 修復輪 MAJOR——見本檔開頭注解的清空語義說明)。單用 remove()
+    // 本身還不夠(legacy fallback 一樣會把空 key 判定成「沒有」而回填),
+    // 真正擋住回填的是下面的 [kProfileFilledOnceKey] 旗標,這裡的 remove()
+    // 只是讓「清空」在 prefs 裡誠實地表現成「沒有值」,兩者搭配才完整。
+    if (name.isEmpty) {
+      await prefs.remove(kUserNameKey);
+    } else {
+      await prefs.setString(kUserNameKey, name);
+    }
     await prefs.setString(kUserGenderKey, gender);
     // 身高允許清空回未設定(留空存檔):nullable 欄位的「清空」不能用
     // copyWith 的 `??` 語意表達(ledger 首雷,見 ~/.claude/ledgers/
@@ -95,6 +125,9 @@ class _RealProfilePrefsWriter implements ProfilePrefsWriter {
     } else {
       await prefs.remove(kUserHeightKey);
     }
+    // 一次性消費旗標:存過一次檔之後,legacy/apple 建議鏈永久停用(本檔
+    // 開頭注解)。每次成功存檔都重設為 true(已經是 true 也無妨,冪等)。
+    await prefs.setBool(kProfileFilledOnceKey, true);
   }
 }
 
