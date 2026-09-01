@@ -437,10 +437,14 @@ void main() {
       expect(find.text('超越目標！你太強了🏆'), findsOneWidget);
     });
 
-    // 修復 m8 覆蓋缺口:weeklyWorkoutGoal == 0 的除零保護
-    // (dashboard_controller.dart 已有 `weeklyWorkoutGoal > 0 ? ... : 0` 的
-    // guard,這裡補上回歸測試,確保不是顯示 NaN%/Infinity% 或整頁崩潰)。
-    testWidgets('weeklyWorkoutGoal=0 時不除以零,顯示 0%(不是 NaN/Infinity)', (tester) async {
+    // 波 5 review 打回(MAJOR SP1):weeklyWorkoutGoal == 0 代表「未設定」
+    // (goal_settings_page.dart 規格:目標設定頁週次數欄位留空即存 0),不是
+    // 「目標剛好是 0 次」。dashboard_controller.dart 改成 `userGoal != null
+    // && weeklyWorkoutGoal > 0` 才進入進度分支,0 時要跟「無 goal」一樣走
+    // 空狀態——這條測試原本斷言的是舊行為(顯示「0/0 次、0%」進度卡),已
+    // 依新規格改寫(變異:把 dashboard_controller.dart 的條件改回
+    // `userGoal != null`,這條測試會回到舊斷言、必紅)。
+    testWidgets('weeklyWorkoutGoal=0(未設定)時顯示空狀態,不是 0/0 次進度卡', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
       await harness.userGoalRepo.createOrUpdate(
@@ -455,10 +459,9 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      expect(find.byKey(const Key('goalProgressCard')), findsOneWidget);
-      expect(find.text('0 / 0 次'), findsOneWidget);
-      expect(find.text('0%'), findsOneWidget);
-      expect(find.text('開始本週第一次訓練吧！💪'), findsOneWidget);
+      expect(find.byKey(const Key('goalEmptyState')), findsOneWidget);
+      expect(find.byKey(const Key('goalProgressCard')), findsNothing);
+      expect(find.text(kNoGoalMessage), findsOneWidget);
     });
   });
 

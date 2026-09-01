@@ -1,7 +1,7 @@
 // WorkoutRepository 測試:含 exercises/sets 巢狀的 create + fetchById、
 // fetchByDateRange 邊界、completeWorkout 統計計算、delete FK cascade。
 
-import 'package:drift/drift.dart' show OrderingTerm;
+import 'package:drift/drift.dart' show OrderingTerm, Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workout_record/data/db/app_database.dart' hide Workout, WorkoutExercise, WorkoutSet;
 import 'package:workout_record/data/models/workout.dart';
@@ -716,6 +716,271 @@ void main() {
       ).copyWith(totalVolume: 9999));
 
       expect(await repository.calculateTotalVolume(), 500);
+    });
+  });
+
+  // 波 5 編輯已完成訓練新增:recomputeSummary。三條變異測試各自用「只有
+  // 該欄位會變」的 fixture(brief 規格,避免一個 fixture 三欄一起斷言、
+  // 多規則互遮),不共用同一組資料。
+  group('recomputeSummary', () {
+    // 雙向變異(totalVolume):把 recomputeSummary 裡 totalVolume 那行寫回
+    // 拿掉,這則測試會紅。fixture 只改組重量(組數/動作數都不變),totalSets
+    // /totalExercises 理當維持原值不動——只有 totalVolume 該變。
+    test('改組重量後重算 → totalVolume 更新,totalSets/totalExercises 不動', () async {
+      await repository.create(buildWorkout(
+        id: 'recompute-volume',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        endedAt: DateTime(2026, 1, 10, 9, 0),
+        exercises: [
+          buildExercise(
+            id: 'we-recompute-volume',
+            workoutId: 'recompute-volume',
+            sets: [
+              buildSet(
+                id: 'set-recompute-volume-1',
+                workoutExerciseId: 'we-recompute-volume',
+                setNumber: 1,
+                weight: 40,
+                reps: 10,
+              ),
+            ],
+          ),
+        ],
+      ).copyWith(totalVolume: 400, totalSets: 1, totalExercises: 1));
+
+      // 直接改 DB 裡的組重量(不經過 updateSet,單純製造「summary 欄位與
+      // 目前 sets 不一致」的情境給 recomputeSummary 修正)。
+      await (db.update(db.workoutSets)..where((t) => t.id.equals('set-recompute-volume-1')))
+          .write(const WorkoutSetsCompanion(weight: Value(100), volume: Value(1000)));
+
+      final result = await repository.recomputeSummary('recompute-volume');
+
+      expect(result.totalVolume, 1000); // 100 * 10
+      expect(result.totalSets, 1);
+      expect(result.totalExercises, 1);
+    });
+
+    // 雙向變異(totalSets):把 totalSets 那行寫回拿掉,這則測試會紅。刪除
+    // 的組 weight=0(volume 恆為 0,不管刪不刪都不影響 totalVolume),
+    // fixture 只留這一個動作 → totalExercises 也不受影響,只有 totalSets
+    // 該變。
+    test('刪組後重算 → totalSets 更新,totalVolume/totalExercises 不動', () async {
+      await repository.create(buildWorkout(
+        id: 'recompute-sets',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        endedAt: DateTime(2026, 1, 10, 9, 0),
+        exercises: [
+          buildExercise(
+            id: 'we-recompute-sets',
+            workoutId: 'recompute-sets',
+            sets: [
+              buildSet(
+                id: 'set-recompute-sets-real',
+                workoutExerciseId: 'we-recompute-sets',
+                setNumber: 1,
+                weight: 50,
+                reps: 8,
+              ),
+              buildSet(
+                id: 'set-recompute-sets-zero',
+                workoutExerciseId: 'we-recompute-sets',
+                setNumber: 2,
+                weight: 0,
+                reps: 5,
+              ),
+            ],
+          ),
+        ],
+      ).copyWith(totalVolume: 400, totalSets: 2, totalExercises: 1));
+
+      await (db.delete(db.workoutSets)..where((t) => t.id.equals('set-recompute-sets-zero'))).go();
+
+      final result = await repository.recomputeSummary('recompute-sets');
+
+      expect(result.totalSets, 1);
+      expect(result.totalVolume, 400); // 50 * 8,零重量那組本來就不貢獻容量
+      expect(result.totalExercises, 1);
+    });
+
+    // 雙向變異(totalExercises):把 totalExercises 那行寫回拿掉,這則測試
+    // 會紅。刪掉的動作只有暖身組(nonWarmupTotalVolume/nonWarmupTotalSets
+    // 排除暖身組,對這個動作的貢獻本來就是 0),不影響 totalVolume/
+    // totalSets,只有 totalExercises 該變。
+    test('刪動作後重算 → totalExercises 更新,totalVolume/totalSets 不動', () async {
+      await repository.create(buildWorkout(
+        id: 'recompute-exercises',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        endedAt: DateTime(2026, 1, 10, 9, 0),
+        exercises: [
+          buildExercise(
+            id: 'we-recompute-real',
+            workoutId: 'recompute-exercises',
+            sets: [
+              buildSet(
+                id: 'set-recompute-real-1',
+                workoutExerciseId: 'we-recompute-real',
+                setNumber: 1,
+                weight: 60,
+                reps: 5,
+              ),
+            ],
+          ),
+          WorkoutExercise(
+            id: 'we-recompute-warmup-only',
+            workoutId: 'recompute-exercises',
+            exerciseId: exerciseId,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            sets: [
+              WorkoutSet(
+                id: 'set-recompute-warmup-1',
+                workoutExerciseId: 'we-recompute-warmup-only',
+                setNumber: 1,
+                weight: 20,
+                reps: 10,
+                isWarmup: true,
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+              ),
+            ],
+          ),
+        ],
+      ).copyWith(totalVolume: 300, totalSets: 1, totalExercises: 2));
+
+      await (db.delete(db.workoutExercises)
+            ..where((t) => t.id.equals('we-recompute-warmup-only')))
+          .go();
+
+      final result = await repository.recomputeSummary('recompute-exercises');
+
+      expect(result.totalExercises, 1);
+      expect(result.totalVolume, 300); // 60 * 5,暖身動作本來就不貢獻容量
+      expect(result.totalSets, 1);
+    });
+
+    // fixture 填滿全欄位(含 note/templateId/isSynced),重算後
+    // totalVolume/totalSets/totalExercises/updatedAt 四欄改變,endedAt/
+    // duration/startedAt(以及其餘所有欄位)一律 DeepEqual 不動。
+    //
+    // updatedAt 會 bump(2026-09-01 team-lead 裁示修正,見波 5 brief 回報的
+    // 偏離清單):波 7 同步協定是「updatedAt 增量拉推 + 整包 workout 取代」,
+    // 這裡的 updatedAt 不動,編輯就永遠不會被同步波挑中推送——且「內容
+    // (統計)改了、最後修改時間卻不動」語義本來就不對。isSynced 刻意不動
+    // (目前沒有消費者,留給同步波實作時一併決定)。
+    test('bump updatedAt、只重算三個統計欄位,不動 endedAt/duration/startedAt/isSynced(及其餘欄位)',
+        () async {
+      final startedAt = DateTime(2026, 1, 10, 8, 0, 0);
+      final endedAt = DateTime(2026, 1, 10, 9, 15, 0);
+      final createdAt = DateTime(2026, 1, 10, 7, 0, 0);
+      // 種一個早於「現在」的 updatedAt——重算後的新 updatedAt 只需要
+      // `>=` 這個種子值就能證明真的被 bump 了,不用假設 DB 往返後的毫秒
+      // 精度(Drift dateTime() 欄位是整數秒精度,已知雷,見 test_helpers.dart
+      // harness 註解),不注入時鐘、不比對到毫秒。
+      final updatedAt = DateTime(2026, 1, 10, 7, 0, 0);
+      await repository.create(Workout(
+        id: 'recompute-untouched',
+        userId: testUserId,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        duration: 75,
+        totalVolume: 999, // 刻意種一個錯的值,驗證重算後被修正
+        totalSets: 999,
+        totalExercises: 999,
+        note: '原始備註',
+        templateId: 'template-xyz',
+        isSynced: true,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        exercises: [
+          buildExercise(
+            id: 'we-recompute-untouched',
+            workoutId: 'recompute-untouched',
+            sets: [
+              buildSet(
+                id: 'set-recompute-untouched-1',
+                workoutExerciseId: 'we-recompute-untouched',
+                setNumber: 1,
+                weight: 30,
+                reps: 10,
+              ),
+            ],
+          ),
+        ],
+      ));
+
+      final beforeRecompute = DateTime.now();
+      final result = await repository.recomputeSummary('recompute-untouched');
+
+      // 三個統計欄位:被修正成從 sets 現算的正確值(30 * 10 = 300)。
+      expect(result.totalVolume, 300);
+      expect(result.totalSets, 1);
+      expect(result.totalExercises, 1);
+      // updatedAt:被 bump 成呼叫當下的時間,不再是種下去的舊值。
+      expect(result.updatedAt, isNot(updatedAt));
+      expect(
+        result.updatedAt.isAfter(updatedAt) ||
+            result.updatedAt.isAtSameMomentAs(updatedAt),
+        isTrue,
+      );
+      expect(
+        result.updatedAt.isAfter(beforeRecompute.subtract(const Duration(seconds: 2))),
+        isTrue,
+      );
+      // 其餘欄位:一律不動(含 isSynced——recomputeSummary 刻意不碰它)。
+      // 這是逐欄位手動列出來的 DeepEqual,不是自動比對整個物件——`Workout`
+      // 新增欄位時記得回來這裡補一行斷言,不然新欄位會悄悄漏測(不在這條
+      // 「不動」清單裡,也不在上面的「三個統計欄位+updatedAt」清單裡)。
+      expect(result.id, 'recompute-untouched');
+      expect(result.userId, testUserId);
+      expect(result.startedAt, startedAt);
+      expect(result.endedAt, endedAt);
+      expect(result.duration, 75);
+      expect(result.note, '原始備註');
+      expect(result.templateId, 'template-xyz');
+      expect(result.isSynced, isTrue);
+      expect(result.createdAt, createdAt);
+    });
+
+    test('對草稿(endedAt IS NULL)呼叫 → 拋出 StateError,不覆寫任何欄位', () async {
+      await repository.create(buildWorkout(
+        id: 'recompute-draft',
+        startedAt: DateTime(2026, 1, 10, 8, 0),
+        endedAt: null,
+        exercises: [
+          buildExercise(
+            id: 'we-recompute-draft',
+            workoutId: 'recompute-draft',
+            sets: [
+              buildSet(
+                id: 'set-recompute-draft-1',
+                workoutExerciseId: 'we-recompute-draft',
+                setNumber: 1,
+                weight: 10,
+                reps: 10,
+              ),
+            ],
+          ),
+        ],
+      ).copyWith(totalVolume: 42, totalSets: 5, totalExercises: 7));
+
+      expect(
+        () => repository.recomputeSummary('recompute-draft'),
+        throwsA(isA<StateError>()),
+      );
+
+      final stillThere = await repository.fetchById('recompute-draft');
+      expect(stillThere, isNotNull);
+      expect(stillThere!.endedAt, isNull);
+      expect(stillThere.totalVolume, 42);
+      expect(stillThere.totalSets, 5);
+      expect(stillThere.totalExercises, 7);
+    });
+
+    test('workout 不存在時拋出 StateError', () {
+      expect(
+        () => repository.recomputeSummary('does-not-exist'),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

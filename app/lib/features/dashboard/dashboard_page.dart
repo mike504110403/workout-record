@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../goals/goal_settings_page.dart';
 import 'dashboard_controller.dart';
 import 'widgets/add_body_weight_sheet.dart';
 import 'widgets/goal_progress_section.dart';
@@ -53,6 +54,15 @@ class DashboardPage extends ConsumerWidget {
                   weekWorkoutCount: state.weekWorkoutCount,
                   goalPercentage: state.goalPercentage,
                   motivationalMessage: state.motivationalMessage,
+                  // 波 5:目標設定頁是 zero-arg const StatelessWidget、自帶
+                  // Scaffold(同 pr_list_page.dart 慣例),直接 push 即可,不
+                  // 需要外層再包殼、也不掛 route。存檔成功後 Dashboard/
+                  // 體重頁的 controller 由 GoalSettingsController.save()
+                  // 內部負責 invalidate(見該檔案開頭注解),這裡不需要在
+                  // push 返回後額外處理刷新。
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 WeekStatsSection(

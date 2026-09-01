@@ -6,6 +6,8 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session_controller.dart';
 import 'features/dashboard/dashboard_controller.dart';
 import 'features/dashboard/dashboard_page.dart';
+import 'features/history/history_calendar_controller.dart';
+import 'features/history/history_list_controller.dart';
 import 'features/history/history_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/onboarding/onboarding_status.dart';
@@ -76,6 +78,17 @@ const _statsBranchIndex = 2;
 /// 統計/最近訓練不會自動反映新資料。純函式,理由與測試慣例同
 /// [shouldRefreshDashboardOnBranchSwitch](含上面那則 major 2 打回記錄)。
 bool shouldRefreshStatsOnBranchSwitch(int targetIndex) => targetIndex == _statsBranchIndex;
+
+/// 「歷史」在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
+/// 一致(首頁 0 / 訓練 1 / 數據 2 / 歷史 3 / 設定 4)。
+const _historyBranchIndex = 3;
+
+/// 波 5 補上的第三個「回訪同一分頁需要 invalidate」案例,理由同上兩支:
+/// `StatefulShellRoute.indexedStack` 不 dispose 頁面,歷史列表/日曆的
+/// controller 皆非 autoDispose,使用者在訓練分頁完成一筆訓練再切到歷史
+/// 分頁,列表與日曆不會自動反映新資料。純函式,理由與測試慣例同
+/// [shouldRefreshDashboardOnBranchSwitch]。
+bool shouldRefreshHistoryOnBranchSwitch(int targetIndex) => targetIndex == _historyBranchIndex;
 
 /// session / onboarding 狀態改變時通知 GoRouter 重新評估 redirect(例如
 /// 登入、登出、完成 Onboarding)。
@@ -237,6 +250,14 @@ class _AppShellState extends ConsumerState<_AppShell> {
       ref.invalidate(workoutStatsControllerProvider);
       ref.invalidate(bodyWeightTabControllerProvider);
       ref.invalidate(powerliftingControllerProvider);
+    }
+    if (shouldRefreshHistoryOnBranchSwitch(index)) {
+      // 歷史列表/日曆一起失效(同上:IndexedStack 不 dispose、皆非
+      // autoDispose;WAVE5 merge 時由大腦接線)。訓練詳情/編輯頁不掛這裡
+      // ——它們是 Navigator.push 的獨立頁,編輯返回的刷新由
+      // WorkoutDetailPage 自行處理。
+      ref.invalidate(historyListControllerProvider);
+      ref.invalidate(historyCalendarControllerProvider);
     }
   }
 

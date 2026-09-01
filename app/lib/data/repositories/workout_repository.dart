@@ -344,6 +344,60 @@ class WorkoutRepository {
     });
   }
 
+  /// 編輯已完成訓練後重算 summary(波 5 編輯已完成訓練新增):依目前
+  /// exercises/sets 重新計算 totalVolume/totalSets/totalExercises 並寫回,
+  /// **不動 endedAt/duration/startedAt**(這三欄是「訓練發生的時間事實」,
+  /// 編輯內容不該連帶改寫)。演算法照抄 [completeWorkout] 現算邏輯(暖身組
+  /// 排除,見該方法文件),差別只在寫回的欄位範圍更窄。
+  ///
+  /// **結構守衛:只對已完成訓練生效**——對草稿(`endedAt IS NULL`)呼叫直接
+  /// 拋 `StateError`,不像 [discardDraft] 靜默 no-op:編輯頁的呼叫端理論上
+  /// 不會在草稿上呼叫這個方法,「靜默吞掉」反而會讓呼叫端誤以為重算成功、
+  /// 掩蓋掉「呼叫時機不對」這個真正的錯誤,拋錯讓問題浮出來。UPDATE 的
+  /// where 子句仍照 [discardDraft]/[completeWorkout] 的手法多帶一道
+  /// `endedAt IS NOT NULL` 結構守衛(鏡像:那兩處守衛的是「只對草稿生效」,
+  /// 這裡反過來只對已完成訓練生效),雙重防線防止繞過上面的顯式檢查。
+  ///
+  /// **會 bump `updatedAt`**(2026-09-01 team-lead 裁示修正,見波 5 brief 回報
+  /// 的偏離清單):波 7 同步協定是「`updatedAt` 增量拉推 + 整包 workout 取代」
+  /// (子列沒有自己的同步欄位),`updatedAt` 不動這筆編輯就永遠不會被同步波
+  /// 挑中推送——而且「內容(統計)改了、最後修改時間卻不動」語義上本來就
+  /// 不對。**`isSynced` 刻意不動**:目前沒有任何消費者讀它,要不要在這裡
+  /// 順手撥 false 留給同步波實作時一併決定,不在這裡搶著猜。整個計算與
+  /// 寫入包在單一 transaction 內。
+  Future<Workout> recomputeSummary(String workoutId) {
+    return _db.transaction(() async {
+      final workoutRow = await (_db.select(_db.workouts)..where((t) => t.id.equals(workoutId)))
+          .getSingleOrNull();
+      if (workoutRow == null) {
+        throw StateError('Workout not found: $workoutId');
+      }
+      if (workoutRow.endedAt == null) {
+        throw StateError(
+          'recomputeSummary: workout $workoutId 還是進行中的草稿(endedAt IS NULL),'
+          '只有已完成的訓練才能重算 summary',
+        );
+      }
+
+      final exercises = await _fetchExercisesForWorkout(workoutId);
+      final totalVolume = nonWarmupTotalVolume(exercises);
+      final totalSetsCount = nonWarmupTotalSets(exercises);
+
+      await (_db.update(_db.workouts)
+            ..where((t) => t.id.equals(workoutId) & t.endedAt.isNotNull()))
+          .write(
+        db.WorkoutsCompanion(
+          totalVolume: Value(totalVolume),
+          totalSets: Value(totalSetsCount),
+          totalExercises: Value(exercises.length),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+
+      return (await fetchById(workoutId))!;
+    });
+  }
+
   // MARK: - Conversion
 
   Future<List<WorkoutExercise>> _fetchExercisesForWorkout(String workoutId) async {

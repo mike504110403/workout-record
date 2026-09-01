@@ -140,10 +140,14 @@ class DashboardController extends AsyncNotifier<DashboardState> {
 
     double? goalPercentage;
     String motivationalMessage = kNoGoalMessage;
-    if (userGoal != null) {
-      goalPercentage = userGoal.weeklyWorkoutGoal > 0
-          ? (weekWorkoutCount / userGoal.weeklyWorkoutGoal) * 100
-          : 0;
+    // 波 5 review 打回(MAJOR SP1):weeklyWorkoutGoal == 0 代表「未設定」
+    // (見 goal_settings_page.dart 規格:留空欄位存 0),不是「目標剛好是
+    // 0 次」。這裡額外守 `weeklyWorkoutGoal > 0` 才進度分支——否則
+    // `goalPercentage` 會算成 0(而不是 null),goal_progress_section.dart
+    // 判斷 `percentage == null` 才顯示空狀態的條件不成立,畫面會誤顯示
+    // 「N/0 次、0% 紅色進度條」而不是真正的空狀態提示。
+    if (userGoal != null && userGoal.weeklyWorkoutGoal > 0) {
+      goalPercentage = (weekWorkoutCount / userGoal.weeklyWorkoutGoal) * 100;
       motivationalMessage = _motivationalMessage(goalPercentage);
     }
 

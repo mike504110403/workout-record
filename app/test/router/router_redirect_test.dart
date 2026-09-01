@@ -142,4 +142,22 @@ void main() {
       }
     });
   });
+
+  // 接線行為(切分頁真的 invalidate 歷史兩個 provider)測在
+  // test/features/history/history_shell_revisit_test.dart,理由同上。
+  group('shouldRefreshHistoryOnBranchSwitch', () {
+    test('切到歷史分頁(index 3)時回傳 true', () {
+      expect(shouldRefreshHistoryOnBranchSwitch(3), isTrue);
+    });
+
+    test('切到其他分頁(首頁/訓練/數據/設定)時回傳 false', () {
+      for (final index in [0, 1, 2, 4]) {
+        expect(
+          shouldRefreshHistoryOnBranchSwitch(index),
+          isFalse,
+          reason: 'index=$index 不應觸發歷史分頁重新整理',
+        );
+      }
+    });
+  });
 }
