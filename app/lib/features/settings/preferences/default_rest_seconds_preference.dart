@@ -17,7 +17,7 @@ const kDefaultRestSecondsPrefsKey = 'default_rest_seconds';
 const kLegacyDefaultRestTimePrefsKey = 'legacy_default_rest_time';
 
 /// prefs 存的秒數必須是正整數才採信——legacy 資料可能是 0 或負數(此輸入不
-/// 受信,落安全預設而非直接拿來用,负数秒数没有任何合理意义)。
+/// 受信,落安全預設而非直接拿來用,負數秒數沒有任何合理意義)。
 bool _isValidRestSeconds(int? seconds) => seconds != null && seconds > 0;
 
 /// [defaultRestSecondsProvider] 的真身實作。
@@ -25,6 +25,7 @@ bool _isValidRestSeconds(int? seconds) => seconds != null && seconds > 0;
 /// 快取生命週期(含換帳號):同 [WeightUnitController] 的理由——
 /// `default_rest_seconds`/`legacy_default_rest_time` 是裝置層級設定,不在
 /// 換帳號清除清單裡,刻意不 watch `sessionControllerProvider`。
+/// (大腦裁示追認 2026-09-01:裝置層級設定,非個資,不進清除清單)
 class DefaultRestSecondsController extends Notifier<int> {
   @override
   int build() {

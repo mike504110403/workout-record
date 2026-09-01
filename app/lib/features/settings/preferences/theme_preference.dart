@@ -55,6 +55,7 @@ ThemeMode _resolveLegacyThemeMode(SharedPreferences prefs) {
 /// 快取生命週期(含換帳號):同 [WeightUnitController]——`theme_mode`/
 /// `legacy_theme`/`legacy_is_dark_mode` 都是裝置層級設定,不在換帳號清除
 /// 清單裡,刻意不 watch `sessionControllerProvider`。
+/// (大腦裁示追認 2026-09-01:裝置層級設定,非個資,不進清除清單)
 class ThemeModeController extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {

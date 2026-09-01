@@ -14,7 +14,16 @@
 // 寫入失敗處理:各 controller 的 setXxx() 是「先寫 prefs 成功才更新
 // state」,所以失敗時 provider 值維持原值,畫面(直接 watch provider)自然
 // 顯示回舊選項,不需要額外復原邏輯——這裡只需要解除該控制項的 loading +
-// 跳浮錯,呼叫端(本檔)不需要自己 revert 任何本地狀態。
+// 跳浮錯,呼叫端(本檔)不需要自己 revert 任何本地狀態。**前提是四個控制項
+// 都是「完全受控」(display 值每次 build 都從 provider 值重新算,不留自己的
+// 內部狀態)**——SegmentedButton 天生如此;休息秒數改用 `DropdownButton`
+// (而非 `DropdownButtonFormField`)正是為了滿足這個前提:FormField 版本的
+// `didChange` 會先把 FormField 內部 state 設成使用者剛選的值再回呼
+// `onChanged`,`didUpdateWidget` 只在 `initialValue` 變動時才 setValue——寫入
+// 失敗時 provider 沒變、`initialValue` 沒變,內部 state 就會停在使用者選過
+// 但沒寫入成功的值,畫面顯示與實際偏好不符。`DropdownButton` 每次 rebuild
+// 都直接用 `value:` 這個 prop 重算顯示,沒有這層獨立內部狀態,失敗後自然
+// 跟著 provider 顯示回舊值。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,9 +33,8 @@ import 'theme_preference.dart';
 import 'weight_unit.dart';
 
 /// 預設休息秒數選擇器的值域(30-300 秒,15 秒一階)——brief 給的參考範圍。
-const _kRestSecondsOptions = [
-  30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285, 300,
-];
+/// 產生式建構,區間/階距單一來源,改值域只需要改這一行。
+final List<int> _kRestSecondsOptions = [for (var s = 30; s <= 300; s += 15) s];
 
 class PreferencesPage extends ConsumerStatefulWidget {
   const PreferencesPage({super.key});
@@ -115,9 +123,13 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
           const SizedBox(height: 24),
           _buildSectionTitle(context, '預設休息秒數', _savingRestSeconds),
           const SizedBox(height: 8),
-          DropdownButtonFormField<int>(
+          DropdownButton<int>(
             key: const Key('defaultRestSecondsDropdown'),
-            initialValue: _kRestSecondsOptions.contains(restSeconds) ? restSeconds : null,
+            // 完全受控:value 每次 build 都從 provider 值重算,不留內部狀態
+            // ——寫入失敗時 provider 不變,畫面自然跟著顯示回舊值(見檔頭
+            // 說明)。用 DropdownButton 而非 DropdownButtonFormField 正是
+            // 為了這個受控保證。
+            value: _kRestSecondsOptions.contains(restSeconds) ? restSeconds : null,
             hint: Text('$restSeconds 秒'),
             items: [
               for (final seconds in _kRestSecondsOptions)

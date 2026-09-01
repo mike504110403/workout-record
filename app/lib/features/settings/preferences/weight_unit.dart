@@ -63,6 +63,7 @@ String unitSuffix(WeightUnit unit) => unit == WeightUnit.lb ? 'lb' : 'kg';
 /// 件事,值就是這台裝置目前選的單位,跨帳號共用是正確行為而非快取殘留。
 /// 仍然 `ref.watch(sharedPreferencesProvider)`(而非 `read`)是照抄
 /// onboarding_status.dart 既有慣例:讓測試換掉 override 時能重新 build()。
+/// (大腦裁示追認 2026-09-01:裝置層級設定,非個資,不進清除清單)
 class WeightUnitController extends Notifier<WeightUnit> {
   @override
   WeightUnit build() {
