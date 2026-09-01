@@ -10,11 +10,27 @@
 - 重大決策全在 `.claude/decisions/`。既有雷 ledger:`~/.claude/ledgers/workout-record.md`(2026-09-01 起,首雷:copyWith `??` 語意無法清 null)。
 - 工作流慣例(歷波驗證有效):工人 brief 用 `/brief` 模板(常備紀律+變異逐規則列+張力回報);多工人同 repo 各掛 worktree;跨工人接縫用「議定契約 + WAVE{n}-MERGE placeholder,merge 時大腦換接」;每輪 major 修復必附雙向變異輸出且大腦至少親測一個;merge 後大腦跑全量三指令。
 
-## 下一步(Mike 喊「繼續」執行 1;其餘等 Mike 開口)
+## 波 6 已收斂(2026-09-01 開波,同日 Mike 喊收斂;「繼續」=從下方看板逐線續作)
 
-1. **開波 6:設定 tab(消費 legacy prefs)**。流程照慣例:
-   - 探路平行(scout-trace iOS 基準 `Views/Settings/` 全部 View+SettingsView 結構+FEATURE_MAP Tab5 段;scout-read Flutter 側 settings_page placeholder、legacy_prefs_importer 已搬了哪些 key、既有可接資產如 GoalSettingsPage 入口)。
-   - 可能分岔先 AskUserQuestion 裁(單位偏好 kg/lb 的消費面、匯出資料、關於/隱私頁內容、登出/刪帳號範圍)。
+裁示已定(四題+邊界卡點頭):**kg/lb 完整做**(顯示層換算、儲存恆 kg);偏好頁=主題+休息秒數+1RM 公式+單位(各消費 legacy key 預填,震動不做);個人資料=姓名/性別/身高三欄存 prefs(目標兩欄不重複做,入口導 UserGoal 單一真源);版本=加 package_info_plus。非目標:通知(iOS 持久化死碼)/教學/匯出/刪帳號/身高單位(記遺留)。**FEATURE_MAP Tab5 是願景非基準**(探路實證)。
+
+| 任務                                        | 階段                      | 分支(最後 commit)           | 切自    | 收斂時狀態                                                                                                                                                                        |
+| ------------------------------------------- | ------------------------- | --------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| wave6-core(骨架+個人資料+關於+入口)         | review 打回修復中(半成品) | wt/wave6/core(a8a3c77=WIP)  | a475121 | 主體 c558e4e+補測 5617899 完成且大腦驗收過;review-core 打回 1 BLOCKER+1 MAJOR+4 minor 修復做到一半落 WIP commit a8a3c77(動了 onboarding_controller+profile_controller,未完成未驗) |
+| wave6-prefs(偏好頁+四 provider+legacy 預填) | review 打回修復中(半成品) | wt/wave6/prefs(f3f99a7=WIP) | a475121 | 主體 8180b40 完成且大腦驗收過(532 綠+變異抽查);review-prefs 打回 1 MAJOR+3 minor 修復做到一半落 WIP commit f3f99a7(動了 preferences/ 五檔,未完成未驗)                             |
+| wave6-units(22 檔顯示層 kg/lb 改造)         | 實作中(半成品)            | wt/wave6/units(369441c=WIP) | a475121 | 兩任工人接力(各斷線一次),dashboard/history/workout/stats 大半已改+core/format 收斂+部分測試,WIP commit 369441c;尚缺部分群組與完整測試,從未驗收                                    |
+
+**續作指南**:三個 WIP commit 都是「半成品快照」——續作工人先 `git show <WIP hash>` 讀懂遺留再繼續,完成後把 WIP 壓掉整併。修復指派清單原文:core 的在 session scratchpad(要點:BLOCKER=user_name 加進 kOnboardingPersonalDataKeys+清除測試;MAJOR=清空語義「預填一次性化」防 legacy 回填,姓名身高同套;minor=section 分組/About future 出 build/性別順序對齊 iOS/測試註解);prefs 的(MAJOR=休息秒數 DropdownButtonFormField 寫入失敗畫面不回退,修顯示 reset+斷言畫面值;追認注釋「偏好不隨換帳號清除」;minor=簡體字/秒數選項單一來源/find.text 收緊);units 照原 brief(scratchpad/briefs/wave6-units.md)驗收標準補完。
+
+feature/wave6(worktree ../workout-record-feature-wave6),基底=契約 stub a475121(WeightUnit enum/換算/provider 介面+PreferencesPage 進入點,**契約不可改**)。工人 worktree=../workout-record-wt-{score,prefs,units}(core 目錄名是 wt-score)。brief/reviewer 報告/探路報告/工人報告已全數抄回 `.claude/wave6-handoff/`(9 檔,新 session 直接讀這裡,不依賴 session scratchpad)。
+
+**大腦 merge 接線清單(三線收齊後親做)**:themeMode 進 app.dart、kDefaultRestSeconds 換 defaultRestSecondsProvider(消費點 workout_ui_shared/controller/in_progress_view)、**one_rm_calculator 補 Brzycki/Lander 實作+formula 參數**(現只有 Epley,brief 誤植已證)+呼叫端接 oneRmFormulaProvider(workout_controller PR 結算/edit controller/powerlifting)、settings 分頁 router 失效掛點視需要。
+
+**本波已知事故記錄**:三工人曾因 session compact 斷線各一次(第一批另有 hook 誤殺 pane 事故,hook 已改提醒制);「未動工即死」定則未觸發(各次死因明確非無因)。探路報告:scratchpad/wave6-{ios,flutter}-scout.md(iOS 通知頁持久化死碼/單位有消費無 UI/雙源缺陷/deprecated 頂層 key 勿誤讀——importer 已 blob 優先)。
+
+## 下一步(Mike 喊「繼續」=續作波 6 三線;其餘等 Mike 開口)
+
+1. **續作波 6**:重派三個續作工人(沿用各自 worktree,prompt 帶上方續作指南+讀 WIP commit)→完成→大腦驗收→review 複審(修的含 BLOCKER/MAJOR 要重跑全鏈)→merge→大腦接線→收波。
    - 拆工平行派(範圍互斥 + worktree),驗收 → review chain → merge 接線 → 收波。
 2. Mike 驗看波 2~5(見「Mike 待辦」)。
 3. 裁遺留判斷題(見「遺留」,不擋波 6)。
@@ -23,7 +39,7 @@
 
 - 模擬器/瀏覽器驗看波 2~5。波 5 重點路徑:歷史列表/日曆切換、點日期看當天清單、詳情頁(summary/容量分布/明細含暖身標記)、滑動刪除+詳情頁刪除(皆有確認)、**編輯流**(詳情頁鉛筆→改組重量/增刪組/增刪動作/改備註→返回詳情頁與列表都反映新值、PR 只升不降)、Dashboard 目標卡點入設定頁(存週次數/目標體重→返回首頁進度更新;存 0/清空→顯示空狀態;目標體重接體重頁目標線)。**波 5 已知觀察項**(手測順不順眼,不是 bug):目標卡版式(標題卡外+chevron)、詳情頁刪除中 UI、編輯頁無日期顯示。
 - 舊待辦:驗看波 2~4 清單與 iOS 刻意差異清單(見 git 歷史 a37fe58 版 wip.md,或直接問大腦);Apple Developer portal 開 Sign in with Apple capability;iOS 真機實測登入。
-- develop 已含波 5 一顆 commit 未推 origin——要推說「推」(走 /ship)。
+- ~~develop 波 5 未推~~ 已推 origin(94b8872,2026-09-01 ls-remote 驗證)。
 
 ## 遺留(判斷題,不擋;累積自波 2~5 review)
 
