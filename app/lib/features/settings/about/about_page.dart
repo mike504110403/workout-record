@@ -1,0 +1,147 @@
+// 關於頁:版本號(package_info_plus)+ 隱私政策靜態內文。契約:zero-arg
+// const 建構子、自帶 Scaffold/AppBar(同波 6 其他新頁面慣例)。
+//
+// 隱私文案紀律(repo CLAUDE.md 地雷區,brief 明定):必須與「資料存裝置
+// 本機」現狀一致。參照 iOS `Views/About/AboutView.swift` 的
+// `AboutPrivacyPolicyView` 內文精神(資訊收集/使用/安全/聯絡我們的段落
+// 結構),但**不照抄**——那份文案本身跟 iOS 實作已經不一致(探路已證),照抄
+// 會把同樣的病灶搬進 Flutter 版。改寫依據 Flutter 版已經上線、經隱私審查
+// 的既有文案(`privacy_consent_page.dart`,見該檔開頭注解「逐字對照 iOS
+// PrivacyConsentView,該文案已符合資料存本機現狀」)——本頁沿用同一組事實
+// 陳述,不新增匯出/刪除帳號等本 App 目前沒有 UI 路徑的功能宣稱。
+//
+// 版本號來源:`PackageInfo.fromPlatform()`,測試環境用
+// `PackageInfo.setMockInitialValues` 提供固定值(package_info_plus 官方
+// 測試慣例)。用 FutureBuilder 而非額外的 Riverpod controller——單純的
+// 一次性平台查詢,沒有跨頁共用狀態或需要 invalidate 的快取,加一層
+// controller 沒有實質好處。
+import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('關於')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Icon(Icons.fitness_center, size: 60, color: Colors.blue),
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              'WorkItOut',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: FutureBuilder<PackageInfo?>(
+              // 查詢失敗(理論上不該發生在真機——平台一定有 PackageInfo,只
+              // 有測試環境沒 mock 時的 MissingPluginException 才會走到這裡)
+              // 包一層 try/catch 轉成 null,而非讓整個 Future 帶著 error
+              // 完成:`snapshot.hasError` 不影響 `connectionState`,若不特別
+              // 處理,底下用「data == null 就畫轉圈圈」判斷 loading 的寫法
+              // 在 error 完成後會永遠卡在轉圈圈(動畫持續排新的 frame),
+              // `pumpAndSettle` 因此永遠等不到穩定,widget test 會 timeout。
+              future: () async {
+                try {
+                  return await PackageInfo.fromPlatform();
+                } catch (_) {
+                  return null;
+                }
+              }(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  );
+                }
+                final info = snapshot.data;
+                if (info == null) {
+                  return Text(
+                    key: const Key('aboutVersionText'),
+                    '版本未知',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                  );
+                }
+                return Text(
+                  key: const Key('aboutVersionText'),
+                  '版本 ${info.version} (${info.buildNumber})',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 32),
+          Text('隱私政策', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          const _PrivacySection(
+            title: '資料收集範圍',
+            items: [
+              'Apple ID 登入資訊(姓名、電子郵件)',
+              '應用程式使用數據與操作行為',
+              '設備資訊與錯誤報告',
+            ],
+          ),
+          const SizedBox(height: 20),
+          const _PrivacySection(
+            title: '資料儲存方式',
+            items: [
+              '您的訓練記錄、體重與個人資料僅儲存於您的裝置本機,不會上傳雲端',
+              '解除安裝 App 或清除 App 資料會一併移除這些本機資料',
+            ],
+          ),
+          const SizedBox(height: 20),
+          const _PrivacySection(
+            title: '資料使用目的',
+            items: [
+              '提供帳號登入功能',
+              '改善應用程式功能與用戶體驗',
+              '分析與修復技術問題',
+            ],
+          ),
+          const SizedBox(height: 20),
+          const _PrivacySection(
+            title: '隱私保護承諾',
+            items: [
+              '僅收集必要的帳號資訊',
+              '不用於廣告或行銷目的',
+              '不與第三方分享您的個人資料',
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text('如有任何隱私相關問題,請聯絡:mike504110403@gmail.com', style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacySection extends StatelessWidget {
+  const _PrivacySection({required this.title, required this.items});
+
+  final String title;
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text('• $item'),
+          ),
+      ],
+    );
+  }
+}
