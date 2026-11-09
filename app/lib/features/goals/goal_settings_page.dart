@@ -15,6 +15,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format/weight_format.dart';
+import '../settings/preferences/weight_unit.dart';
 import 'goal_settings_controller.dart';
 
 /// 週訓練次數目標的值域(次/週)。
@@ -27,7 +29,7 @@ const _kMaxWeeklyGoal = 14;
 /// 存檔值,分開宣告避免以後值域下界改動時誤動到這裡)。
 const _kUnsetWeeklyGoal = 0;
 
-/// 目標體重的值域(kg)。
+/// 目標體重的值域(儲存單位 kg;lb 模式下界限換算成 lb 後比對/提示)。
 const _kMinTargetWeight = 20.0;
 const _kMaxTargetWeight = 300.0;
 
@@ -61,13 +63,18 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
     super.dispose();
   }
 
-  void _prefillIfNeeded(GoalSettingsState state) {
+  void _prefillIfNeeded(GoalSettingsState state, WeightUnit unit) {
     if (_prefilled) return;
     _prefilled = true;
     _weeklyGoalController.text = state.weeklyWorkoutGoal > _kUnsetWeeklyGoal
         ? state.weeklyWorkoutGoal.toString()
         : '';
-    _targetWeightController.text = state.targetWeight?.toString() ?? '';
+    // 儲存值恆 kg:帶入輸入框前依當前單位換算(lb 模式編輯既有目標時看到的是
+    // lb 值)。kg 模式維持 `double.toString()` 原樣(no-op 回歸基準)。
+    final stored = state.targetWeight;
+    _targetWeightController.text = stored == null
+        ? ''
+        : (unit == WeightUnit.kg ? stored.toString() : formatWeightValue(stored, unit));
   }
 
   /// 解析週訓練次數目標。空字串代表「未設定」=[_kUnsetWeeklyGoal](對齊
@@ -86,22 +93,31 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
   /// isValid` 為 false 代表輸入不合法(非數字或超出值域),與「合法的
   /// null」(留空)要分開表達,否則沒辦法區分「使用者故意清空」跟「使用者
   /// 打了無法解析的文字」這兩種情況。
-  _TargetWeightParse get _parsedTargetWeight {
+  ///
+  /// 輸入值視為當前單位 [unit];值域以 kg 界限換算成 [unit] 後比對(含邊界),
+  /// 通過後 `displayToKg` 轉回 kg 入庫。
+  _TargetWeightParse _parsedTargetWeight(WeightUnit unit) {
     final text = _targetWeightController.text.trim();
     if (text.isEmpty) return const _TargetWeightParse.valid(null);
     final value = double.tryParse(text);
-    if (value == null || value < _kMinTargetWeight || value > _kMaxTargetWeight) {
+    if (value == null) return const _TargetWeightParse.invalid();
+    final kg = displayToKg(value, unit);
+    // 邊界比對用 kg 側(輸入換回 kg 後)加微小容差:使用者輸入的是「界限換算後
+    // 的 lb 值」(如 44.1),反向換算會有浮點誤差。
+    const eps = 1e-9;
+    if (kg < _kMinTargetWeight - eps || kg > _kMaxTargetWeight + eps) {
       return const _TargetWeightParse.invalid();
     }
-    return _TargetWeightParse.valid(value);
+    return _TargetWeightParse.valid(kg);
   }
 
-  bool get _canSave =>
-      !_isSaving && _parsedWeeklyGoal != null && _parsedTargetWeight.isValid;
+  bool _canSave(WeightUnit unit) =>
+      !_isSaving && _parsedWeeklyGoal != null && _parsedTargetWeight(unit).isValid;
 
   Future<void> _save() async {
+    final unit = ref.read(weightUnitProvider);
     final weeklyGoal = _parsedWeeklyGoal;
-    final targetWeight = _parsedTargetWeight;
+    final targetWeight = _parsedTargetWeight(unit);
     if (weeklyGoal == null || !targetWeight.isValid || _isSaving) return;
 
     setState(() => _isSaving = true);
@@ -125,13 +141,14 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final asyncState = ref.watch(goalSettingsControllerProvider);
+    final unit = ref.watch(weightUnitProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('目標設定')),
       body: asyncState.when(
         data: (state) {
-          _prefillIfNeeded(state);
-          return _buildForm(context);
+          _prefillIfNeeded(state, unit);
+          return _buildForm(context, unit);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         // 查詢失敗(初次載入既有目標時)同 dashboard_page.dart 的既有慣例:
@@ -154,9 +171,14 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
     );
   }
 
-  Widget _buildForm(BuildContext context) {
+  Widget _buildForm(BuildContext context, WeightUnit unit) {
     final weeklyGoalInvalid = _parsedWeeklyGoal == null;
-    final targetWeightInvalid = !_parsedTargetWeight.isValid;
+    final targetWeightInvalid = !_parsedTargetWeight(unit).isValid;
+    // 值域提示的界限值:kg 模式為 20/300(與改造前逐字相同);lb 模式為換算後
+    // 並取整的界限(輸入下界以 ceil、上界以 floor 取整,提示顯示的整數界限必
+    // 然通過驗證)。
+    final minShown = _shownBound(_kMinTargetWeight, unit, up: true);
+    final maxShown = _shownBound(_kMaxTargetWeight, unit, up: false);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -185,8 +207,8 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
             enabled: !_isSaving,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
-              labelText: '目標體重 (kg),留空代表未設定',
-              errorText: targetWeightInvalid ? '請輸入 20-300 的體重,或留空' : null,
+              labelText: '目標體重 (${unitSuffix(unit)}),留空代表未設定',
+              errorText: targetWeightInvalid ? '請輸入 $minShown-$maxShown 的體重,或留空' : null,
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -195,7 +217,7 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
             width: double.infinity,
             child: FilledButton(
               key: const Key('saveGoalSettingsButton'),
-              onPressed: _canSave ? _save : null,
+              onPressed: _canSave(unit) ? _save : null,
               child: _isSaving
                   ? const SizedBox(
                       width: 20,
@@ -209,6 +231,13 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
       ),
     );
   }
+}
+
+/// 值域界限(kg)換算成 [unit] 後的整數提示值。[up] 為 true 取 ceil(下界,
+/// 避免提示的下界落在合法範圍之外),否則取 floor(上界)。kg 模式原值即整數。
+int _shownBound(double kgBound, WeightUnit unit, {required bool up}) {
+  final v = kgToDisplay(kgBound, unit);
+  return (up ? v.ceil() : v.floor());
 }
 
 /// 目標體重解析結果——區分「合法(含合法的留空=null)」與「不合法」,單純用

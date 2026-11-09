@@ -14,6 +14,7 @@ import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/pr/pr_list_page.dart';
 import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.dart';
 
@@ -146,7 +147,10 @@ class _Harness {
   final WorkoutRepository workoutRepo;
 }
 
-Future<_Harness> _setUpHarness({bool useThrowingWorkoutRepo = false}) async {
+Future<_Harness> _setUpHarness({
+  bool useThrowingWorkoutRepo = false,
+  WeightUnit? weightUnit,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
@@ -158,6 +162,7 @@ Future<_Harness> _setUpHarness({bool useThrowingWorkoutRepo = false}) async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
       if (useThrowingWorkoutRepo)
         workoutRepositoryProvider.overrideWithValue(
           _ThrowingWorkoutRepository(db, ExerciseRepository(db)),
@@ -435,6 +440,62 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(PrListPage), findsOneWidget);
+    });
+  });
+
+  // 波 6:重量單位(lb 模式)。變異:任一消費點(本週總容量卡/最近訓練列/
+  // 平均與最高容量)漏接 weightUnitProvider、恆用 kg 必紅。期望值一律
+  // `kgToDisplay` 現算。
+  group('重量單位(lb 模式)', () {
+    testWidgets('本週總容量卡、最近訓練列、平均/最高容量換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final chest = _chestExercise();
+      await harness.exerciseRepo.create(chest);
+      // 容量圖的平均/最高由各組 weight×reps 現算(不看 totalVolume 欄位),所以
+      // 要有真實的組:100kg × 10 = 1000,與 totalVolume 一致。
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'lb-1',
+          startedAt: DateTime.now(),
+          totalVolume: 1000,
+          exercises: [
+            _workoutExercise(
+              id: 'we-lb',
+              workoutId: 'lb-1',
+              exercise: chest,
+              sets: const [(weight: 100, reps: 10, isWarmup: false)],
+            ),
+          ],
+        ),
+      );
+
+      await _pump(tester, harness);
+
+      final lbBare = kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('statsWeekTotalVolumeCard')),
+          matching: find.text(lbBare),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('statsRecentWorkoutRow-lb-1')),
+          matching: find.text('$lbBare lb'),
+        ),
+        findsOneWidget,
+      );
+      for (final key in const ['volumeStatAverage', 'volumeStatHighest']) {
+        expect(
+          find.descendant(of: find.byKey(Key(key)), matching: find.text('$lbBare lb')),
+          findsOneWidget,
+          reason: key,
+        );
+      }
+      // kg 版字串不該殘留。
+      expect(find.text('1000 kg'), findsNothing);
+      expect(find.text('1000'), findsNothing);
     });
   });
 

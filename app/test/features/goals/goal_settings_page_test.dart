@@ -40,7 +40,9 @@ import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/user_goal_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/core/format/weight_format.dart';
 import 'package:workout_record/features/goals/goal_settings_page.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/body_weight/body_weight_controller.dart';
 
 import '../../data/test_helpers.dart';
@@ -102,6 +104,7 @@ class _Harness {
 Future<_Harness> _setUpHarness({
   UserGoalRepository Function(AppDatabase db)? userGoalRepoBuilder,
   bool disableAutoRetry = false,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
@@ -116,6 +119,7 @@ Future<_Harness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (userGoalRepoBuilder != null)
         userGoalRepositoryProvider.overrideWithValue(userGoalRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -300,6 +304,86 @@ void main() {
       expect(find.text('請輸入 20-300 的體重,或留空'), findsOneWidget);
       final button = tester.widget<FilledButton>(find.byKey(const Key('saveGoalSettingsButton')));
       expect(button.onPressed, isNull);
+    });
+  });
+
+  // 波 6:重量單位(lb 模式)。變異:漏接 weightUnitProvider(label/值域/入庫
+  // 換算任一處恆當 kg)這組必紅。
+  group('重量單位(lb 模式)', () {
+    testWidgets('label 顯示 lb、值域提示為換算後界限(45-661);既有目標帶入 lb 值', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(
+          id: 'goal-lb',
+          userId: testUserId,
+          weeklyWorkoutGoal: 3,
+          targetWeight: 68.0,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await _pushGoalSettingsPage(tester, harness);
+
+      expect(find.text('目標體重 (lb),留空代表未設定'), findsOneWidget);
+      expect(find.text('目標體重 (kg),留空代表未設定'), findsNothing);
+      final weightField = tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
+      expect(weightField.controller?.text, formatWeightValue(68.0, WeightUnit.lb));
+
+      await tester.enterText(find.byKey(const Key('targetWeightField')), '5');
+      await tester.pumpAndSettle();
+      // 20kg ≈ 44.09lb → 提示下界 ceil=45;300kg ≈ 661.4lb → 上界 floor=661。
+      expect(find.text('請輸入 45-661 的體重,或留空'), findsOneWidget);
+    });
+
+    testWidgets('輸入 220.5 lb 存回 kg(≈100.017);編輯帶入值反向換算', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _pushGoalSettingsPage(tester, harness);
+
+      await tester.enterText(find.byKey(const Key('targetWeightField')), '220.5');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
+      await tester.pumpAndSettle();
+
+      final saved = await harness.userGoalRepo.fetchByUser(testUserId);
+      expect(saved, isNotNull);
+      // 誤差界 0.001kg:只吸收 displayToKg 本身的浮點捨入;220.5lb 對 100kg
+      // 的 0.017kg 差是 220.5 這個輸入本身的取值,不是誤差。
+      expect(saved!.targetWeight, closeTo(displayToKg(220.5, WeightUnit.lb), 0.001));
+      expect(saved.targetWeight, closeTo(100.0, 0.02));
+
+      // 再次進頁:帶入值 = kg 儲存值換回 lb(1 位小數)。
+      await _pushGoalSettingsPage(tester, harness);
+      final weightField = tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
+      expect(weightField.controller?.text, formatWeightValue(saved.targetWeight!, WeightUnit.lb));
+    });
+
+    testWidgets('值域以換算後界限比對:45 lb(≈20.4kg)過、44 lb(≈19.96kg)擋;上界 661 過、662 擋', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _pushGoalSettingsPage(tester, harness);
+
+      bool saveEnabled() =>
+          tester.widget<FilledButton>(find.byKey(const Key('saveGoalSettingsButton'))).onPressed !=
+          null;
+
+      Future<void> enter(String text) async {
+        await tester.enterText(find.byKey(const Key('targetWeightField')), text);
+        await tester.pumpAndSettle();
+      }
+
+      await enter('45');
+      expect(saveEnabled(), isTrue);
+      expect(find.textContaining('請輸入'), findsNothing);
+
+      await enter('44');
+      expect(saveEnabled(), isFalse);
+      expect(find.text('請輸入 45-661 的體重,或留空'), findsOneWidget);
+
+      await enter('661');
+      expect(saveEnabled(), isTrue);
+
+      await enter('662');
+      expect(saveEnabled(), isFalse);
     });
   });
 

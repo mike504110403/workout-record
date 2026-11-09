@@ -14,6 +14,7 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/personal_record_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/pr/pr_list_page.dart';
 
 import '../../../data/test_helpers.dart';
@@ -29,7 +30,10 @@ class _Harness {
   final PersonalRecordRepository personalRecordRepo;
 }
 
-Future<_Harness> _setUpHarness({Map<String, Object> extraPrefs = const {}}) async {
+Future<_Harness> _setUpHarness({
+  Map<String, Object> extraPrefs = const {},
+  WeightUnit? weightUnit,
+}) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
     ...extraPrefs,
@@ -43,6 +47,7 @@ Future<_Harness> _setUpHarness({Map<String, Object> extraPrefs = const {}}) asyn
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -98,6 +103,25 @@ void main() {
       expect(find.byKey(const Key('prListEmptyState')), findsOneWidget);
       expect(find.text('尚無 PR 記錄'), findsOneWidget);
       expect(find.text('完成訓練後這裡會顯示你的個人最佳記錄'), findsOneWidget);
+    });
+  });
+
+  // 波 6:重量單位(lb 模式)。變異:PrSummaryCard 漏接 weightUnitProvider、
+  // 恆用 kg 必紅。
+  group('重量單位(lb 模式)', () {
+    testWidgets('PR 卡片 PR 重量/1RM 換算成 lb 顯示,字尾 lb', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final squat = systemExercises.firstWhere((e) => e.name == '深蹲');
+      await _createPR(harness, id: 'pr-lb', exerciseId: squat.id, oneRepMax: 140);
+
+      await _pump(tester, harness);
+
+      final squatCard = find.byKey(Key('prSummaryCard-${squat.id}'));
+      final expected = '${kgToDisplay(140, WeightUnit.lb).toStringAsFixed(1)} lb';
+      // PR 重量與 1RM 估算在此 fixture 同值(reps=1),兩處都應是 lb 字串。
+      expect(find.descendant(of: squatCard, matching: find.text(expected)), findsNWidgets(2));
+      expect(find.descendant(of: squatCard, matching: find.text('140.0 kg')), findsNothing);
     });
   });
 
