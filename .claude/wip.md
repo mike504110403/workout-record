@@ -16,7 +16,8 @@
 - 參考實作:`~/Documents/self/accounting`(`lib/data/supabase_client.dart`、`lib/data/auth.dart`、`supabase/migrations/`、`docs/adr/0005`)。
 - **待 Mike**:Supabase Auth 開 Apple、Google provider;Google Cloud 建 iOS/Android/Web 三組 OAuth client 給 client ID。
 - **進度(2026-11-10)**:資料層 a8f4a58、migration 已推 workout-dev(4 支,遠端清單一致、anon 被拒)、Apple 登入 bccf019(預設連雲端;USE_MOCK=true 走 Drift)。600/600 綠。Google 登入 Mike 裁示先跳過(Web/Android 雲端模式暫無登入)。
-- **待做片**:(1) Mike 真機 Apple 登入實測;(2) 舊 CoreData 資料登入後一次性上傳(cloud_upload.dart TODO,含系統動作 id 依名稱對應、升級用戶略過 onboarding 失效);(3) 隱私文案改雲端版(login/Onboarding/About/PrivacyConsent);(4) onAuthStateChange 監聽 token 失效;(5) fetchAll 超 1000 筆分頁;(6) Google 登入。
+- **2026-11-10 收尾**:舊資料上傳 d03fda9、隱私文案＋分頁 668e7a0、session 被動結束監聽(本 commit)。638 綠。
+- **待做片**:(1) Mike 真機 Apple 登入實測(含舊資料上傳狀態看設定頁);(2) Google 登入(Mike 裁示先跳過);(3) 上架前改 docs/privacy.html(1.2/1.3/2/3/4.1/5 節,Firebase→Supabase、刪 analytics/crash、刪除帳號管道)與同意頁 analytics key 改名;(4) 遠端 max_rows 確認維持 1000。
 - 不再適用:原「同步波前置決策」(updatedAt 增量拉推/LWW/墓碑)因改直連作廢,見 git 歷史。
 
 ## Mike 待辦
