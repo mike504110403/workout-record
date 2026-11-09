@@ -5,11 +5,13 @@
 // 統計子頁也需要同一張卡片,波 2 遺留的抽共用計畫在波 4 兌現)——這裡只保留
 // 「本週統計」這個區塊本身(標題 + 兩張卡片排版),卡片外觀不變。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/stat_card.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_format.dart';
 
-class WeekStatsSection extends StatelessWidget {
+class WeekStatsSection extends ConsumerWidget {
   const WeekStatsSection({
     super.key,
     required this.weekWorkoutCount,
@@ -20,7 +22,8 @@ class WeekStatsSection extends StatelessWidget {
   final double weekTotalVolume;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -44,7 +47,7 @@ class WeekStatsSection extends StatelessWidget {
                 icon: Icons.bar_chart,
                 color: Colors.green,
                 title: '總容量',
-                value: formatVolumeBare(weekTotalVolume),
+                value: formatVolumeBare(weekTotalVolume, unit),
               ),
             ),
           ],

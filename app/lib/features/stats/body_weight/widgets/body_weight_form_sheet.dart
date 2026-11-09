@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/body_weight.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_controller.dart';
 import '../body_weight_format.dart';
 
@@ -43,8 +44,11 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
   void initState() {
     super.initState();
     final original = widget.original;
+    // 編輯既有紀錄:original.weight 恆 kg(儲存值),帶入輸入框前先換算成
+    // 當前顯示單位——見 weight_unit.dart 契約的 kgToDisplay。
+    final unit = ref.read(weightUnitProvider);
     _weightController = TextEditingController(
-      text: original != null ? _stripTrailingZero(original.weight) : '',
+      text: original != null ? _stripTrailingZero(kgToDisplay(original.weight, unit)) : '',
     );
     _noteController = TextEditingController(text: original?.note ?? '');
     _selectedDate = original?.measuredAt ?? DateTime.now();
@@ -64,6 +68,7 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
     return value.toString();
   }
 
+  /// 輸入框裡的原始值——當前顯示單位(kg 或 lb),不是儲存單位。
   double? get _parsedWeight {
     final value = double.tryParse(_weightController.text);
     if (value == null || value <= 0) return null;
@@ -117,6 +122,10 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
   Future<void> _save() async {
     final weight = _parsedWeight;
     if (weight == null || _isSaving) return;
+    // 使用者輸入視為當前顯示單位的值,反向換算成 kg 才是入庫值(儲存一律
+    // kg——見 weight_unit.dart 契約)。
+    final unit = ref.read(weightUnitProvider);
+    final weightKg = displayToKg(weight, unit);
 
     setState(() => _isSaving = true);
     try {
@@ -125,11 +134,11 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
       final controller = ref.read(bodyWeightTabControllerProvider.notifier);
       final original = widget.original;
       if (original == null) {
-        await controller.addEntry(weight: weight, measuredAt: _selectedDate, note: note);
+        await controller.addEntry(weight: weightKg, measuredAt: _selectedDate, note: note);
       } else {
         await controller.updateEntry(
           original: original,
-          weight: weight,
+          weight: weightKg,
           measuredAt: _selectedDate,
           note: note,
         );
@@ -148,6 +157,7 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final unit = ref.watch(weightUnitProvider);
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -167,7 +177,7 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
             autofocus: !_isEditing,
             enabled: !_isSaving,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '體重 (kg)'),
+            decoration: InputDecoration(labelText: '體重 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),

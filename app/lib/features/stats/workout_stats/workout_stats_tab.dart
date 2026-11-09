@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/widgets/stat_card.dart';
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../pr/pr_list_controller.dart';
 import '../pr/pr_list_page.dart';
 import 'volume_chart_section.dart';
@@ -135,14 +136,15 @@ class _PrEntryCard extends StatelessWidget {
   }
 }
 
-class _WeekStatsRow extends StatelessWidget {
+class _WeekStatsRow extends ConsumerWidget {
   const _WeekStatsRow({required this.weekWorkoutCount, required this.weekTotalVolume});
 
   final int weekWorkoutCount;
   final double weekTotalVolume;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -166,7 +168,7 @@ class _WeekStatsRow extends StatelessWidget {
                 icon: Icons.bar_chart,
                 color: Colors.green,
                 title: '總容量',
-                value: formatVolumeBare(weekTotalVolume),
+                value: formatVolumeBare(weekTotalVolume, unit),
               ),
             ),
           ],
@@ -222,13 +224,14 @@ class _RecentWorkoutsSection extends StatelessWidget {
   }
 }
 
-class _RecentWorkoutRow extends StatelessWidget {
+class _RecentWorkoutRow extends ConsumerWidget {
   const _RecentWorkoutRow({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       key: Key('statsRecentWorkoutRow-${workout.id}'),
@@ -261,7 +264,7 @@ class _RecentWorkoutRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  formatVolumeKg(workout.totalVolume),
+                  formatVolumeKg(workout.totalVolume, unit),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),

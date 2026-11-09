@@ -12,6 +12,7 @@
 //   純函式層是這條規則唯一能穩定斷言的層級,fl_chart 內部畫線順序無法從
 //   widget tree 讀出座標點順序)。
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,7 @@ import 'package:workout_record/data/repositories/personal_record_repository.dart
 import 'package:workout_record/data/repositories/power_lift_record_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/powerlifting/powerlifting_tab.dart';
 
 import '../../../data/test_helpers.dart';
@@ -64,9 +66,13 @@ class _Harness {
   final PersonalRecordRepository personalRecordRepo;
 }
 
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(stub 期恆回 kg,波 6
+/// 顯示層改造在 lb 模式的回歸測試靠這個 override 驗證——不依賴另一位工人
+/// 的持久化真身進度,見 dashboard_page_test.dart 同名參數的既有慣例)。
 Future<_Harness> _setUpHarness({
   Map<String, Object> extraPrefs = const {},
   PowerLiftRecordRepository Function(AppDatabase db)? powerLiftRepoBuilder,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
@@ -83,6 +89,7 @@ Future<_Harness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (powerLiftRepoBuilder != null)
         powerLiftRecordRepositoryProvider.overrideWithValue(powerLiftRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -399,6 +406,126 @@ void main() {
       // 若血緣 fallback 沒生效,_resolveUserId 會回傳 null,畫面會落在空狀態
       // 而看不到這筆屬於 testUserId 的紀錄。
       expect(find.byKey(const Key('manualRecordRow-sq-1')), findsOneWidget);
+    });
+  });
+
+  // 波 6:重量顯示層改造——override weightUnitProvider 成 lb,驗證三項
+  // 總和卡/最佳成績卡、系統推估區、手動紀錄列表(含 1RM 趨勢圖)、輸入表單
+  // (顯示+反向換算入庫+1RM 預覽)四個消費點。變異:任一處漏接 provider、
+  // 恆用 kg 版格式化,這些斷言必紅(不是拿手抄的 2.20462 係數比對,期望值
+  // 一律用 kgToDisplay/displayToKg 現算)。
+  group('重量單位(lb 模式)', () {
+    testWidgets('三項總和卡與最佳成績卡換算成 lb 顯示,字尾正確', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140),
+      );
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'bp-1', lift: PowerLift.benchPress, oneRepMax: 80),
+      );
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 180),
+      );
+
+      await _pump(tester, harness);
+
+      // 三項總和(kg)=140+80+180=400 → 換算期望值一律用 kgToDisplay 現算。
+      final totalText = tester.widget<Text>(find.byKey(const Key('totalLiftValue')));
+      expect(totalText.data, kgToDisplay(400, WeightUnit.lb).toStringAsFixed(1));
+
+      final squatColumn = find.byKey(const Key('bestLiftColumn-squat'));
+      expect(
+        find.descendant(
+          of: squatColumn,
+          matching: find.text(kgToDisplay(140, WeightUnit.lb).toStringAsFixed(1)),
+        ),
+        findsOneWidget,
+      );
+      // kg 版字串不該殘留。
+      expect(find.text('400.0'), findsNothing);
+    });
+
+    testWidgets('系統推估 badge 與紀錄列換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final benchPress = systemExercises.firstWhere((e) => e.name == '槓鈴臥推');
+
+      final now = DateTime.now();
+      await harness.personalRecordRepo.create(
+        PersonalRecord(
+          id: 'pr-bench',
+          userId: testUserId,
+          exerciseId: benchPress.id,
+          weight: 90,
+          reps: 1,
+          oneRepMax: 90,
+          achievedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await _pump(tester, harness);
+      await _selectLift(tester, '槓鈴臥推');
+
+      final expectedBadge = '推估: ${kgToDisplay(90, WeightUnit.lb).toStringAsFixed(1)} lb';
+      expect(
+        find.descendant(of: find.byKey(const Key('systemEstimateBadge')), matching: find.text(expectedBadge)),
+        findsOneWidget,
+      );
+      expect(find.text('推估: 90.0 kg'), findsNothing);
+    });
+
+    testWidgets('手動紀錄列 PR badge/單筆重量與 1RM 換算成 lb,趨勢圖顯示 y 值換算(資料層不變)', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100),
+      );
+
+      await _pump(tester, harness);
+
+      final expectedPrBadge = 'PR: ${kgToDisplay(100, WeightUnit.lb).toStringAsFixed(1)} lb';
+      expect(
+        find.descendant(of: find.byKey(const Key('manualPrBadge')), matching: find.text(expectedPrBadge)),
+        findsOneWidget,
+      );
+
+      final chart = tester.widget<LineChart>(
+        find.descendant(of: find.byKey(const Key('oneRmTrendChart')), matching: find.byType(LineChart)),
+      );
+      expect(chart.data.lineBarsData.single.spots.single.y, closeTo(kgToDisplay(100, WeightUnit.lb), 0.001));
+
+      // 資料層(DB)不受顯示層換算影響——恆 kg。
+      final rows = await harness.powerLiftRepo.getAll(testUserId);
+      expect(rows.single.oneRepMax, 100);
+    });
+
+    testWidgets('輸入表單:label 顯示 lb,1RM 預覽帶 lb 字尾,輸入 220.5 lb 換算存成約 100kg', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await _pump(tester, harness);
+
+      await tester.tap(find.byKey(const Key('addPowerLiftRecordButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('重量 (lb)'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('powerLiftWeightField')), '220.5');
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('powerLiftRepsField')), '1');
+      await tester.pumpAndSettle();
+
+      // reps=1 時 1RM 就是輸入值本身(見 one_rm_calculator.dart),預覽字尾
+      // 應顯示 lb,不是硬編的 kg。
+      expect(find.text('推估 1RM：220.5 lb'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('savePowerLiftRecordButton')));
+      await tester.pumpAndSettle();
+
+      final rows = await harness.powerLiftRepo.getAll(testUserId);
+      expect(rows.length, 1);
+      // 期望值用 displayToKg 現算,不手抄係數。
+      expect(rows.first.weight, closeTo(displayToKg(220.5, WeightUnit.lb), 0.001));
+      expect(rows.first.weight, closeTo(100.0, 0.02));
     });
   });
 }

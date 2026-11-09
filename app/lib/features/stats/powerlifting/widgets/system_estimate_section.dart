@@ -8,11 +8,13 @@
 // 既有方法,重新造一份等價於 iOS 的攤平清單不符合「照搬既有方法」的
 // 指示,改用既有 `getPRSummary` 是更貼近既有資料層形狀的等價實作。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/personal_record.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
 
-class SystemEstimateSection extends StatelessWidget {
+class SystemEstimateSection extends ConsumerWidget {
   const SystemEstimateSection({super.key, required this.summaries, required this.best});
 
   /// 動作名稱匹配目前選取三項動作的 PRSummary 清單(可能對到多個實際動作,
@@ -23,7 +25,8 @@ class SystemEstimateSection extends StatelessWidget {
   final PersonalRecord? best;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final orange = Colors.orange;
     return Card(
       key: const Key('systemEstimateSection'),
@@ -47,7 +50,7 @@ class SystemEstimateSection extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '推估: ${formatWeight(best!.oneRepMax)} kg',
+                      '推估: ${formatWeight(best!.oneRepMax, unit)} ${unitSuffix(unit)}',
                       style: Theme.of(context)
                           .textTheme
                           .labelSmall
@@ -69,7 +72,8 @@ class SystemEstimateSection extends StatelessWidget {
               _EmptySystemEstimateState(orange: orange)
             else
               for (final summary in summaries)
-                if (summary.currentPR != null) _SystemRecordRow(summary: summary, orange: orange),
+                if (summary.currentPR != null)
+                  _SystemRecordRow(summary: summary, orange: orange, unit: unit),
           ],
         ),
       ),
@@ -109,10 +113,11 @@ class _EmptySystemEstimateState extends StatelessWidget {
 }
 
 class _SystemRecordRow extends StatelessWidget {
-  const _SystemRecordRow({required this.summary, required this.orange});
+  const _SystemRecordRow({required this.summary, required this.orange, required this.unit});
 
   final PRSummary summary;
   final Color orange;
+  final WeightUnit unit;
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +137,7 @@ class _SystemRecordRow extends StatelessWidget {
                   Text(summary.exerciseName, style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 2),
                   Text(
-                    '${formatWeight(pr.weight)} kg × ${pr.reps} 次 · ${formatDate(pr.achievedAt)}',
+                    '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)} × ${pr.reps} 次 · ${formatDate(pr.achievedAt)}',
                     style: Theme.of(context)
                         .textTheme
                         .bodySmall
@@ -146,7 +151,7 @@ class _SystemRecordRow extends StatelessWidget {
               children: [
                 Text('推估', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: orange)),
                 Text(
-                  '${formatWeight(pr.oneRepMax)} kg',
+                  '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}',
                   style: Theme.of(context)
                       .textTheme
                       .titleSmall

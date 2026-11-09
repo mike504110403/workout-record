@@ -27,6 +27,7 @@ import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/history/history_format.dart';
 import 'package:workout_record/features/history/edit/workout_edit_page.dart';
 import 'package:workout_record/features/history/history_page.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 
 import '../../data/test_helpers.dart';
 
@@ -133,9 +134,12 @@ class _HistoryHarness {
 /// 失敗路徑設計上不會讓 provider state 落入 AsyncError(見
 /// history_list_controller.dart `deleteWorkout` 文件注解),但仍照專案既有
 /// 慣例帶上,避免任何一次重新查詢意外撞上自動重試造成的時序不確定性。
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(波 6 lb 模式回歸測試用,
+/// 理由同 dashboard_page_test.dart `_setUpHarness` 的同名參數)。
 Future<_HistoryHarness> _setUpHarness({
   WorkoutRepository Function(AppDatabase db)? workoutRepoBuilder,
   bool disableAutoRetry = false,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
@@ -150,6 +154,7 @@ Future<_HistoryHarness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (workoutRepoBuilder != null)
         workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -433,7 +438,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text(formatVolumeKg(1234)), findsWidgets);
+      expect(find.text(formatVolumeKg(1234, WeightUnit.kg)), findsWidgets);
       expect(
         find.descendant(
           of: find.byKey(const Key('workoutDetailDuration')),
@@ -493,7 +498,7 @@ void main() {
       // key 掛在 Text 自身(workout_detail_page.dart:142-143),直接讀 data。
       expect(
         tester.widget<Text>(find.byKey(const Key('workoutDetailTotalVolume'))).data,
-        formatVolumeKg(after.totalVolume),
+        formatVolumeKg(after.totalVolume, WeightUnit.kg),
       );
     });
 
@@ -590,6 +595,81 @@ void main() {
       expect(find.byKey(const Key('historyWorkoutCard-w-1')), findsOneWidget);
       final stillThere = await harness.workoutRepo.fetchById('w-1');
       expect(stillThere, isNotNull);
+    });
+  });
+
+  // 波 6:override weightUnitProvider 成 lb,覆蓋「列表卡片」與「詳情頁」
+  // 兩個消費群組——變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言
+  // 必紅。期望值一律用 formatVolumeKg/kgToDisplay 現算,不手抄係數。
+  group('重量單位(lb 模式)', () {
+    testWidgets('列表卡片總容量換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      await harness.workoutRepo.create(
+        _buildWorkout(id: 'w-lb', startedAt: DateTime.now(), totalVolume: 1234),
+      );
+
+      await _pumpHistory(tester, harness);
+
+      expect(find.text(formatVolumeKg(1234, WeightUnit.lb)), findsWidgets);
+      expect(find.text(formatVolumeKg(1234, WeightUnit.kg)), findsNothing);
+    });
+
+    testWidgets('詳情頁 summary/容量分布/動作明細換算成 lb 顯示;刪除確認對話框內容也換算', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final exerciseId = (await harness.exerciseRepo.fetchSystemExercises()).first.id;
+      final startedAt = DateTime.now();
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-detail-lb',
+          startedAt: startedAt,
+          totalVolume: 1234,
+          totalSets: 1,
+          totalExercises: 1,
+          exercises: [
+            _buildExercise(
+              id: 'we-1',
+              workoutId: 'w-detail-lb',
+              exerciseId: exerciseId,
+              sets: [
+                _buildSet(id: 'set-1', workoutExerciseId: 'we-1', setNumber: 1, weight: 60, reps: 8),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      await _pumpHistory(tester, harness);
+      await tester.tap(find.byKey(const Key('historyWorkoutCard-w-detail-lb')));
+      await tester.pumpAndSettle();
+
+      // summary 卡總容量。
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('workoutDetailSummaryCard')),
+          matching: find.text(formatVolumeKg(1234, WeightUnit.lb)),
+        ),
+        findsOneWidget,
+      );
+      // 動作明細:單組重量(60kg)換算成 lb 顯示。
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('workoutDetailExerciseList')),
+          matching: find.text(formatWeightKg(60, WeightUnit.lb)),
+        ),
+        findsOneWidget,
+      );
+
+      // 刪除確認對話框內容也用 lb 顯示(delete_workout_dialog.dart 消費同一
+      // 個 weightUnitProvider)。
+      await tester.tap(find.byKey(const Key('workoutDetailDeleteButton')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('deleteWorkoutDialog')),
+          matching: find.textContaining(formatVolumeKg(1234, WeightUnit.lb)),
+        ),
+        findsOneWidget,
+      );
     });
   });
 }

@@ -4,12 +4,14 @@
 // 空狀態文案照搬 iOS `emptyChartView(message: "尚無三項表記錄\n點擊右上角 +
 // 開始記錄")`。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/power_lift_record.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
 import 'one_rm_trend_chart.dart';
 
-class ManualRecordsSection extends StatelessWidget {
+class ManualRecordsSection extends ConsumerWidget {
   const ManualRecordsSection({
     super.key,
     required this.records,
@@ -31,7 +33,8 @@ class ManualRecordsSection extends StatelessWidget {
   final Future<void> Function(String id) onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: const Key('manualRecordsSection'),
       child: Padding(
@@ -46,7 +49,7 @@ class ManualRecordsSection extends StatelessWidget {
                 if (currentPR != null)
                   _Badge(
                     key: const Key('manualPrBadge'),
-                    text: 'PR: ${formatWeight(currentPR!.oneRepMax)} kg',
+                    text: 'PR: ${formatWeight(currentPR!.oneRepMax, unit)} ${unitSuffix(unit)}',
                     color: Theme.of(context).colorScheme.primary,
                   ),
               ],
@@ -60,7 +63,7 @@ class ManualRecordsSection extends StatelessWidget {
               const SizedBox(height: 12),
               // 與 iOS 的刻意差異:iOS 只顯示 .prefix(5),這裡全列——被截掉的
               // 紀錄在 iOS 上永遠刪不到;CRUD 列表全列才能管理(review 裁定保留)。
-              for (final record in records) _ManualRecordRow(record: record, onDelete: onDelete),
+              for (final record in records) _ManualRecordRow(record: record, onDelete: onDelete, unit: unit),
             ],
           ],
         ),
@@ -121,10 +124,11 @@ class _Badge extends StatelessWidget {
 }
 
 class _ManualRecordRow extends StatefulWidget {
-  const _ManualRecordRow({required this.record, required this.onDelete});
+  const _ManualRecordRow({required this.record, required this.onDelete, required this.unit});
 
   final PowerLiftRecord record;
   final Future<void> Function(String id) onDelete;
+  final WeightUnit unit;
 
   @override
   State<_ManualRecordRow> createState() => _ManualRecordRowState();
@@ -188,7 +192,7 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
                   Text(formatDate(record.achievedAt), style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 2),
                   Text(
-                    '${formatWeight(record.weight)} kg × ${record.reps} 次',
+                    '${formatWeight(record.weight, widget.unit)} ${unitSuffix(widget.unit)} × ${record.reps} 次',
                     style: Theme.of(context)
                         .textTheme
                         .bodySmall
@@ -218,7 +222,7 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
                       ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 Text(
-                  '${formatWeight(record.oneRepMax)} kg',
+                  '${formatWeight(record.oneRepMax, widget.unit)} ${unitSuffix(widget.unit)}',
                   style: Theme.of(context)
                       .textTheme
                       .titleSmall

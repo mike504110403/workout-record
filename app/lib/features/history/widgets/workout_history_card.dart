@@ -2,11 +2,13 @@
 // iOS `WorkoutHistoryCard`)。顯示欄位依 brief 規格:日期、總容量、時長、
 // 動作數(不含組數——組數留給詳情頁的完整 summary)。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../history_format.dart';
 
-class WorkoutHistoryCard extends StatelessWidget {
+class WorkoutHistoryCard extends ConsumerWidget {
   const WorkoutHistoryCard({
     super.key,
     required this.workout,
@@ -23,7 +25,8 @@ class WorkoutHistoryCard extends StatelessWidget {
   final bool isDeleting;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: Key('historyWorkoutCard-${workout.id}'),
       margin: const EdgeInsets.only(bottom: 12),
@@ -44,7 +47,7 @@ class WorkoutHistoryCard extends StatelessWidget {
               ],
             ),
             trailing: Text(
-              formatVolumeKg(workout.totalVolume),
+              formatVolumeKg(workout.totalVolume, unit),
               style: Theme.of(context)
                   .textTheme
                   .titleMedium

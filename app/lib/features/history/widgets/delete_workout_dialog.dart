@@ -3,18 +3,21 @@
 import 'package:flutter/material.dart';
 
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../history_format.dart';
 
 /// 顯示刪除確認對話框,回傳 `true`=確認刪除、`false`/`null`=取消
 /// (含使用者點背景或系統返回關閉)。呼叫端一律把 `!= true` 視為取消,不
-/// 執行刪除。
-Future<bool?> showDeleteWorkoutDialog(BuildContext context, Workout workout) {
+/// 執行刪除。[unit] 由呼叫端傳入(對話框本身是短生命週期的一次性
+/// showDialog builder,不是常駐 widget,用 `ref.read` 取當下單位即可,不需要
+/// watch)。
+Future<bool?> showDeleteWorkoutDialog(BuildContext context, Workout workout, WeightUnit unit) {
   return showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const Key('deleteWorkoutDialog'),
       title: const Text('刪除這筆訓練紀錄？'),
-      content: Text('${formatHistoryDate(workout.startedAt)} · ${formatVolumeKg(workout.totalVolume)}'),
+      content: Text('${formatHistoryDate(workout.startedAt)} · ${formatVolumeKg(workout.totalVolume, unit)}'),
       actions: [
         TextButton(
           key: const Key('deleteWorkoutCancelButton'),

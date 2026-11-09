@@ -11,7 +11,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/format/weight_format.dart' as weight_format;
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../../workout/add_set_sheet.dart';
 import '../../workout/exercise_picker/exercise_picker_sheet.dart';
 import '../../workout/workout_ui_shared.dart';
@@ -132,13 +134,14 @@ class _WorkoutEditBody extends ConsumerWidget {
   }
 }
 
-class _SummaryHeader extends StatelessWidget {
+class _SummaryHeader extends ConsumerWidget {
   const _SummaryHeader({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     // 讀「已持久」的欄位(不是從 workout.exercises 現算)——code review
     // Std-6:顯示要對照「DB 裡實際存的事實」,不是拿目前記憶體裡的
     // exercises 現算一份自己的答案。這兩者理論上永遠一致(每次變更後
@@ -163,7 +166,7 @@ class _SummaryHeader extends StatelessWidget {
         children: [
           _StatColumn(
             label: '總容量',
-            value: '${totalVolume.toStringAsFixed(0)} kg',
+            value: weight_format.formatWeight(totalVolume, unit, decimals: 0),
             valueKey: const Key('workoutEditTotalVolumeValue'),
           ),
           _StatColumn(
@@ -406,6 +409,7 @@ class _ExerciseEditCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: Key('workoutEditExerciseCard_${exercise.id}'),
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -433,10 +437,10 @@ class _ExerciseEditCard extends ConsumerWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: Text('#${set.setNumber}${set.isWarmup ? ' 暖身' : ''}'),
                 title: Text(
-                  '${trimZeros(set.weight)} kg × ${set.reps} 次'
+                  '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
                   '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
                 ),
-                subtitle: Text('容量 ${set.volume.toStringAsFixed(0)}'),
+                subtitle: Text('容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

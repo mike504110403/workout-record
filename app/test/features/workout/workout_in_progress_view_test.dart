@@ -17,14 +17,18 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/workout/workout_controller.dart';
 import 'package:workout_record/features/workout/workout_in_progress_view.dart';
+import 'package:workout_record/features/workout/workout_ui_shared.dart';
 
 import '../../data/test_helpers.dart';
 
 typedef _Harness = ({AppDatabase db, ProviderContainer container});
 
-Future<_Harness> _setUpHarness() async {
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(波 6 lb 模式回歸測試用,
+/// 理由同 dashboard_page_test.dart `_setUpHarness` 的同名參數)。
+Future<_Harness> _setUpHarness({WeightUnit? weightUnit}) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
@@ -34,6 +38,7 @@ Future<_Harness> _setUpHarness() async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(() async {
@@ -231,6 +236,90 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('addSetAutoStartRestTimerSwitch')), findsNothing);
+    });
+  });
+
+  // 波 6:override weightUnitProvider 成 lb,覆蓋「記訓練」消費群組——即時
+  // 統計列總容量、動作卡單組列重量、記組 sheet 輸入換算入庫(儲存一律
+  // kg)。變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言必紅。
+  group('重量單位(lb 模式)', () {
+    testWidgets('即時統計列總容量、動作卡單組列重量換算成 lb 顯示', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final exercise = await _firstSystemExercise(harness.db);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await harness.container.read(workoutControllerProvider.future);
+      await notifier.startFreeWorkout();
+      await notifier.addExercise(exercise);
+      final workoutExerciseId =
+          harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+      await notifier.addSet(workoutExerciseId: workoutExerciseId, weight: 100, reps: 5);
+
+      await _pumpView(tester, harness);
+
+      // 總容量:100kg × 5 = 500kg,換算成 lb 顯示。
+      final expectedVolume = '${kgToDisplay(500, WeightUnit.lb).toStringAsFixed(0)} lb';
+      expect(
+        find.descendant(of: find.byKey(const Key('workoutTotalVolumeValue')), matching: find.text(expectedVolume)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('workoutTotalVolumeValue')), matching: find.text('500 kg')),
+        findsNothing,
+      );
+
+      // 動作卡單組列:100kg 換算成 lb 顯示,字尾正確(trimZeros——不是固定
+      // 小數位,對照 add_set_sheet.dart 現行為)。
+      final expectedRowWeight = '${trimZeros(kgToDisplay(100, WeightUnit.lb))} lb';
+      expect(find.textContaining(expectedRowWeight), findsOneWidget);
+    });
+
+    testWidgets('記組 sheet:label 顯示 lb,輸入 220.5 lb 換算存成約 100kg;編輯既有組時反向帶入', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final exercise = await _firstSystemExercise(harness.db);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await harness.container.read(workoutControllerProvider.future);
+      await notifier.startFreeWorkout();
+      await notifier.addExercise(exercise);
+      final workoutExerciseId =
+          harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+
+      await _pumpView(tester, harness);
+
+      await tester.tap(find.byKey(Key('addSetButton_$workoutExerciseId')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('重量 (lb)'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('addSetWeightField')), '220.5');
+      await tester.enterText(find.byKey(const Key('addSetRepsField')), '1');
+      // 標記暖身組——不啟動休息計時器的真實 Timer.periodic,避免與這個測試
+      // 無關的「widget tree disposed 後仍有 pending timer」斷言干擾(這裡不
+      // 是在測休息計時器)。
+      await tester.tap(find.byKey(const Key('addSetWarmupSwitch')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+
+      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+      final saved = await repo.fetchById(workoutId);
+      final setWeight = saved!.exercises.single.sets.single.weight;
+      // 期望值用 displayToKg 現算,不手抄係數。
+      expect(setWeight, closeTo(displayToKg(220.5, WeightUnit.lb), 0.001));
+
+      // 編輯這一組:輸入框應反向帶入 lb 顯示值(不是原始 kg 值)。
+      final setId = harness.container
+          .read(workoutControllerProvider)
+          .value!
+          .draft!
+          .exercises
+          .single
+          .sets
+          .single
+          .id;
+      await tester.tap(find.byKey(Key('editSetButton_$setId')));
+      await tester.pumpAndSettle();
+      final weightField = tester.widget<TextField>(find.byKey(const Key('addSetWeightField')));
+      expect(weightField.controller!.text, trimZeros(kgToDisplay(setWeight, WeightUnit.lb)));
     });
   });
 }

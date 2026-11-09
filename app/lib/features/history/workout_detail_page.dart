@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/workout.dart';
 import '../../data/providers.dart';
+import '../settings/preferences/weight_unit.dart';
 import 'edit/workout_edit_page.dart';
 import 'history_calendar_controller.dart';
 import 'history_format.dart';
@@ -103,7 +104,7 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
   /// 注解)→ 成功 pop 回列表;失敗解除 `_isDeleting`(按鈕恢復可按)並秀
   /// SnackBar,停留在詳情頁——非同步失敗一律要處理,不 fire-and-forget。
   Future<void> _confirmAndDelete(BuildContext context, Workout workout) async {
-    final confirmed = await showDeleteWorkoutDialog(context, workout);
+    final confirmed = await showDeleteWorkoutDialog(context, workout, ref.read(weightUnitProvider));
     if (confirmed != true) return;
     setState(() => _isDeleting = true);
     try {
@@ -117,13 +118,14 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
+class _SummaryCard extends ConsumerWidget {
   const _SummaryCard({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Card(
       key: const Key('workoutDetailSummaryCard'),
       child: Padding(
@@ -139,7 +141,7 @@ class _SummaryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
-                  formatVolumeKg(workout.totalVolume),
+                  formatVolumeKg(workout.totalVolume, unit),
                   key: const Key('workoutDetailTotalVolume'),
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -207,13 +209,14 @@ class _StatItem extends StatelessWidget {
 /// `WorkoutRepository.completeWorkout` 文件注解:該欄位沒有任何寫入路徑會
 /// 即時維護。分母用 `workout.totalVolume`(訓練層級欄位,`completeWorkout`
 /// 完成訓練時已正確計算並落地,可信任)。
-class _VolumeBreakdownCard extends StatelessWidget {
+class _VolumeBreakdownCard extends ConsumerWidget {
   const _VolumeBreakdownCard({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final totalVolume = workout.totalVolume;
     return Card(
       key: const Key('workoutDetailVolumeBreakdownCard'),
@@ -232,7 +235,7 @@ class _VolumeBreakdownCard extends StatelessWidget {
                     Expanded(
                       child: Text(exercise.exercise?.name ?? exercise.exerciseName ?? '未知動作'),
                     ),
-                    Text(formatVolumeKg(nonWarmupExerciseVolume(exercise))),
+                    Text(formatVolumeKg(nonWarmupExerciseVolume(exercise), unit)),
                     const SizedBox(width: 8),
                     Text(
                       formatPercentage(
@@ -254,13 +257,14 @@ class _VolumeBreakdownCard extends StatelessWidget {
 
 /// 動作明細:每組的組號、重量、次數、容量。簡潔為先,直接平鋪不做展開/
 /// 摺疊(brief:「可展開摺疊或直接平鋪,簡潔為先」)。
-class _ExerciseDetailList extends StatelessWidget {
+class _ExerciseDetailList extends ConsumerWidget {
   const _ExerciseDetailList({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     return Column(
       key: const Key('workoutDetailExerciseList'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -312,10 +316,10 @@ class _ExerciseDetailList extends StatelessWidget {
                           const SizedBox(width: 8),
                           // review 打回 MINOR-3:改用 formatWeightKg,不直印
                           // double(避免「60.0 kg」這種不必要的浮點尾綴)。
-                          Expanded(child: Text(formatWeightKg(set.weight))),
+                          Expanded(child: Text(formatWeightKg(set.weight, unit))),
                           Expanded(child: Text('${set.reps} 次')),
                           Expanded(
-                            child: Text(formatVolumeKg(set.volume), textAlign: TextAlign.end),
+                            child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end),
                           ),
                         ],
                       ),

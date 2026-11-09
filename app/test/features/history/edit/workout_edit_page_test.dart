@@ -17,6 +17,8 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/history/edit/workout_edit_page.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
+import 'package:workout_record/features/workout/workout_ui_shared.dart';
 
 import '../../../data/test_helpers.dart';
 
@@ -53,8 +55,11 @@ class _EditHarness {
   final ExerciseRepository exerciseRepo;
 }
 
+/// [weightUnit] 給定時覆寫 `weightUnitProvider`(波 6 lb 模式回歸測試用,
+/// 理由同 dashboard_page_test.dart `_setUpHarness` 的同名參數)。
 Future<_EditHarness> _setUpHarness({
   WorkoutRepository Function(AppDatabase db)? workoutRepoBuilder,
+  WeightUnit? weightUnit,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -68,6 +73,7 @@ Future<_EditHarness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (workoutRepoBuilder != null)
         workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
   addTearDown(container.dispose);
@@ -433,5 +439,62 @@ void main() {
     expect(find.text('備註已更新'), findsOneWidget);
     final fetched = await harness.workoutRepo.fetchById('edit-note');
     expect(fetched!.note, '今天狀態不錯');
+  });
+
+  // 波 6:編輯頁的「總容量」統計卡、單組列的重量顯示、記組 sheet 的預填/
+  // 反向換算入庫都要在 lb 模式下正確——覆蓋「編輯頁」消費群組。
+  group('重量單位(lb 模式)', () {
+    testWidgets('總容量卡與單組列換算成 lb 顯示;編輯 sheet 預填 lb 值、輸入新值反向換算存回 kg', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final exerciseId = (await harness.exerciseRepo.fetchSystemExercises()).first.id;
+      final (_, setId) = await seedSingleSetWorkout(
+        harness,
+        workoutId: 'edit-lb',
+        exerciseId: exerciseId,
+        weight: 50,
+        reps: 5,
+      );
+
+      await _pumpEditPage(tester, harness, 'edit-lb');
+
+      // 總容量卡:250kg 換算成 lb 顯示(期望值用 kgToDisplay 現算,不手抄
+      // 2.20462 係數)。
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('workoutEditTotalVolumeValue')),
+          matching: find.text('${kgToDisplay(250, WeightUnit.lb).toStringAsFixed(0)} lb'),
+        ),
+        findsOneWidget,
+      );
+
+      // 單組列:50kg 換算成 lb 顯示,字尾正確。
+      final expectedRowWeight = trimZeros(kgToDisplay(50, WeightUnit.lb));
+      expect(
+        find.descendant(
+          of: find.byKey(Key('workoutEditSetRow_$setId')),
+          matching: find.textContaining('$expectedRowWeight lb ×'),
+        ),
+        findsOneWidget,
+      );
+
+      // 開編輯 sheet:輸入框預填 lb 換算值(不是原始 kg 值 50)。
+      await tester.tap(find.byKey(Key('workoutEditEditSetButton_$setId')));
+      await tester.pumpAndSettle();
+      expect(find.text('重量 (lb)'), findsOneWidget);
+      final weightField = tester.widget<TextField>(find.byKey(const Key('addSetWeightField')));
+      expect(weightField.controller!.text, expectedRowWeight);
+
+      // 輸入新的 lb 值 → 反向換算存回 kg(儲存一律 kg)。
+      await tester.enterText(find.byKey(const Key('addSetWeightField')), '220.5');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+
+      final fetched = await harness.workoutRepo.fetchById('edit-lb');
+      expect(
+        fetched!.exercises.single.sets.single.weight,
+        closeTo(displayToKg(220.5, WeightUnit.lb), 0.001),
+      );
+    });
   });
 }

@@ -6,11 +6,13 @@
 // 刻度的縮放/去重複雜度,底部標籤仍照 achievedAt 顯示實際日期文字。
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/power_lift_record.dart';
+import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
 
-class OneRmTrendChart extends StatelessWidget {
+class OneRmTrendChart extends ConsumerWidget {
   const OneRmTrendChart({super.key, required this.records});
 
   /// 已依 achievedAt 由舊到新排序(呼叫端保證,見
@@ -18,9 +20,12 @@ class OneRmTrendChart extends StatelessWidget {
   final List<PowerLiftRecord> records;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
+    // 資料點本身(record.oneRepMax)恆 kg 不動,這裡只換算畫進圖表的顯示
+    // y 值——對照 volume_chart_section.dart 的同一套作法。
     final spots = [
-      for (var i = 0; i < records.length; i++) FlSpot(i.toDouble(), records[i].oneRepMax),
+      for (var i = 0; i < records.length; i++) FlSpot(i.toDouble(), kgToDisplay(records[i].oneRepMax, unit)),
     ];
 
     return SizedBox(

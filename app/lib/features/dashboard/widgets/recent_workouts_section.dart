@@ -1,8 +1,10 @@
 // 最近訓練區塊。對應 iOS 版 DashboardView 的 `recentWorkoutsSection` +
 // `RecentWorkoutRow`。
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/workout.dart';
+import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_format.dart';
 
 class RecentWorkoutsSection extends StatelessWidget {
@@ -37,13 +39,14 @@ class RecentWorkoutsSection extends StatelessWidget {
   }
 }
 
-class _RecentWorkoutRow extends StatelessWidget {
+class _RecentWorkoutRow extends ConsumerWidget {
   const _RecentWorkoutRow({required this.workout});
 
   final Workout workout;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unit = ref.watch(weightUnitProvider);
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       key: Key('recentWorkoutRow-${workout.id}'),
@@ -78,7 +81,7 @@ class _RecentWorkoutRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  formatVolumeKg(workout.totalVolume),
+                  formatVolumeKg(workout.totalVolume, unit),
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
