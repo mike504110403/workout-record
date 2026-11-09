@@ -14,6 +14,7 @@
 // **序列化寫入**:沿用 workout_controller.dart 的 `_synchronized` 手法,
 // 保證同一個 controller instance 上的操作依呼叫順序嚴格序列化,不會並發
 // 交錯(例如連點刪除兩次同一組)。
+import '../../settings/preferences/one_rm_formula_preference.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -70,7 +71,9 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
 
   @override
   Future<WorkoutEditState> build() async {
-    final workout = await ref.read(workoutRepositoryProvider).fetchById(workoutId);
+    final workout = await ref
+        .read(workoutRepositoryProvider)
+        .fetchById(workoutId);
     if (workout == null) {
       throw StateError('WorkoutEditController: 找不到訓練 $workoutId');
     }
@@ -113,7 +116,8 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
   /// transaction 邊界的封裝(它們都是各自 `_db.transaction` 包好的公開
   /// 方法,不是暴露內部 statement 讓呼叫端自己組 transaction),不值得為了
   /// 這個極窄的崩潰窗口去打開這道封裝。
-  Future<void> _mutate(Future<void> Function(Workout current) action) => _synchronized(() async {
+  Future<void> _mutate(Future<void> Function(Workout current) action) =>
+      _synchronized(() async {
         final current = state.value;
         if (current == null) {
           throw StateError('WorkoutEditController: 尚未載入完成,無法編輯');
@@ -125,7 +129,9 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
           await repo.recomputeSummary(workoutId);
           final refreshed = await repo.fetchById(workoutId);
           if (refreshed == null) {
-            throw StateError('WorkoutEditController: workout 在寫入後消失:$workoutId');
+            throw StateError(
+              'WorkoutEditController: workout 在寫入後消失:$workoutId',
+            );
           }
           await _checkPersonalRecords(refreshed);
           state = AsyncData(WorkoutEditState(workout: refreshed));
@@ -141,7 +147,9 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
           } catch (_) {
             // 吞掉重讀失敗本身,不覆寫下面的 rethrow。
           }
-          state = AsyncData(WorkoutEditState(workout: refreshed ?? current.workout));
+          state = AsyncData(
+            WorkoutEditState(workout: refreshed ?? current.workout),
+          );
           rethrow;
         }
       });
@@ -171,7 +179,11 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
       double bestOneRepMax = -1;
       for (final set in exercise.sets) {
         if (set.isWarmup) continue;
-        final oneRepMax = calculateOneRepMax(weight: set.weight, reps: set.reps);
+        final oneRepMax = calculateOneRepMax(
+          weight: set.weight,
+          reps: set.reps,
+          formula: ref.read(oneRmFormulaProvider),
+        );
         if (oneRepMax > bestOneRepMax) {
           bestOneRepMax = oneRepMax;
           bestSet = set;
@@ -213,29 +225,33 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
     double? rpe,
     bool isWarmup = false,
     int restSeconds = kDefaultRestSeconds,
-  }) =>
-      _mutate((draft) async {
-        final exercise = draft.exercises.firstWhere(
-          (e) => e.id == workoutExerciseId,
-          orElse: () => throw StateError('動作不存在於目前訓練:$workoutExerciseId'),
+  }) => _mutate((draft) async {
+    final exercise = draft.exercises.firstWhere(
+      (e) => e.id == workoutExerciseId,
+      orElse: () => throw StateError('動作不存在於目前訓練:$workoutExerciseId'),
+    );
+    final now = DateTime.now();
+    await ref
+        .read(workoutRepositoryProvider)
+        .addSet(
+          WorkoutSet(
+            id: generateUuidV4(),
+            workoutExerciseId: workoutExerciseId,
+            setNumber: exercise.sets.length + 1,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            restSeconds: restSeconds,
+            isWarmup: isWarmup,
+            createdAt: now,
+            updatedAt: now,
+          ),
         );
-        final now = DateTime.now();
-        await ref.read(workoutRepositoryProvider).addSet(WorkoutSet(
-              id: generateUuidV4(),
-              workoutExerciseId: workoutExerciseId,
-              setNumber: exercise.sets.length + 1,
-              weight: weight,
-              reps: reps,
-              rpe: rpe,
-              restSeconds: restSeconds,
-              isWarmup: isWarmup,
-              createdAt: now,
-              updatedAt: now,
-            ));
-      });
+  });
 
   /// 刪除一組(確認對話框由呼叫端 UI 負責,見 workout_edit_page.dart)。
-  Future<void> deleteSet(String setId, {required String workoutExerciseId}) => _mutate(
+  Future<void> deleteSet(String setId, {required String workoutExerciseId}) =>
+      _mutate(
         (_) => ref
             .read(workoutRepositoryProvider)
             .deleteSet(setId, workoutExerciseId: workoutExerciseId),
@@ -243,25 +259,29 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
 
   /// 新增動作到訓練(接在現有動作之後,orderIndex 依序遞增)。
   Future<void> addExercise(Exercise exercise) => _mutate((draft) async {
-        final now = DateTime.now();
-        await ref.read(workoutRepositoryProvider).addExerciseToWorkout(WorkoutExercise(
-              id: generateUuidV4(),
-              workoutId: draft.id,
-              exerciseId: exercise.id,
-              exerciseName: exercise.name,
-              orderIndex: draft.exercises.length,
-              createdAt: now,
-              updatedAt: now,
-            ));
-      });
+    final now = DateTime.now();
+    await ref
+        .read(workoutRepositoryProvider)
+        .addExerciseToWorkout(
+          WorkoutExercise(
+            id: generateUuidV4(),
+            workoutId: draft.id,
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            orderIndex: draft.exercises.length,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+  });
 
   /// 移除動作(確認對話框由呼叫端 UI 負責)。最後一個動作也可以刪——
   /// 訓練會變成空殼(0 動作)但仍然存在,不會連帶刪除整筆訓練。
   Future<void> removeExercise(String workoutExerciseId) => _mutate(
-        (_) => ref
-            .read(workoutRepositoryProvider)
-            .removeExercise(workoutExerciseId, workoutId: workoutId),
-      );
+    (_) => ref
+        .read(workoutRepositoryProvider)
+        .removeExercise(workoutExerciseId, workoutId: workoutId),
+  );
 
   /// 更新訓練備註。**刻意不用 `Workout.copyWith`**——它的 `note` 參數是
   /// `note ?? this.note`,傳 `null` 代表「不覆寫」而不是「清空備註」,沒有
@@ -273,27 +293,29 @@ class WorkoutEditController extends AsyncNotifier<WorkoutEditState> {
   /// 一律再跑一次 `recomputeSummary`,即使這裡帶的 summary 值有任何失準
   /// 也會被蓋回正確結果(見 brief seam 說明)。
   Future<void> updateNote(String? note) => _mutate((draft) {
-        final updated = Workout(
-          id: draft.id,
-          userId: draft.userId,
-          startedAt: draft.startedAt,
-          endedAt: draft.endedAt,
-          duration: draft.duration,
-          totalVolume: draft.totalVolume,
-          totalSets: draft.totalSets,
-          totalExercises: draft.totalExercises,
-          note: note,
-          templateId: draft.templateId,
-          isSynced: draft.isSynced,
-          exercises: draft.exercises,
-          createdAt: draft.createdAt,
-          updatedAt: draft.updatedAt,
-        );
-        return ref.read(workoutRepositoryProvider).update(updated);
-      });
+    final updated = Workout(
+      id: draft.id,
+      userId: draft.userId,
+      startedAt: draft.startedAt,
+      endedAt: draft.endedAt,
+      duration: draft.duration,
+      totalVolume: draft.totalVolume,
+      totalSets: draft.totalSets,
+      totalExercises: draft.totalExercises,
+      note: note,
+      templateId: draft.templateId,
+      isSynced: draft.isSynced,
+      exercises: draft.exercises,
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+    );
+    return ref.read(workoutRepositoryProvider).update(updated);
+  });
 }
 
 final workoutEditControllerProvider =
-    AsyncNotifierProvider.family<WorkoutEditController, WorkoutEditState, String>(
-  WorkoutEditController.new,
-);
+    AsyncNotifierProvider.family<
+      WorkoutEditController,
+      WorkoutEditState,
+      String
+    >(WorkoutEditController.new);

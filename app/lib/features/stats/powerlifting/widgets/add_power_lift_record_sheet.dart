@@ -3,6 +3,7 @@
 // 寫入與畫面刷新在彈窗還開著時就 await 完成、成功才 pop——理由與
 // `features/dashboard/widgets/add_body_weight_sheet.dart` 相同(避免
 // pumpAndSettle 跟 sheet 關閉轉場動畫的 Future resolve 時機打架)。
+import '../../../settings/preferences/one_rm_formula_preference.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,10 +15,12 @@ class AddPowerLiftRecordSheet extends ConsumerStatefulWidget {
   const AddPowerLiftRecordSheet({super.key});
 
   @override
-  ConsumerState<AddPowerLiftRecordSheet> createState() => _AddPowerLiftRecordSheetState();
+  ConsumerState<AddPowerLiftRecordSheet> createState() =>
+      _AddPowerLiftRecordSheetState();
 }
 
-class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordSheet> {
+class _AddPowerLiftRecordSheetState
+    extends ConsumerState<AddPowerLiftRecordSheet> {
   final _weightController = TextEditingController();
   final _repsController = TextEditingController(text: '1');
   final _noteController = TextEditingController();
@@ -52,7 +55,11 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
     final weight = _parsedWeight;
     final reps = _parsedReps;
     if (weight == null || reps == null) return null;
-    return calculateOneRepMax(weight: weight, reps: reps);
+    return calculateOneRepMax(
+      weight: weight,
+      reps: reps,
+      formula: ref.read(oneRmFormulaProvider),
+    );
   }
 
   Future<void> _pickDate() async {
@@ -78,7 +85,9 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
     setState(() => _isSaving = true);
     try {
       final note = _noteController.text.trim();
-      await ref.read(powerliftingControllerProvider.notifier).addManualRecord(
+      await ref
+          .read(powerliftingControllerProvider.notifier)
+          .addManualRecord(
             weight: weightKg,
             reps: reps,
             achievedAt: _date,
@@ -88,9 +97,9 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
       Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('儲存失敗，請稍後再試')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('儲存失敗，請稍後再試')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -153,10 +162,10 @@ class _AddPowerLiftRecordSheetState extends ConsumerState<AddPowerLiftRecordShee
             const SizedBox(height: 12),
             Text(
               '推估 1RM：${preview.toStringAsFixed(1)} ${unitSuffix(unit)}',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           const SizedBox(height: 16),

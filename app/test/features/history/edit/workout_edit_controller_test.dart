@@ -4,6 +4,8 @@
 // 畫面互動就能驗證,harness 慣例(真實 repository、只換 DB)對齊
 // dashboard_page_test.dart。
 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,9 +38,12 @@ void main() {
   late String exerciseId;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
     db = openTestDatabase();
     await seedTestUser(db);
     container = ProviderContainer(overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
     ]);
     addTearDown(container.dispose);

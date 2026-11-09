@@ -1,15 +1,29 @@
 // 1RM(單次最大重量)估算。對照 iOS
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Utils/OneRMCalculator.swift` +
-// `Models/User.swift:59-83`(`OneRMFormula`)——只移植 PR 偵測實際會用到的
-// Epley 公式(iOS `User.OneRMFormula` 預設值,`WorkoutViewModel.swift:261`
-// 的 PR 偵測固定呼叫 `OneRMCalculator.calculate(weight:reps:)` 不帶
-// `formula:` 參數,即採用預設的 `.epley`)。Brzycki/Lander 兩個非預設公式
-// 沒有任何呼叫路徑會用到(brief 範圍不含 1RM 公式選擇設定),不搬。
+// `Models/User.swift`(`OneRMFormula.calculate`)三公式:Epley/Brzycki/Lander,
+// 使用者在偏好設定選擇(oneRmFormulaProvider),預設 Epley。
 //
-// 邊界處理照 iOS `OneRMCalculator.calculate`:reps <= 0 時直接回傳 weight
-// (原始碼用 `guard reps > 0 else { return weight }`);reps == 1 時 1RM 就是
-// 該次重量本身,不套公式(該次已經是單次最大重量)。
-double calculateOneRepMax({required double weight, required int reps}) {
+// 邊界處理照 iOS `OneRMCalculator.calculate`:reps <= 1 直接回傳 weight。
+// iOS 未防 Brzycki/Lander 分母 <= 0(reps 約 37 以上);此處分母 <= 0 時退回
+// Epley,避免除以零或負值。
+import '../settings/preferences/one_rm_formula_preference.dart';
+
+double calculateOneRepMax({
+  required double weight,
+  required int reps,
+  OneRmFormula formula = OneRmFormula.epley,
+}) {
   if (reps <= 1) return weight;
-  return weight * (1 + reps / 30.0);
+  final r = reps.toDouble();
+  double epley() => weight * (1 + r / 30.0);
+  switch (formula) {
+    case OneRmFormula.epley:
+      return epley();
+    case OneRmFormula.brzycki:
+      final d = 37.0 - r;
+      return d > 0 ? weight * (36.0 / d) : epley();
+    case OneRmFormula.lander:
+      final d = 101.3 - 2.67123 * r;
+      return d > 0 ? weight * (100.0 / d) : epley();
+  }
 }

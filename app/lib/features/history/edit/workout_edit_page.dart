@@ -8,6 +8,7 @@
 // 它們(不是「唯讀展示」,是根本沒有渲染),沒有任何輸入框能改到它們
 // (code review Std-9:先前這裡寫「這裡只讀顯示」與實作不符,頁面沒有任何
 // 日期時間相關的 Text/顯示元件,修正措辭)。
+import '../../settings/preferences/default_rest_seconds_preference.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -52,7 +53,8 @@ class WorkoutEditPage extends ConsumerWidget {
                 const SizedBox(height: 12),
                 FilledButton(
                   key: const Key('workoutEditRetryButton'),
-                  onPressed: () => ref.invalidate(workoutEditControllerProvider(workoutId)),
+                  onPressed: () =>
+                      ref.invalidate(workoutEditControllerProvider(workoutId)),
                   child: const Text('重試'),
                 ),
               ],
@@ -64,14 +66,22 @@ class WorkoutEditPage extends ConsumerWidget {
   }
 }
 
-Future<void> _addExercise(BuildContext context, WidgetRef ref, String workoutId) async {
+Future<void> _addExercise(
+  BuildContext context,
+  WidgetRef ref,
+  String workoutId,
+) async {
   final selected = await showExercisePicker(context);
   if (selected == null || selected.isEmpty || !context.mounted) return;
   try {
-    await ref.read(workoutEditControllerProvider(workoutId).notifier).addExercise(selected.first);
+    await ref
+        .read(workoutEditControllerProvider(workoutId).notifier)
+        .addExercise(selected.first);
   } catch (e) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
   }
 }
 
@@ -186,7 +196,11 @@ class _SummaryHeader extends ConsumerWidget {
 }
 
 class _StatColumn extends StatelessWidget {
-  const _StatColumn({required this.label, required this.value, required this.valueKey});
+  const _StatColumn({
+    required this.label,
+    required this.value,
+    required this.valueKey,
+  });
 
   final String label;
   final String value;
@@ -229,7 +243,8 @@ class _NoteSectionState extends ConsumerState<_NoteSection> {
     // 外部(DB 重讀)資料變動時同步輸入框內容——只在使用者目前顯示的文字
     // 還等於「舊值」時才覆寫(代表使用者還沒動過這個欄位),避免使用者打
     // 到一半被別的操作觸發的重讀蓋掉。
-    if (oldWidget.note != widget.note && _controller.text == (oldWidget.note ?? '')) {
+    if (oldWidget.note != widget.note &&
+        _controller.text == (oldWidget.note ?? '')) {
       _controller.text = widget.note ?? '';
     }
   }
@@ -247,10 +262,14 @@ class _NoteSectionState extends ConsumerState<_NoteSection> {
           .read(workoutEditControllerProvider(widget.workoutId).notifier)
           .updateNote(text.isEmpty ? null : text);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('備註已更新')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('備註已更新')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新備註失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新備註失敗:$e')));
     }
   }
 
@@ -284,14 +303,22 @@ class _NoteSectionState extends ConsumerState<_NoteSection> {
 }
 
 class _ExerciseEditCard extends ConsumerWidget {
-  const _ExerciseEditCard({super.key, required this.workoutId, required this.exercise});
+  const _ExerciseEditCard({
+    super.key,
+    required this.workoutId,
+    required this.exercise,
+  });
 
   final String workoutId;
   final WorkoutExercise exercise;
 
-  String get _displayName => exercise.exerciseName ?? exercise.exercise?.name ?? '未知動作';
+  String get _displayName =>
+      exercise.exerciseName ?? exercise.exercise?.name ?? '未知動作';
 
-  Future<void> _confirmDeleteExercise(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmDeleteExercise(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -314,14 +341,22 @@ class _ExerciseEditCard extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      await ref.read(workoutEditControllerProvider(workoutId).notifier).removeExercise(exercise.id);
+      await ref
+          .read(workoutEditControllerProvider(workoutId).notifier)
+          .removeExercise(exercise.id);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刪除動作失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('刪除動作失敗:$e')));
     }
   }
 
-  Future<void> _confirmDeleteSet(BuildContext context, WidgetRef ref, WorkoutSet set) async {
+  Future<void> _confirmDeleteSet(
+    BuildContext context,
+    WidgetRef ref,
+    WorkoutSet set,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -349,7 +384,9 @@ class _ExerciseEditCard extends ConsumerWidget {
           .deleteSet(set.id, workoutExerciseId: exercise.id);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刪除組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('刪除組數失敗:$e')));
     }
   }
 
@@ -358,6 +395,7 @@ class _ExerciseEditCard extends ConsumerWidget {
       context,
       exerciseName: _displayName,
       setNumber: exercise.sets.length + 1,
+      initialRestSeconds: ref.read(defaultRestSecondsProvider),
       // 編輯已完成訓練沒有「組間休息倒數」這件事,整顆開關不渲染(對照
       // workout_in_progress_view.dart `_editSet` 對既有組的用法)。
       showAutoStartRestTimer: false,
@@ -365,7 +403,9 @@ class _ExerciseEditCard extends ConsumerWidget {
     if (result == null || !context.mounted) return;
 
     try {
-      await ref.read(workoutEditControllerProvider(workoutId).notifier).addSet(
+      await ref
+          .read(workoutEditControllerProvider(workoutId).notifier)
+          .addSet(
             workoutExerciseId: exercise.id,
             weight: result.weight,
             reps: result.reps,
@@ -375,11 +415,17 @@ class _ExerciseEditCard extends ConsumerWidget {
           );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('新增組數失敗:$e')));
     }
   }
 
-  Future<void> _editSet(BuildContext context, WidgetRef ref, WorkoutSet set) async {
+  Future<void> _editSet(
+    BuildContext context,
+    WidgetRef ref,
+    WorkoutSet set,
+  ) async {
     final result = await showAddSetSheet(
       context,
       exerciseName: _displayName,
@@ -388,22 +434,29 @@ class _ExerciseEditCard extends ConsumerWidget {
       initialReps: set.reps,
       initialRpe: set.rpe,
       initialIsWarmup: set.isWarmup,
-      initialRestSeconds: set.restSeconds ?? kDefaultRestSeconds,
+      initialRestSeconds:
+          set.restSeconds ?? ref.read(defaultRestSecondsProvider),
       showAutoStartRestTimer: false,
     );
     if (result == null || !context.mounted) return;
 
     try {
-      await ref.read(workoutEditControllerProvider(workoutId).notifier).updateSet(set.copyWith(
-            weight: result.weight,
-            reps: result.reps,
-            rpe: result.rpe,
-            isWarmup: result.isWarmup,
-            restSeconds: result.restSeconds,
-          ));
+      await ref
+          .read(workoutEditControllerProvider(workoutId).notifier)
+          .updateSet(
+            set.copyWith(
+              weight: result.weight,
+              reps: result.reps,
+              rpe: result.rpe,
+              isWarmup: result.isWarmup,
+              restSeconds: result.restSeconds,
+            ),
+          );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新組數失敗:$e')));
     }
   }
 
@@ -421,7 +474,10 @@ class _ExerciseEditCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(_displayName, style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    _displayName,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 IconButton(
                   key: Key('workoutEditDeleteExerciseButton_${exercise.id}'),
@@ -440,7 +496,9 @@ class _ExerciseEditCard extends ConsumerWidget {
                   '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
                   '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
                 ),
-                subtitle: Text('容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}'),
+                subtitle: Text(
+                  '容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

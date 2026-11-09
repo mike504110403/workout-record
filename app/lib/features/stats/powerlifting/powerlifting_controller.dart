@@ -8,6 +8,7 @@
 // `kCoreDataImportedUserIdKey` 指向的既有 row,不是這次登入的 session
 // id)。brief 明確要求比照這個組合慣例,這裡只讀不寫(查無此人時回傳
 // null,不像 onboarding 那樣新建 Users row)。
+import '../../settings/preferences/one_rm_formula_preference.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/uuid.dart';
@@ -53,13 +54,16 @@ class PowerliftingState {
   List<PowerLiftRecord> get currentManualRecords =>
       manualRecordsForLift(manualRecords, selectedLift);
 
-  PowerLiftRecord? get currentManualPR => bestManualRecord(manualRecords, selectedLift);
+  PowerLiftRecord? get currentManualPR =>
+      bestManualRecord(manualRecords, selectedLift);
 
-  List<PowerLiftRecord> get chartData => chartRecordsForLift(manualRecords, selectedLift);
+  List<PowerLiftRecord> get chartData =>
+      chartRecordsForLift(manualRecords, selectedLift);
 
   double get totalLiftsValue => totalLifts(manualRecords);
 
-  PersonalRecord? get currentSystemPR => bestSystemEstimate(prSummaries, selectedLift);
+  PersonalRecord? get currentSystemPR =>
+      bestSystemEstimate(prSummaries, selectedLift);
 
   List<PRSummary> get currentSystemSummaries =>
       systemEstimatedSummaries(prSummaries, selectedLift);
@@ -67,8 +71,9 @@ class PowerliftingState {
   /// 三項最佳成績並列卡用:每個動作各自的最高 1RM(無紀錄則為 null,畫面
   /// 顯示「--」)。
   Map<PowerLift, PowerLiftRecord?> get bestByLift => {
-        for (final lift in PowerLift.values) lift: bestManualRecord(manualRecords, lift),
-      };
+    for (final lift in PowerLift.values)
+      lift: bestManualRecord(manualRecords, lift),
+  };
 }
 
 class PowerliftingController extends AsyncNotifier<PowerliftingState> {
@@ -123,7 +128,11 @@ class PowerliftingController extends AsyncNotifier<PowerliftingState> {
         lift: selectedLift,
         weight: weight,
         reps: reps,
-        oneRepMax: calculateOneRepMax(weight: weight, reps: reps),
+        oneRepMax: calculateOneRepMax(
+          weight: weight,
+          reps: reps,
+          formula: ref.read(oneRmFormulaProvider),
+        ),
         achievedAt: achievedAt,
         note: note,
         createdAt: now,
@@ -181,4 +190,6 @@ class PowerliftingController extends AsyncNotifier<PowerliftingState> {
 }
 
 final powerliftingControllerProvider =
-    AsyncNotifierProvider<PowerliftingController, PowerliftingState>(PowerliftingController.new);
+    AsyncNotifierProvider<PowerliftingController, PowerliftingState>(
+      PowerliftingController.new,
+    );

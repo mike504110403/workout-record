@@ -17,6 +17,7 @@
 // [isAbandoning])是第一道防線(擋住使用者手指再次點擊),這裡的序列化鎖
 // 是第二道、測試也直接命中的防線(即使繞過 UI 直接連續呼叫 controller 方法
 // 也一樣安全)。
+import '../settings/preferences/one_rm_formula_preference.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,7 +35,11 @@ import 'workout_ui_shared.dart';
 /// 訓練核心流的狀態。[draft] 為 null 代表沒有進行中的訓練(顯示開始畫面);
 /// 非 null 時 `draft.endedAt` 必為 null(進行中草稿)。
 class WorkoutFlowState {
-  const WorkoutFlowState({this.draft, this.isCompleting = false, this.isAbandoning = false});
+  const WorkoutFlowState({
+    this.draft,
+    this.isCompleting = false,
+    this.isAbandoning = false,
+  });
 
   final Workout? draft;
 
@@ -58,7 +63,10 @@ sealed class WorkoutCompletionOutcome {
 }
 
 class WorkoutCompleted extends WorkoutCompletionOutcome {
-  const WorkoutCompleted({required this.workout, required this.newPersonalRecordCount});
+  const WorkoutCompleted({
+    required this.workout,
+    required this.newPersonalRecordCount,
+  });
 
   /// 完成後的訓練(`endedAt` 非 null,統計欄位已由
   /// `WorkoutRepository.completeWorkout` 重新計算)。
@@ -130,10 +138,10 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 在「繼續上次訓練 / 放棄」對話框的選擇呼叫 [resumeDraft] 或
   /// [discardRecoverableDraft] 決定。
   Future<Workout?> checkForRecoverableDraft() => _synchronized(() async {
-        final userId = await _resolveUserId();
-        if (userId == null) return null;
-        return ref.read(workoutRepositoryProvider).fetchDraft(userId);
-      });
+    final userId = await _resolveUserId();
+    if (userId == null) return null;
+    return ref.read(workoutRepositoryProvider).fetchDraft(userId);
+  });
 
   /// 使用者選擇「繼續上次訓練」:把草稿接手進 [state](動作/組/起始時間
   /// 全部照 DB 內容還原——duration 顯示由 UI 用 `draft.startedAt` 與現在
@@ -156,21 +164,24 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 一筆已經不是「這個使用者的進行中草稿」的資料),好過信任呼叫端傳進來
   /// 的 id 一定還有效。
   Future<void> resumeDraft(String workoutId) => _synchronized(() async {
-        if (state.value?.draft != null) return;
-        final userId = await _resolveUserId();
-        if (userId == null) return;
-        final workout = await ref.read(workoutRepositoryProvider).fetchById(workoutId);
-        if (workout == null) return;
-        if (workout.endedAt != null || workout.userId != userId) return;
-        state = AsyncData(WorkoutFlowState(draft: workout));
-      });
+    if (state.value?.draft != null) return;
+    final userId = await _resolveUserId();
+    if (userId == null) return;
+    final workout = await ref
+        .read(workoutRepositoryProvider)
+        .fetchById(workoutId);
+    if (workout == null) return;
+    if (workout.endedAt != null || workout.userId != userId) return;
+    state = AsyncData(WorkoutFlowState(draft: workout));
+  });
 
   /// 使用者選擇「放棄」上次未完成的草稿:直接刪除,不接手進 [state]。不像
   /// [resumeDraft] 那樣額外驗證 userId——見 [resumeDraft] 文件「守衛不對稱
   /// 是刻意的」說明:刪除的代價(`WorkoutRepository.discardDraft` 已有
   /// `endedAt IS NULL` 結構守衛兜底,誤刪最多是一次 no-op)遠低於接手錯
   /// 資料,不值得為了對稱而多一次查詢。
-  Future<void> discardRecoverableDraft(String workoutId) => _synchronized(() async {
+  Future<void> discardRecoverableDraft(String workoutId) =>
+      _synchronized(() async {
         await ref.read(workoutRepositoryProvider).discardDraft(workoutId);
       });
 
@@ -185,32 +196,35 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 一律先查一次 DB([WorkoutRepository.fetchDraft]):查到既有草稿就直接
   /// 接手進 [state],不會在草稿還沒被使用者明確放棄的情況下多開一筆。
   Future<void> startFreeWorkout() => _synchronized(() async {
-        if (state.value?.draft != null) return;
-        final userId = await _requireUserId();
-        final repo = ref.read(workoutRepositoryProvider);
-        final existingDraft = await repo.fetchDraft(userId);
-        if (existingDraft != null) {
-          state = AsyncData(WorkoutFlowState(draft: existingDraft));
-          return;
-        }
-        final now = DateTime.now();
-        final workoutId = generateUuidV4();
-        await repo.create(Workout(
-          id: workoutId,
-          userId: userId,
-          startedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        ));
-        state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId)));
-      });
+    if (state.value?.draft != null) return;
+    final userId = await _requireUserId();
+    final repo = ref.read(workoutRepositoryProvider);
+    final existingDraft = await repo.fetchDraft(userId);
+    if (existingDraft != null) {
+      state = AsyncData(WorkoutFlowState(draft: existingDraft));
+      return;
+    }
+    final now = DateTime.now();
+    final workoutId = generateUuidV4();
+    await repo.create(
+      Workout(
+        id: workoutId,
+        userId: userId,
+        startedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId)));
+  });
 
   /// 從模板開始:[template] 已經是 `applyTemplate` 展開好的初始資料
   /// (suggestedSets/Reps 為 null 時的 `?? 3`/`?? 10` 已在 applied_template.dart
   /// 處理過),這裡只負責把它轉成一筆完整的 Workout 一次性寫入。已有進行中
   /// 草稿時 no-op,同 [startFreeWorkout](含開始前先查 DB 的孤兒草稿防線,
   /// 見該方法文件)。
-  Future<void> startFromTemplate(AppliedTemplate template) => _synchronized(() async {
+  Future<void> startFromTemplate(AppliedTemplate template) =>
+      _synchronized(() async {
         if (state.value?.draft != null) return;
         final userId = await _requireUserId();
         final repo = ref.read(workoutRepositoryProvider);
@@ -226,39 +240,45 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         for (var i = 0; i < template.exercises.length; i++) {
           final templateExercise = template.exercises[i];
           final workoutExerciseId = generateUuidV4();
-          exercises.add(WorkoutExercise(
-            id: workoutExerciseId,
-            workoutId: workoutId,
-            exerciseId: templateExercise.exerciseId,
-            exerciseName: templateExercise.exerciseName,
-            orderIndex: i,
-            createdAt: now,
-            updatedAt: now,
-            sets: [
-              for (var j = 0; j < templateExercise.sets.length; j++)
-                WorkoutSet(
-                  id: generateUuidV4(),
-                  workoutExerciseId: workoutExerciseId,
-                  setNumber: j + 1,
-                  weight: templateExercise.sets[j].weight,
-                  reps: templateExercise.sets[j].reps,
-                  createdAt: now,
-                  updatedAt: now,
-                ),
-            ],
-          ));
+          exercises.add(
+            WorkoutExercise(
+              id: workoutExerciseId,
+              workoutId: workoutId,
+              exerciseId: templateExercise.exerciseId,
+              exerciseName: templateExercise.exerciseName,
+              orderIndex: i,
+              createdAt: now,
+              updatedAt: now,
+              sets: [
+                for (var j = 0; j < templateExercise.sets.length; j++)
+                  WorkoutSet(
+                    id: generateUuidV4(),
+                    workoutExerciseId: workoutExerciseId,
+                    setNumber: j + 1,
+                    weight: templateExercise.sets[j].weight,
+                    reps: templateExercise.sets[j].reps,
+                    createdAt: now,
+                    updatedAt: now,
+                  ),
+              ],
+            ),
+          );
         }
 
-        await repo.create(Workout(
-          id: workoutId,
-          userId: userId,
-          startedAt: now,
-          templateId: template.templateId,
-          exercises: exercises,
-          createdAt: now,
-          updatedAt: now,
-        ));
-        state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId)));
+        await repo.create(
+          Workout(
+            id: workoutId,
+            userId: userId,
+            startedAt: now,
+            templateId: template.templateId,
+            exercises: exercises,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        state = AsyncData(
+          WorkoutFlowState(draft: await repo.fetchById(workoutId)),
+        );
       });
 
   // MARK: - 進行中操作(草稿寫穿)
@@ -279,21 +299,26 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 新增動作到進行中的訓練(對照 iOS `addExercise`,插在最前面顯示是 UI
   /// 層的排序選擇——這裡固定接在現有動作之後,orderIndex 依序遞增)。
   Future<void> addExercise(Exercise exercise) => _synchronized(() async {
-        final draft = _requireDraft();
-        final now = DateTime.now();
-        await ref.read(workoutRepositoryProvider).addExerciseToWorkout(WorkoutExercise(
-              id: generateUuidV4(),
-              workoutId: draft.id,
-              exerciseId: exercise.id,
-              exerciseName: exercise.name,
-              orderIndex: draft.exercises.length,
-              createdAt: now,
-              updatedAt: now,
-            ));
-        await _refresh(draft.id);
-      });
+    final draft = _requireDraft();
+    final now = DateTime.now();
+    await ref
+        .read(workoutRepositoryProvider)
+        .addExerciseToWorkout(
+          WorkoutExercise(
+            id: generateUuidV4(),
+            workoutId: draft.id,
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            orderIndex: draft.exercises.length,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+    await _refresh(draft.id);
+  });
 
-  Future<void> removeExercise(String workoutExerciseId) => _synchronized(() async {
+  Future<void> removeExercise(String workoutExerciseId) =>
+      _synchronized(() async {
         final draft = _requireDraft();
         await ref
             .read(workoutRepositoryProvider)
@@ -301,14 +326,16 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         await _refresh(draft.id);
       });
 
-  Future<void> setExerciseCompleted(String workoutExerciseId, {required bool isCompleted}) =>
-      _synchronized(() async {
-        final draft = _requireDraft();
-        await ref
-            .read(workoutRepositoryProvider)
-            .setExerciseCompleted(workoutExerciseId, isCompleted: isCompleted);
-        await _refresh(draft.id);
-      });
+  Future<void> setExerciseCompleted(
+    String workoutExerciseId, {
+    required bool isCompleted,
+  }) => _synchronized(() async {
+    final draft = _requireDraft();
+    await ref
+        .read(workoutRepositoryProvider)
+        .setExerciseCompleted(workoutExerciseId, isCompleted: isCompleted);
+    await _refresh(draft.id);
+  });
 
   /// 記一組新的組數。[setNumber] 由目前草稿裡該動作既有的組數長度 + 1 算出
   /// (對照 iOS `exercise.sets.count + 1`)——用 [_requireDraft] 目前的
@@ -320,39 +347,43 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     double? rpe,
     bool isWarmup = false,
     int restSeconds = kDefaultRestSeconds,
-  }) =>
-      _synchronized(() async {
-        final draft = _requireDraft();
-        final exercise = draft.exercises.firstWhere(
-          (e) => e.id == workoutExerciseId,
-          orElse: () => throw StateError('動作不存在於目前草稿:$workoutExerciseId'),
+  }) => _synchronized(() async {
+    final draft = _requireDraft();
+    final exercise = draft.exercises.firstWhere(
+      (e) => e.id == workoutExerciseId,
+      orElse: () => throw StateError('動作不存在於目前草稿:$workoutExerciseId'),
+    );
+    final now = DateTime.now();
+    await ref
+        .read(workoutRepositoryProvider)
+        .addSet(
+          WorkoutSet(
+            id: generateUuidV4(),
+            workoutExerciseId: workoutExerciseId,
+            setNumber: exercise.sets.length + 1,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            restSeconds: restSeconds,
+            isWarmup: isWarmup,
+            createdAt: now,
+            updatedAt: now,
+          ),
         );
-        final now = DateTime.now();
-        await ref.read(workoutRepositoryProvider).addSet(WorkoutSet(
-              id: generateUuidV4(),
-              workoutExerciseId: workoutExerciseId,
-              setNumber: exercise.sets.length + 1,
-              weight: weight,
-              reps: reps,
-              rpe: rpe,
-              restSeconds: restSeconds,
-              isWarmup: isWarmup,
-              createdAt: now,
-              updatedAt: now,
-            ));
-        await _refresh(draft.id);
-      });
+    await _refresh(draft.id);
+  });
 
   /// 更新既有組數。[set] 通常是從目前 [WorkoutFlowState.draft] 讀出的既有
   /// `WorkoutSet` 再用 `copyWith` 改過欄位——呼叫端(編輯 sheet)負責組出
   /// 完整的新版本,這裡只負責寫入 + 刷新。
   Future<void> updateSet(WorkoutSet set) => _synchronized(() async {
-        final draft = _requireDraft();
-        await ref.read(workoutRepositoryProvider).updateSet(set);
-        await _refresh(draft.id);
-      });
+    final draft = _requireDraft();
+    await ref.read(workoutRepositoryProvider).updateSet(set);
+    await _refresh(draft.id);
+  });
 
-  Future<void> deleteSet(String setId, {required String workoutExerciseId}) => _synchronized(() async {
+  Future<void> deleteSet(String setId, {required String workoutExerciseId}) =>
+      _synchronized(() async {
         final draft = _requireDraft();
         await ref
             .read(workoutRepositoryProvider)
@@ -371,23 +402,26 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 已經完成過、或從未開始)直接回傳 [WorkoutCompletionNoOp],不拋錯、不
   /// 重複結算、不重複建立 PR。
   Future<WorkoutCompletionOutcome> completeWorkout() => _synchronized(() async {
-        final draft = state.value?.draft;
-        if (draft == null) return const WorkoutCompletionNoOp();
+    final draft = state.value?.draft;
+    if (draft == null) return const WorkoutCompletionNoOp();
 
-        state = AsyncData(WorkoutFlowState(draft: draft, isCompleting: true));
-        final workoutRepo = ref.read(workoutRepositoryProvider);
-        try {
-          final completed = await workoutRepo.completeWorkout(draft.id);
-          final newPRCount = await _recordPersonalRecords(completed);
-          state = const AsyncData(WorkoutFlowState());
-          return WorkoutCompleted(workout: completed, newPersonalRecordCount: newPRCount);
-        } catch (_) {
-          // 失敗時解除 loading、草稿保留在 state,讓 UI 能重試(常備紀律:
-          // 非同步失敗路徑不得 fire-and-forget)。
-          state = AsyncData(WorkoutFlowState(draft: draft));
-          rethrow;
-        }
-      });
+    state = AsyncData(WorkoutFlowState(draft: draft, isCompleting: true));
+    final workoutRepo = ref.read(workoutRepositoryProvider);
+    try {
+      final completed = await workoutRepo.completeWorkout(draft.id);
+      final newPRCount = await _recordPersonalRecords(completed);
+      state = const AsyncData(WorkoutFlowState());
+      return WorkoutCompleted(
+        workout: completed,
+        newPersonalRecordCount: newPRCount,
+      );
+    } catch (_) {
+      // 失敗時解除 loading、草稿保留在 state,讓 UI 能重試(常備紀律:
+      // 非同步失敗路徑不得 fire-and-forget)。
+      state = AsyncData(WorkoutFlowState(draft: draft));
+      rethrow;
+    }
+  });
 
   /// 逐一檢查非暖身組是否創造新 PR。刻意用循序 `for` + `await`(不是
   /// `Future.wait` 平行處理)——同一次訓練裡同一動作出現多組遞增重量時,
@@ -402,7 +436,11 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
       for (final set in exercise.sets) {
         if (set.isWarmup) continue;
 
-        final oneRepMax = calculateOneRepMax(weight: set.weight, reps: set.reps);
+        final oneRepMax = calculateOneRepMax(
+          weight: set.weight,
+          reps: set.reps,
+          formula: ref.read(oneRmFormulaProvider),
+        );
         final candidate = PersonalRecord(
           id: generateUuidV4(),
           userId: workout.userId,
@@ -431,19 +469,21 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// 若 completeWorkout 已經成功把草稿結清,這裡讀到的 `state.draft` 已是
   /// null,自然落入冪等 no-op 分支,不會誤刪一筆已經不存在的草稿或訓練。
   Future<void> abandonWorkout() => _synchronized(() async {
-        final draft = state.value?.draft;
-        if (draft == null) return;
+    final draft = state.value?.draft;
+    if (draft == null) return;
 
-        state = AsyncData(WorkoutFlowState(draft: draft, isAbandoning: true));
-        try {
-          await ref.read(workoutRepositoryProvider).discardDraft(draft.id);
-          state = const AsyncData(WorkoutFlowState());
-        } catch (_) {
-          state = AsyncData(WorkoutFlowState(draft: draft));
-          rethrow;
-        }
-      });
+    state = AsyncData(WorkoutFlowState(draft: draft, isAbandoning: true));
+    try {
+      await ref.read(workoutRepositoryProvider).discardDraft(draft.id);
+      state = const AsyncData(WorkoutFlowState());
+    } catch (_) {
+      state = AsyncData(WorkoutFlowState(draft: draft));
+      rethrow;
+    }
+  });
 }
 
 final workoutControllerProvider =
-    AsyncNotifierProvider<WorkoutController, WorkoutFlowState>(WorkoutController.new);
+    AsyncNotifierProvider<WorkoutController, WorkoutFlowState>(
+      WorkoutController.new,
+    );

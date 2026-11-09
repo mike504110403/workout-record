@@ -1,6 +1,7 @@
 // 進行中訓練畫面(對照 iOS `WorkoutInProgressView`,見
 // ios/WorkoutRecord/WorkoutRecord/Sources/Views/Workout/WorkoutView.swift:152-351)。
 // 動作列表 + 記組 + 組間休息 + 即時統計 + 完成/放棄。
+import '../settings/preferences/default_rest_seconds_preference.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -24,10 +25,14 @@ class WorkoutInProgressView extends ConsumerWidget {
     final selected = await showExercisePicker(context);
     if (selected == null || selected.isEmpty || !context.mounted) return;
     try {
-      await ref.read(workoutControllerProvider.notifier).addExercise(selected.first);
+      await ref
+          .read(workoutControllerProvider.notifier)
+          .addExercise(selected.first);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
     }
   }
 
@@ -51,9 +56,15 @@ class WorkoutInProgressView extends ConsumerWidget {
                   padding: const EdgeInsets.only(top: 8, bottom: 8),
                   children: [
                     for (final exercise in draft.exercises)
-                      _ExerciseCard(key: ValueKey(exercise.id), exercise: exercise),
+                      _ExerciseCard(
+                        key: ValueKey(exercise.id),
+                        exercise: exercise,
+                      ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: OutlinedButton.icon(
                         key: const Key('addExerciseButton'),
                         onPressed: () => _addExercise(context, ref),
@@ -64,7 +75,11 @@ class WorkoutInProgressView extends ConsumerWidget {
                   ],
                 ),
         ),
-        _BottomActions(draft: draft, isCompleting: flow.isCompleting, isAbandoning: flow.isAbandoning),
+        _BottomActions(
+          draft: draft,
+          isCompleting: flow.isCompleting,
+          isAbandoning: flow.isAbandoning,
+        ),
       ],
     );
   }
@@ -176,7 +191,11 @@ String _formatDuration(Duration d) {
 }
 
 class _StatColumn extends StatelessWidget {
-  const _StatColumn({required this.label, required this.value, required this.valueKey});
+  const _StatColumn({
+    required this.label,
+    required this.value,
+    required this.valueKey,
+  });
 
   final String label;
   final String value;
@@ -202,7 +221,8 @@ class _ExerciseCard extends ConsumerWidget {
 
   final WorkoutExercise exercise;
 
-  String get _displayName => exercise.exerciseName ?? exercise.exercise?.name ?? '未知動作';
+  String get _displayName =>
+      exercise.exerciseName ?? exercise.exercise?.name ?? '未知動作';
 
   Future<void> _openAddSetSheet(BuildContext context, WidgetRef ref) async {
     final lastSet = exercise.sets.isEmpty ? null : exercise.sets.last;
@@ -210,13 +230,16 @@ class _ExerciseCard extends ConsumerWidget {
       context,
       exerciseName: _displayName,
       setNumber: exercise.sets.length + 1,
+      initialRestSeconds: ref.read(defaultRestSecondsProvider),
       previousWeight: lastSet?.weight,
       previousReps: lastSet?.reps,
     );
     if (result == null || !context.mounted) return;
 
     try {
-      await ref.read(workoutControllerProvider.notifier).addSet(
+      await ref
+          .read(workoutControllerProvider.notifier)
+          .addSet(
             workoutExerciseId: exercise.id,
             weight: result.weight,
             reps: result.reps,
@@ -231,18 +254,23 @@ class _ExerciseCard extends ConsumerWidget {
       // `start()` 內部一律先取消既有計時器再重啟,天生涵蓋「休息計時中
       // 儲存下一組 → 重啟計時器」(矩陣)。
       if (!result.isWarmup && result.autoStartRestTimer) {
-        ref.read(restTimerControllerProvider.notifier).start(
-              seconds: result.restSeconds,
-              exerciseName: _displayName,
-            );
+        ref
+            .read(restTimerControllerProvider.notifier)
+            .start(seconds: result.restSeconds, exerciseName: _displayName);
       }
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('記錄組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('記錄組數失敗:$e')));
     }
   }
 
-  Future<void> _editSet(BuildContext context, WidgetRef ref, WorkoutSet set) async {
+  Future<void> _editSet(
+    BuildContext context,
+    WidgetRef ref,
+    WorkoutSet set,
+  ) async {
     final result = await showAddSetSheet(
       context,
       exerciseName: _displayName,
@@ -251,7 +279,8 @@ class _ExerciseCard extends ConsumerWidget {
       initialReps: set.reps,
       initialRpe: set.rpe,
       initialIsWarmup: set.isWarmup,
-      initialRestSeconds: set.restSeconds ?? kDefaultRestSeconds,
+      initialRestSeconds:
+          set.restSeconds ?? ref.read(defaultRestSecondsProvider),
       // 編輯既有組不該觸發新的休息倒數,整顆開關隱藏不渲染(對照
       // add_set_sheet.dart `AddSetResult.autoStartRestTimer` 文件——不留一顆
       // 點了沒用的開關,code review r2 major 修正)。
@@ -260,52 +289,74 @@ class _ExerciseCard extends ConsumerWidget {
     if (result == null || !context.mounted) return;
 
     try {
-      await ref.read(workoutControllerProvider.notifier).updateSet(set.copyWith(
-            weight: result.weight,
-            reps: result.reps,
-            rpe: result.rpe,
-            isWarmup: result.isWarmup,
-            restSeconds: result.restSeconds,
-          ));
+      await ref
+          .read(workoutControllerProvider.notifier)
+          .updateSet(
+            set.copyWith(
+              weight: result.weight,
+              reps: result.reps,
+              rpe: result.rpe,
+              isWarmup: result.isWarmup,
+              restSeconds: result.restSeconds,
+            ),
+          );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新組數失敗:$e')));
     }
   }
 
-  Future<void> _deleteSet(BuildContext context, WidgetRef ref, WorkoutSet set) async {
+  Future<void> _deleteSet(
+    BuildContext context,
+    WidgetRef ref,
+    WorkoutSet set,
+  ) async {
     try {
       await ref
           .read(workoutControllerProvider.notifier)
           .deleteSet(set.id, workoutExerciseId: exercise.id);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刪除組數失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('刪除組數失敗:$e')));
     }
   }
 
   Future<void> _toggleCompleted(BuildContext context, WidgetRef ref) async {
     if (!exercise.isCompleted && exercise.sets.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('請至少記錄一組訓練後再完成動作')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請至少記錄一組訓練後再完成動作')));
       return;
     }
     try {
       await ref
           .read(workoutControllerProvider.notifier)
-          .setExerciseCompleted(exercise.id, isCompleted: !exercise.isCompleted);
+          .setExerciseCompleted(
+            exercise.id,
+            isCompleted: !exercise.isCompleted,
+          );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新動作狀態失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新動作狀態失敗:$e')));
     }
   }
 
   Future<void> _deleteExercise(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(workoutControllerProvider.notifier).removeExercise(exercise.id);
+      await ref
+          .read(workoutControllerProvider.notifier)
+          .removeExercise(exercise.id);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刪除動作失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('刪除動作失敗:$e')));
     }
   }
 
@@ -323,10 +374,16 @@ class _ExerciseCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(_displayName, style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    _displayName,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 if (exercise.isCompleted)
-                  Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
+                  Icon(
+                    Icons.check_circle,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 IconButton(
                   key: Key('deleteExerciseButton_${exercise.id}'),
                   icon: const Icon(Icons.delete_outline),
@@ -344,7 +401,9 @@ class _ExerciseCard extends ConsumerWidget {
                   '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
                   '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
                 ),
-                subtitle: Text('容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}'),
+                subtitle: Text(
+                  '容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}',
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -436,22 +495,32 @@ class _BottomActions extends ConsumerWidget {
       ref.read(restTimerControllerProvider.notifier).skip();
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('放棄訓練失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('放棄訓練失敗:$e')));
     }
   }
 
   Future<void> _complete(BuildContext context, WidgetRef ref) async {
     try {
-      final outcome = await ref.read(workoutControllerProvider.notifier).completeWorkout();
+      final outcome = await ref
+          .read(workoutControllerProvider.notifier)
+          .completeWorkout();
       if (!context.mounted) return;
       if (outcome is WorkoutCompleted) {
         ref.read(restTimerControllerProvider.notifier).skip();
-        await showWorkoutSummarySheet(context, outcome.workout, outcome.newPersonalRecordCount);
+        await showWorkoutSummarySheet(
+          context,
+          outcome.workout,
+          outcome.newPersonalRecordCount,
+        );
       }
       // WorkoutCompletionNoOp:已經完成過了(冪等),不重複彈 summary。
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('完成訓練失敗:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('完成訓練失敗:$e')));
     }
   }
 
@@ -470,7 +539,10 @@ class _BottomActions extends ConsumerWidget {
                 onPressed: busy ? null : () => _confirmAbandon(context, ref),
                 child: isAbandoning
                     ? const SizedBox(
-                        height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Text('放棄'),
               ),
             ),
@@ -478,10 +550,15 @@ class _BottomActions extends ConsumerWidget {
             Expanded(
               child: FilledButton(
                 key: const Key('completeWorkoutButton'),
-                onPressed: (busy || !_canComplete) ? null : () => _complete(context, ref),
+                onPressed: (busy || !_canComplete)
+                    ? null
+                    : () => _complete(context, ref),
                 child: isCompleting
                     ? const SizedBox(
-                        height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Text('完成訓練'),
               ),
             ),
