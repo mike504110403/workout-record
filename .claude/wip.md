@@ -15,6 +15,8 @@
 - 做法:8 個 repository 抽介面＋Supabase 實作(公開 API 不變);Drift 實作留作測試假件,`USE_MOCK` 切換;依 `tables.dart` 寫 schema＋RLS＋GRANT migration(新表不自動 expose、已開 automatic RLS);舊 CoreData 照舊先進本機 Drift,登入後一次性上傳。
 - 參考實作:`~/Documents/self/accounting`(`lib/data/supabase_client.dart`、`lib/data/auth.dart`、`supabase/migrations/`、`docs/adr/0005`)。
 - **待 Mike**:Supabase Auth 開 Apple、Google provider;Google Cloud 建 iOS/Android/Web 三組 OAuth client 給 client ID。
+- **進度(2026-11-10)**:資料層 a8f4a58、migration 已推 workout-dev(4 支,遠端清單一致、anon 被拒)、Apple 登入 bccf019(預設連雲端;USE_MOCK=true 走 Drift)。600/600 綠。Google 登入 Mike 裁示先跳過(Web/Android 雲端模式暫無登入)。
+- **待做片**:(1) Mike 真機 Apple 登入實測;(2) 舊 CoreData 資料登入後一次性上傳(cloud_upload.dart TODO,含系統動作 id 依名稱對應、升級用戶略過 onboarding 失效);(3) 隱私文案改雲端版(login/Onboarding/About/PrivacyConsent);(4) onAuthStateChange 監聽 token 失效;(5) fetchAll 超 1000 筆分頁;(6) Google 登入。
 - 不再適用:原「同步波前置決策」(updatedAt 增量拉推/LWW/墓碑)因改直連作廢,見 git 歷史。
 
 ## Mike 待辦
