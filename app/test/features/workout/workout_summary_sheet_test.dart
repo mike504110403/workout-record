@@ -3,6 +3,8 @@
 // 呼叫 `showWorkoutSummarySheet`,只測顯示層本身(對照
 // workout_in_progress_view_test.dart 用最小 harness 而非完整
 // `WorkItOutApp` 的手法)。波 6:覆蓋「summary」消費群組的 lb 模式回歸。
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -50,8 +52,13 @@ Workout _buildWorkout() {
 }
 
 Future<void> _pumpSummary(WidgetTester tester, {WeightUnit? weightUnit}) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
-    overrides: [if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit)],
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
+    ],
   );
   addTearDown(container.dispose);
   await tester.pumpWidget(
@@ -60,7 +67,8 @@ Future<void> _pumpSummary(WidgetTester tester, {WeightUnit? weightUnit}) async {
       child: MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
-            onPressed: () => showWorkoutSummarySheet(context, _buildWorkout(), 0),
+            onPressed: () =>
+                showWorkoutSummarySheet(context, _buildWorkout(), 0),
             child: const Text('open'),
           ),
         ),
@@ -76,7 +84,10 @@ void main() {
     await _pumpSummary(tester);
 
     expect(
-      find.descendant(of: find.byKey(const Key('summaryVolumeValue')), matching: find.text('500 kg')),
+      find.descendant(
+        of: find.byKey(const Key('summaryVolumeValue')),
+        matching: find.text('500 kg'),
+      ),
       findsOneWidget,
     );
     expect(find.text('100kg × 5'), findsOneWidget);
@@ -87,13 +98,20 @@ void main() {
   testWidgets('lb 模式:總容量卡與單組徽章換算成 lb 顯示,字尾正確', (tester) async {
     await _pumpSummary(tester, weightUnit: WeightUnit.lb);
 
-    final expectedVolume = '${kgToDisplay(500, WeightUnit.lb).toStringAsFixed(0)} lb';
+    final expectedVolume =
+        '${kgToDisplay(500, WeightUnit.lb).toStringAsFixed(0)} lb';
     expect(
-      find.descendant(of: find.byKey(const Key('summaryVolumeValue')), matching: find.text(expectedVolume)),
+      find.descendant(
+        of: find.byKey(const Key('summaryVolumeValue')),
+        matching: find.text(expectedVolume),
+      ),
       findsOneWidget,
     );
     expect(
-      find.descendant(of: find.byKey(const Key('summaryVolumeValue')), matching: find.text('500 kg')),
+      find.descendant(
+        of: find.byKey(const Key('summaryVolumeValue')),
+        matching: find.text('500 kg'),
+      ),
       findsNothing,
     );
 

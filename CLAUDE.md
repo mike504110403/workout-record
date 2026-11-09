@@ -1,3 +1,5 @@
+stage: mvp(2026-11-10 Mike 裁示覆寫入選條件:iOS 版已上架,但 Flutter 版未發布即視為 MVP;Flutter 版首次發布＝畢業,畢業總審必含 CoreData 匯入與 schema migration)
+
 # WorkoutRecord — 健身紀錄 App
 
 SwiftUI 健身紀錄 app,已上架 App Store。
@@ -7,7 +9,7 @@ SwiftUI 健身紀錄 app,已上架 App Store。
 ## Flutter 版(app/,開發中)
 
 - 選型:Riverpod + Drift(SQLite)+ fl_chart + go_router;三平台(iOS/Android/Web)一起首發
-- **同步與後端(2026-07-24 定)**:完全自建 Go REST API + SQLite + Litestream(部署 Mike 自有伺服器);同步協定 = updatedAt 增量拉推 + LWW + 刪除墓碑;帳號 = Apple + Google 雙登入。**開發順序鐵律:UI 依使用者操作順序垂直切片先行、每波可在模擬器/瀏覽器驗看,後端/同步排最後(掛同步波),之前一律純本機 Drift**
+- **同步與後端(2026-11-10 改 Supabase,同記帳 app;取代 07-24 的自建 Go REST API + SQLite + Litestream)**;同步協定 = updatedAt 增量拉推 + LWW + 刪除墓碑;帳號 = Apple + Google 雙登入。**開發順序鐵律:UI 依使用者操作順序垂直切片先行、每波可在模擬器/瀏覽器驗看,後端/同步排最後(掛同步波),之前一律純本機 Drift**
 - 升 Flutter 至最新 stable(Dart ≥3.11)已拍板未執行;升完重訂依賴 pin(現況因 meta 1.17.0 牆釘 drift 2.31 等)
 - Bundle ID / applicationId:`com.mikelin.workitout`(接手現有 App Store app,自 1.1(5) 之後)
 - 硬性驗收:首次啟動須把舊 CoreData SQLite 資料無縫匯入 Drift,升級不得遺失訓練歷史

@@ -1,6 +1,8 @@
 // WorkoutStatsTab widget seam:pump 真實頁面(repositories/provider 一律用
 // 真的,只換 appDatabaseProvider 為 in-memory DB),斷言畫面呈現的數字/
 // 文案。比照 dashboard_page_test.dart 的慣例(不測 controller 內部欄位)。
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,24 +20,24 @@ import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.da
 import '../../../data/test_helpers.dart';
 
 Exercise _chestExercise({String id = 'ex-chest'}) => Exercise(
-      id: id,
-      name: '槓鈴臥推',
-      categoryId: 'cat-chest',
-      type: ExerciseType.freeWeight,
-      primaryMuscleGroup: PrimaryMuscleGroup.chest,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+  id: id,
+  name: '槓鈴臥推',
+  categoryId: 'cat-chest',
+  type: ExerciseType.freeWeight,
+  primaryMuscleGroup: PrimaryMuscleGroup.chest,
+  createdAt: DateTime.now(),
+  updatedAt: DateTime.now(),
+);
 
 Exercise _legsExercise({String id = 'ex-legs'}) => Exercise(
-      id: id,
-      name: '槓鈴深蹲',
-      categoryId: 'cat-legs',
-      type: ExerciseType.freeWeight,
-      primaryMuscleGroup: PrimaryMuscleGroup.legs,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+  id: id,
+  name: '槓鈴深蹲',
+  categoryId: 'cat-legs',
+  type: ExerciseType.freeWeight,
+  primaryMuscleGroup: PrimaryMuscleGroup.legs,
+  createdAt: DateTime.now(),
+  updatedAt: DateTime.now(),
+);
 
 WorkoutSet _set({
   required String id,
@@ -135,8 +137,8 @@ class _ThrowingWorkoutRepository extends WorkoutRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : exerciseRepo = ExerciseRepository(db),
-        workoutRepo = WorkoutRepository(db, ExerciseRepository(db));
+    : exerciseRepo = ExerciseRepository(db),
+      workoutRepo = WorkoutRepository(db, ExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -145,6 +147,8 @@ class _Harness {
 }
 
 Future<_Harness> _setUpHarness({bool useThrowingWorkoutRepo = false}) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
   addTearDown(db.close);
   await seedTestUser(db);
@@ -152,6 +156,7 @@ Future<_Harness> _setUpHarness({bool useThrowingWorkoutRepo = false}) async {
   final container = ProviderContainer(
     retry: (retryCount, error) => null,
     overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
       if (useThrowingWorkoutRepo)
         workoutRepositoryProvider.overrideWithValue(
@@ -241,7 +246,10 @@ void main() {
 
       // 預設「月」範圍:5 筆全部落在 30 天內。
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('5')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatCount')),
+          matching: find.text('5'),
+        ),
         findsOneWidget,
       );
 
@@ -250,7 +258,10 @@ void main() {
 
       // 切到「週」:只剩最近 7 天內的 3 筆。
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('3')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatCount')),
+          matching: find.text('3'),
+        ),
         findsOneWidget,
       );
     });
@@ -292,11 +303,17 @@ void main() {
 
       // all 模式:平均/最高 = 800,數據點 = 1。
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatAverage')), matching: find.text('800 kg')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatAverage')),
+          matching: find.text('800 kg'),
+        ),
         findsOneWidget,
       );
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('1')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatCount')),
+          matching: find.text('1'),
+        ),
         findsOneWidget,
       );
 
@@ -305,16 +322,25 @@ void main() {
 
       // 篩選胸部後:平均/最高改成只算胸部的 500,不是總容量 800。
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatAverage')), matching: find.text('500 kg')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatAverage')),
+          matching: find.text('500 kg'),
+        ),
         findsOneWidget,
       );
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatHighest')), matching: find.text('500 kg')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatHighest')),
+          matching: find.text('500 kg'),
+        ),
         findsOneWidget,
       );
       // 數據點數不受篩選影響,維持 1(對齊 iOS:固定顯示總天數)。
       expect(
-        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('1')),
+        find.descendant(
+          of: find.byKey(const Key('volumeStatCount')),
+          matching: find.text('1'),
+        ),
         findsOneWidget,
       );
     });
@@ -352,12 +378,27 @@ void main() {
 
       final countCard = find.byKey(const Key('statsWeekWorkoutCountCard'));
       final volumeCard = find.byKey(const Key('statsWeekTotalVolumeCard'));
-      expect(find.descendant(of: countCard, matching: find.text('1')), findsOneWidget);
-      expect(find.descendant(of: volumeCard, matching: find.text('100')), findsOneWidget);
+      expect(
+        find.descendant(of: countCard, matching: find.text('1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: volumeCard, matching: find.text('100')),
+        findsOneWidget,
+      );
       // 反向斷言:週外/草稿的數字不該出現在本週統計卡片裡。
-      expect(find.descendant(of: volumeCard, matching: find.text('999')), findsNothing);
-      expect(find.descendant(of: volumeCard, matching: find.text('777')), findsNothing);
-      expect(find.descendant(of: countCard, matching: find.text('3')), findsNothing);
+      expect(
+        find.descendant(of: volumeCard, matching: find.text('999')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: volumeCard, matching: find.text('777')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: countCard, matching: find.text('3')),
+        findsNothing,
+      );
     });
   });
 
@@ -378,9 +419,17 @@ void main() {
       await _pump(tester, harness);
 
       for (var i = 0; i < 5; i++) {
-        expect(find.byKey(Key('statsRecentWorkoutRow-recent-$i')), findsOneWidget, reason: 'i=$i 應該出現');
+        expect(
+          find.byKey(Key('statsRecentWorkoutRow-recent-$i')),
+          findsOneWidget,
+          reason: 'i=$i 應該出現',
+        );
       }
-      expect(find.byKey(const Key('statsRecentWorkoutRow-recent-5')), findsNothing, reason: '第 6 筆(最舊)應被排除');
+      expect(
+        find.byKey(const Key('statsRecentWorkoutRow-recent-5')),
+        findsNothing,
+        reason: '第 6 筆(最舊)應被排除',
+      );
 
       await tester.tap(find.byKey(const Key('prEntryCard')));
       await tester.pumpAndSettle();

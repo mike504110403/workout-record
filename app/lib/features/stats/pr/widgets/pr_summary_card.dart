@@ -31,11 +31,11 @@ class PrSummaryCard extends ConsumerWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  _StatItem(label: 'PR 重量', value: '${formatWeight(pr.weight)} kg'),
+                  _StatItem(label: 'PR 重量', value: '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)}'),
                   const SizedBox(width: 24),
                   _StatItem(label: '次數', value: '${pr.reps} 次'),
                   const SizedBox(width: 24),
-                  _StatItem(label: '1RM 估算', value: '${formatWeight(pr.oneRepMax)} kg'),
+                  _StatItem(label: '1RM 估算', value: '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}'),
                 ],
               ),
               const SizedBox(height: 8),
