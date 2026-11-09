@@ -49,8 +49,13 @@ Future<void> autoCompleteOnboardingForUpgradedUsersIfNeeded(
   final importedUserId = prefs.getString(kCoreDataImportedUserIdKey);
   if (importedUserId == null || importedUserId.isEmpty) return;
 
-  final userRepo = container.read(userRepositoryProvider);
-  final importedUser = await userRepo.getById(importedUserId);
+  // 一律查本機 Drift(不走 userRepositoryProvider):匯入落點就是 Drift,雲端模式下
+  // repository 走 Supabase、用 CoreData 的舊 id 查必拿 null。雲端 users 列(auth uid)
+  // 由登入/恢復 session 的 SessionController ensure(Onboarding 已完成才 ensure,
+  // 這裡標完成即滿足),上傳流程(features/cloud_upload)也會再 ensure 一次。
+  final db = container.read(appDatabaseProvider);
+  final importedUser =
+      await (db.select(db.users)..where((u) => u.id.equals(importedUserId))).getSingleOrNull();
   if (importedUser == null) return;
 
   await container.read(onboardingStatusProvider.notifier).markCompleted();

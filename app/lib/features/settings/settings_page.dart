@@ -18,6 +18,7 @@ import '../workout/templates/templates_list_page.dart';
 import 'about/about_page.dart';
 import 'preferences/preferences_page.dart';
 import 'profile/profile_page.dart';
+import 'widgets/cloud_upload_status_tile.dart';
 import 'widgets/import_retry_tile.dart';
 
 /// 分組小標題:列表內的輕量 section header(不用 Card,維持 ListTile 在
@@ -129,6 +130,8 @@ class SettingsPage extends ConsumerWidget {
           ),
           // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染,放列表尾。
           const ImportRetryTile(),
+          // 雲端模式登入後本機舊資料上傳的狀態(idle 不渲染)。
+          const CloudUploadStatusTile(),
         ],
       ),
     );

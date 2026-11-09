@@ -9,6 +9,7 @@ import 'data/migration/legacy_prefs_importer.dart';
 import 'data/providers.dart';
 import 'data/supabase_client.dart';
 import 'features/auth/session_controller.dart';
+import 'features/cloud_upload/cloud_upload_controller.dart';
 import 'features/auth/shared_preferences_provider.dart';
 import 'features/onboarding/onboarding_status.dart';
 
@@ -57,8 +58,7 @@ Future<void> main() async {
   }
 
   // 舊 CoreData 照舊匯入本機 Drift(Supabase 模式也一樣)。登入後把本機資料
-  // 一次性上傳到 Supabase 的流程尚未實作,介面與 TODO 見
-  // data/migration/cloud_upload.dart(LocalToCloudUploader)。
+  // 一次性上傳到 Supabase 見下方 startCloudUploadTrigger。
   try {
     final importResult = await const CoreDataImporter().importIfNeeded(db);
     if (!importResult.success) {
@@ -83,6 +83,10 @@ Future<void> main() async {
   } catch (e, st) {
     debugPrint('cloud users row ensure on restore failed: $e\n$st');
   }
+
+  // 雲端模式:恢復 session 時與之後登入成功時,把本機 Drift 舊資料一次性上傳到
+  // Supabase(背景執行不擋啟動;狀態見設定頁 CloudUploadStatusTile)。
+  startCloudUploadTrigger(container);
 
   runApp(
     UncontrolledProviderScope(
