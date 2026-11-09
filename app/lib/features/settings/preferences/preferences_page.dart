@@ -125,6 +125,7 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
           const SizedBox(height: 8),
           DropdownButton<int>(
             key: const Key('defaultRestSecondsDropdown'),
+            isExpanded: true,
             // 完全受控:value 每次 build 都從 provider 值重算,不留內部狀態
             // ——寫入失敗時 provider 不變,畫面自然跟著顯示回舊值(見檔頭
             // 說明)。用 DropdownButton 而非 DropdownButtonFormField 正是

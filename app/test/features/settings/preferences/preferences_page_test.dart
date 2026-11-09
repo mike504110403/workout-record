@@ -85,6 +85,14 @@ Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
   await tester.pumpAndSettle();
 }
 
+/// 休息秒數 dropdown「畫面上實際顯示」的文字節點——限定在 dropdown 子樹內,
+/// 且預設 skipOffstage(DropdownButton 內部 IndexedStack 只有選中項是 onstage),
+/// 所以只會命中目前畫面顯示的那一項,不會與 hint 或展開選單的項目混淆。
+Finder _restSecondsShown(String text) => find.descendant(
+      of: find.byKey(const Key('defaultRestSecondsDropdown')),
+      matching: find.text(text),
+    );
+
 void main() {
   group('PreferencesPage(頂層真組裝)', () {
     testWidgets('無任何 prefs 值:四項全部顯示各自預設值', (tester) async {
@@ -111,7 +119,7 @@ void main() {
             .selected,
         {OneRmFormula.epley},
       );
-      expect(find.text('90 秒'), findsWidgets);
+      expect(_restSecondsShown('90 秒'), findsOneWidget);
     });
 
     testWidgets('legacy 值全數種好時(四項各自的 legacy key):頁面顯示預填後的值', (tester) async {
@@ -145,7 +153,7 @@ void main() {
             .selected,
         {OneRmFormula.brzycki},
       );
-      expect(find.text('120 秒'), findsWidgets);
+      expect(_restSecondsShown('120 秒'), findsOneWidget);
     });
 
     testWidgets('點選重量單位「磅 (lb)」→ provider 值即時反映 + prefs 寫入', (tester) async {
@@ -198,6 +206,7 @@ void main() {
         container.read(sharedPreferencesProvider).getInt(kDefaultRestSecondsPrefsKey),
         180,
       );
+      expect(_restSecondsShown('180 秒'), findsOneWidget);
     });
 
     testWidgets('點選 1RM 公式「Lander」→ provider 值即時反映 + prefs 寫入', (tester) async {
@@ -253,6 +262,11 @@ void main() {
       expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
       expect(container.read(defaultRestSecondsProvider), 90);
       expect(find.byType(CircularProgressIndicator), findsNothing);
+      // review MAJOR:畫面本身必須回退顯示舊值——只斷言 provider 值會漏掉
+      // FormField 內部 state 停在使用者選過的 180 的狀況(SDK
+      // dropdown.dart `_DropdownButtonFormFieldState.didChange`)。
+      expect(_restSecondsShown('90 秒'), findsOneWidget);
+      expect(_restSecondsShown('180 秒'), findsNothing);
     });
 
     testWidgets('1RM 公式寫入失敗 → 浮錯 + 解除 loading + provider 值不變', (tester) async {

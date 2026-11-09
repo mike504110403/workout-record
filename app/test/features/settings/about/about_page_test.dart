@@ -34,4 +34,28 @@ void main() {
     // 現況陳述必須在:資料存裝置本機、不上傳雲端(隱私文案紀律)。
     expect(find.textContaining('裝置本機'), findsOneWidget);
   });
+
+  testWidgets('父層 rebuild(新的 AboutPage 實例)不重新查詢版本——不閃回轉圈圈(review minor)', (tester) async {
+    final tick = ValueNotifier<int>(0);
+    addTearDown(tick.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<int>(
+          valueListenable: tick,
+          // 刻意不加 const:每次 builder 重跑都產生新的 AboutPage 實例,State
+          // 沿用但 build() 會重跑——future 若在 build() 內建立就會被換新。
+          // ignore: prefer_const_constructors
+          builder: (_, _, _) => AboutPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('版本 2.0.0 (6)'), findsOneWidget);
+
+    tick.value++;
+    // 只 pump 一幀(不 settle):future 若在 build 內重建,這一幀會是轉圈圈。
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('版本 2.0.0 (6)'), findsOneWidget);
+  });
 }

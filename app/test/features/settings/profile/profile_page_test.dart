@@ -7,6 +7,9 @@
 //   - 拔預填 fallback(legacy_* 或 kUser*)必紅:「legacy 預填」「既有值優先
 //     於 legacy」兩條分別守住。
 //   - 拔儲存呼叫必紅:「儲存」直接查 prefs 三個 key 斷言型別與值。
+//   - 拔 profile_filled_once 旗標(save 不設旗標,或 build 不看旗標)必紅:
+//     「清空語義」三條——legacy/apple 建議不得在清空存檔後被填回;旗標隨
+//     登出清除後新帳號重新預填。
 //   - 儲存失敗仍解除 loading / 誤 pop 必紅:「儲存失敗」用 throwing writer,
 //     斷言浮錯訊息、頁面沒被 pop、欄位與按鈕解除 disable。
 import 'package:flutter/material.dart';
@@ -17,7 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_controller.dart'
-    show kUserGenderKey, kUserHeightKey;
+    show kProfileFilledOnceKey, kUserGenderKey, kUserHeightKey, kUserNameKey;
 import 'package:workout_record/features/settings/profile/profile_controller.dart';
 import 'package:workout_record/features/settings/profile/profile_page.dart';
 
@@ -141,9 +144,9 @@ void main() {
     expect(prefs.getString(kUserNameKey), isNull);
 
     // 沒按儲存就離開(pop)再重進:建議依然來自 apple 名,且 user_name 依然
-    // 是 null——證明不是「第一次進頁的建議」湊巧沒被斷言到回寫,而是真的
-    // 從未回寫過,重進一次也不會，比如未來若誰不小心在 build() 裡加了
-    // 「順手回寫」也會被這裡的第二次斷言逮到。
+    // 是 null——證明不是「第一次進頁的建議」湊巧沒被斷言到回寫,而是真的從未
+    // 回寫過。比如未來若有人在 build() 裡加了「順手回寫」,會被這裡的第二次
+    // 斷言逮到。
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('openProfileButton')), findsOneWidget);
@@ -193,5 +196,82 @@ void main() {
     expect(field.enabled, isTrue);
     final button = tester.widget<FilledButton>(find.byKey(const Key('saveProfileButton')));
     expect(button.onPressed, isNotNull);
+  });
+
+  group('清空語義(預填一次性化,review MAJOR)', () {
+    testWidgets('只有 legacy 值時,清空姓名與身高存檔 → 重進頁面兩欄為空,不被 legacy 回填', (tester) async {
+      final container = await _buildContainer(
+        prefsSeed: {
+          kLegacyUserNameKey: 'Legacy Name',
+          kLegacyUserHeightKey: 165.5,
+        },
+      );
+      await _pushProfilePage(tester, container);
+      expect(find.text('Legacy Name'), findsOneWidget);
+      expect(find.text('165.5'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('profileNameField')), '');
+      await tester.enterText(find.byKey(const Key('profileHeightField')), '');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saveProfileButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('openProfileButton')), findsOneWidget);
+
+      // prefs 層:空值誠實表現成「沒有 key」,旗標已設。
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.containsKey(kUserNameKey), isFalse);
+      expect(prefs.containsKey(kUserHeightKey), isFalse);
+      expect(prefs.getBool(kProfileFilledOnceKey), isTrue);
+
+      // 畫面層:重進頁面,legacy 不得回填。
+      await tester.tap(find.byKey(const Key('openProfileButton')));
+      await tester.pumpAndSettle();
+      expect(find.text('Legacy Name'), findsNothing);
+      expect(find.text('165.5'), findsNothing);
+      expect(tester.widget<TextField>(find.byKey(const Key('profileNameField'))).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(find.byKey(const Key('profileHeightField'))).controller!.text, isEmpty);
+    });
+
+    testWidgets('登入身分姓名(apple 建議)同理:清空姓名存檔後重進不被填回', (tester) async {
+      final container = await _buildContainer(
+        prefsSeed: {
+          kAppleUserIdKey: 'apple-user-1',
+          kAppleUserNameKey: 'Apple Login Name',
+        },
+      );
+      await _pushProfilePage(tester, container);
+      expect(find.text('Apple Login Name'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('profileNameField')), '');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saveProfileButton')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('openProfileButton')));
+      await tester.pumpAndSettle();
+      expect(find.text('Apple Login Name'), findsNothing);
+      expect(tester.widget<TextField>(find.byKey(const Key('profileNameField'))).controller!.text, isEmpty);
+    });
+
+    test('旗標屬個資清除清單:signOut 清掉旗標與姓名後,新帳號重新走 legacy 預填', () async {
+      final container = await _buildContainer(
+        prefsSeed: {
+          kAppleUserIdKey: 'apple-user-1',
+          kLegacyUserNameKey: 'Legacy Name',
+          kUserNameKey: 'Saved Name',
+          kProfileFilledOnceKey: true,
+        },
+      );
+      // 存過檔 → 只看 stored 值。
+      expect(container.read(profileControllerProvider).name, 'Saved Name');
+
+      await container.read(sessionControllerProvider.notifier).signOut();
+
+      // 清除後旗標與 user_name 都不在,provider 快取已跟著重算,回到 legacy 預填。
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.containsKey(kProfileFilledOnceKey), isFalse);
+      expect(prefs.containsKey(kUserNameKey), isFalse);
+      expect(container.read(profileControllerProvider).name, 'Legacy Name');
+    });
   });
 }

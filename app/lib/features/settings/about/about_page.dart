@@ -18,8 +18,32 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-class AboutPage extends StatelessWidget {
+class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
+
+  @override
+  State<AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<AboutPage> {
+  /// 在 initState 建一次(review minor):放在 build 內會讓每次 rebuild(主題/
+  /// MediaQuery 變動等)重新產生 Future,UI 閃回轉圈圈。
+  ///
+  /// 查詢失敗(理論上不該發生在真機——平台一定有 PackageInfo,只有測試環境沒
+  /// mock 時的 MissingPluginException 才會走到這裡)包一層 try/catch 轉成
+  /// null,而非讓整個 Future 帶著 error 完成:`snapshot.hasError` 不影響
+  /// `connectionState`,若不特別處理,「data == null 就畫轉圈圈」的寫法在
+  /// error 完成後會永遠卡在轉圈圈(動畫持續排新的 frame),`pumpAndSettle`
+  /// 因此永遠等不到穩定,widget test 會 timeout。
+  late final Future<PackageInfo?> _packageInfoFuture = _loadPackageInfo();
+
+  static Future<PackageInfo?> _loadPackageInfo() async {
+    try {
+      return await PackageInfo.fromPlatform();
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,20 +64,7 @@ class AboutPage extends StatelessWidget {
           const SizedBox(height: 8),
           Center(
             child: FutureBuilder<PackageInfo?>(
-              // 查詢失敗(理論上不該發生在真機——平台一定有 PackageInfo,只
-              // 有測試環境沒 mock 時的 MissingPluginException 才會走到這裡)
-              // 包一層 try/catch 轉成 null,而非讓整個 Future 帶著 error
-              // 完成:`snapshot.hasError` 不影響 `connectionState`,若不特別
-              // 處理,底下用「data == null 就畫轉圈圈」判斷 loading 的寫法
-              // 在 error 完成後會永遠卡在轉圈圈(動畫持續排新的 frame),
-              // `pumpAndSettle` 因此永遠等不到穩定,widget test 會 timeout。
-              future: () async {
-                try {
-                  return await PackageInfo.fromPlatform();
-                } catch (_) {
-                  return null;
-                }
-              }(),
+              future: _packageInfoFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
                   return const SizedBox(

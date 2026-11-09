@@ -26,7 +26,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   /// 正在編輯的文字(同 goal_settings_page.dart `_prefillIfNeeded` 慣例)。
   bool _prefilled = false;
 
-  String _gender = kProfileGenderOptions.first;
+  String _gender = kProfileDefaultGender;
   bool _isSaving = false;
 
   static const _kSaveErrorMessage = '儲存失敗，請稍後再試';

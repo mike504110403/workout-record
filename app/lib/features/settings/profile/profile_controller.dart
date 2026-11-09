@@ -4,13 +4,14 @@
 // 不需要跨表關聯或 userId 解析(`_resolveUserId` 複本慣例本檔用不到)。
 //
 // 姓名 key(2026-09-01 波 6 core brief 回報,大腦裁示):brief 原稱姓名沿用
-// `kUserNameKey`,定義在 onboarding_controller.dart:28-33——開檔核對後那個
-// key 不存在,Onboarding 精靈本身從未收集姓名。裁示走「在本檔新增獨立
-// key」,不碰 onboarding_controller.dart(那邊不該無中生有加姓名欄位)、也
-// 不沿用 session_controller.dart 的 `kAppleUserNameKey`(那是登入身分姓名,
-// 每次登入 `_persistSession()` 會覆寫,拿來存個人資料頁編輯值會被登入流程
-// 靜默蓋掉)。性別/身高照 brief 沿用既有 `kUserGenderKey`/`kUserHeightKey`
-// (onboarding_controller.dart)。
+// `kUserNameKey`,開檔核對後 onboarding_controller.dart 當時沒有這個 key,
+// Onboarding 精靈本身從未收集姓名。裁示走「新增獨立 key」,不沿用
+// session_controller.dart 的 `kAppleUserNameKey`(那是登入身分姓名,每次登入
+// `_persistSession()` 會覆寫,拿來存個人資料頁編輯值會被登入流程靜默蓋掉)。
+// 修復輪(review BLOCKER)後 `kUserNameKey`/`kProfileFilledOnceKey` 定義搬到
+// onboarding_controller.dart、納入 `kOnboardingPersonalDataKeys`(登出/換帳號
+// 清除清單),本檔單向 import。性別/身高沿用既有 `kUserGenderKey`/
+// `kUserHeightKey`。
 //
 // 預填順序(brief 明定,三欄一致):既有 kUser* 值 → legacy_user_* → 空。
 // 姓名額外一層顯示層建議(裁示追加):user_name 與 legacy_user_name 都空時,
@@ -19,20 +20,15 @@
 // 者真的按下「儲存」才會把當下欄位文字寫進 user_name。
 //
 // 清空語義(2026-09-01 波 6 core review 修復輪,MAJOR):上面的預填鏈只回答
-// 「user_name 沒有值時要顯示什麼建議」,但沒回答「使用者明確清空過一次之後
-// 呢」——姓名/身高原本用 `_firstNonEmpty`/`?? legacyHeight` 判斷「沒有」,
-// 清空存檔後 stored 值變成空字串/null,下一次 build() 又被判定成「沒有」,
-// legacy/apple 建議因此把舊值原封不動帶回來,使用者的「清空」意圖被悄悄
-// 撤銷。目標語義(已裁):使用者明確存過一次檔之後,legacy/apple 建議鏈永久
-// 停用,之後只看 stored 值本身(空就是空,不會再被建議填回)——用
-// [kProfileFilledOnceKey] 這個旗標實作「一次性消費」:`save()` 每次成功
-// 存檔都會設為 true,`build()` 一旦看到這個旗標,姓名/身高就不再諮詢
-// legacy_*/apple 建議,直接以 stored 值(可能是 null/空)為準。旗標設下去
-// 之後不會再清掉(即使之後又把值改回非空)——語意是「這個使用者的個人資料頁
-// 已經被主動存過檔,從此以後這個人自己的輸入(含刻意清空)才是唯一真相」,
-// 不是每次清空才切換,避免只用「值是否為空」這種脆弱訊號反推使用者意圖。
-// 性別維持原本邏輯不受影響:`SegmentedButton` 一定選中三個選項之一,沒有
-// 「清空」這個狀態可以表達,不需要這層一次性消費語義。
+// 「沒存過時顯示什麼建議」,沒回答「使用者明確清空過之後呢」——姓名/身高
+// 清空存檔後 stored 值是 null,下一次 build() 又被判定成「沒有」,legacy/
+// apple 建議把舊值帶回來,「清空」意圖被悄悄撤銷。目標語義:預填是一次性的
+// ——[kProfileFilledOnceKey] 旗標由 `save()` 成功存檔時設為 true,`build()`
+// 看到旗標就不再諮詢 legacy_*/apple 建議,姓名/身高只看 stored 值本身(空就
+// 是空)。旗標不因值改回非空而清掉(語意是「這個人已主動存過檔,之後的輸入
+// 含刻意清空才是唯一真相」)。旗標在 [kOnboardingPersonalDataKeys] 內,登出/
+// 換帳號時與個資一起清掉,新帳號重新走預填。性別不需要這層:
+// `SegmentedButton` 一定選中其一,沒有「清空」狀態。
 //
 // 性別 legacy 值域:legacy_user_gender 是 iOS ProfileView.Gender 的
 // rawValue("男性"/"女性"/"不指定",直接複製過來的中文字串),跟本頁
@@ -55,26 +51,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth/session_controller.dart' show sessionControllerProvider;
 import '../../auth/shared_preferences_provider.dart';
-import '../../onboarding/onboarding_controller.dart' show kUserGenderKey, kUserHeightKey;
-
-/// 個人資料頁姓名欄的 key——onboarding_controller.dart 沒有對應的既有 key
-/// (見本檔開頭注解),獨立新增。
-const kUserNameKey = 'user_name';
+import '../../onboarding/onboarding_controller.dart'
+    show kProfileFilledOnceKey, kUserGenderKey, kUserHeightKey, kUserNameKey;
 
 const kLegacyUserNameKey = 'legacy_user_name';
 const kLegacyUserGenderKey = 'legacy_user_gender';
 const kLegacyUserHeightKey = 'legacy_user_height';
 
-/// 「legacy/apple 建議一次性消費」旗標——姓名/身高清空語義的核心,見本檔
-/// 開頭注解。`save()` 存檔成功即設 true,`build()` 看到 true 就不再諮詢
-/// legacy_*/apple 建議鏈。
-const kProfileFilledOnceKey = 'profile_filled_once';
+/// 性別選項值域,對照 iOS `ProfileView.Gender`(SettingsView.swift:132-135)——順序
+/// 同 iOS(男性/女性/不指定),三個中文字面值本身就是儲存值。
+const kProfileGenderOptions = ['男性', '女性', '不指定'];
 
-/// 性別選項值域,對照 iOS `ProfileView.Gender`(SettingsView.swift)——三個
-/// 中文字面值本身就是儲存值,不是額外的 enum 對照表。
-const kProfileGenderOptions = ['不指定', '男性', '女性'];
-
-const _kDefaultGender = '不指定';
+/// 沒有任何既有/legacy 值時的預設性別(對應 iOS `?? .notSpecified`)。
+const kProfileDefaultGender = '不指定';
 
 class ProfileFormState {
   const ProfileFormState({required this.name, required this.gender, required this.heightCm});
@@ -140,18 +129,30 @@ class ProfileController extends Notifier<ProfileFormState> {
   ProfileFormState build() {
     final prefs = ref.watch(sharedPreferencesProvider);
 
-    final storedName = prefs.getString(kUserNameKey);
-    final legacyName = prefs.getString(kLegacyUserNameKey);
+    // 無條件 watch:即使旗標 true 不採用 appleName,登出/換帳號時
+    // appleUserId/appleUserName 變動仍要觸發 rebuild,否則舊帳號的快取 state
+    // 會殘留(非 autoDispose)。
+    ref.watch(sessionControllerProvider.select((s) => s.appleUserId));
     final appleName = ref.watch(sessionControllerProvider.select((s) => s.appleUserName));
-    final name = _firstNonEmpty([storedName, legacyName, appleName]) ?? '';
+
+    // 預填一次性:存過檔(旗標 true)後只看 stored 值,不再諮詢 legacy/apple。
+    final filledOnce = prefs.getBool(kProfileFilledOnceKey) ?? false;
+
+    final storedName = prefs.getString(kUserNameKey);
+    final String name;
+    if (filledOnce) {
+      name = storedName ?? '';
+    } else {
+      final legacyName = prefs.getString(kLegacyUserNameKey);
+      name = _firstNonEmpty([storedName, legacyName, appleName]) ?? '';
+    }
 
     final storedGender = prefs.getString(kUserGenderKey);
     final legacyGender = prefs.getString(kLegacyUserGenderKey);
-    final gender = _firstValidGender([storedGender, legacyGender]) ?? _kDefaultGender;
+    final gender = _firstValidGender([storedGender, legacyGender]) ?? kProfileDefaultGender;
 
     final storedHeight = prefs.getDouble(kUserHeightKey);
-    final legacyHeight = prefs.getDouble(kLegacyUserHeightKey);
-    final heightCm = storedHeight ?? legacyHeight;
+    final heightCm = filledOnce ? storedHeight : (storedHeight ?? prefs.getDouble(kLegacyUserHeightKey));
 
     return ProfileFormState(name: name, gender: gender, heightCm: heightCm);
   }

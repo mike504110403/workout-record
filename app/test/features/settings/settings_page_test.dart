@@ -71,6 +71,31 @@ void main() {
     );
   });
 
+  testWidgets('入口依 section 分組:四個小標題依序出現,入口落在各自標題之後(review minor)',
+      (tester) async {
+    final harness = await _setUpHarness();
+    await _pumpSettingsPage(tester, harness);
+
+    double top(Finder f) => tester.getTopLeft(f).dy;
+    final personal = top(find.text('個人'));
+    final profile = top(find.byKey(const Key('settingsProfileEntry')));
+    final goal = top(find.byKey(const Key('settingsGoalEntry')));
+    final training = top(find.text('訓練'));
+    final templates = top(find.byKey(const Key('settingsTemplatesEntry')));
+    final app = top(find.text('應用程式'));
+    final prefs = top(find.byKey(const Key('settingsPreferencesEntry')));
+    final about = top(find.byKey(const Key('settingsAboutEntry')));
+    final account = top(find.text('帳號'));
+    final signOut = top(find.byKey(const Key('signOutButton')));
+
+    expect(
+      [personal, profile, goal, training, templates, app, prefs, about, account, signOut],
+      orderedEquals([
+        personal, profile, goal, training, templates, app, prefs, about, account, signOut,
+      ]..sort()),
+    );
+  });
+
   testWidgets('點「個人資料」→ 導到 ProfilePage', (tester) async {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);

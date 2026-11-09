@@ -63,7 +63,11 @@ String unitSuffix(WeightUnit unit) => unit == WeightUnit.lb ? 'lb' : 'kg';
 /// 件事,值就是這台裝置目前選的單位,跨帳號共用是正確行為而非快取殘留。
 /// 仍然 `ref.watch(sharedPreferencesProvider)`(而非 `read`)是照抄
 /// onboarding_status.dart 既有慣例:讓測試換掉 override 時能重新 build()。
-/// (大腦裁示追認 2026-09-01:裝置層級設定,非個資,不進清除清單)
+/// (大腦裁示追認 2026-09-01:偏好不隨換帳號清除——裝置層級設定,非個資,
+/// 不進清除清單,跨帳號共用是正確行為)
+/// 注意:這四個 controller 只 watch sharedPreferencesProvider 的 instance;日後
+/// 若把其 key 列入換帳號/登出清除清單,`prefs.remove()` 不會觸發 rebuild,
+/// 清除點必須同步 invalidate 對應 provider,否則會靜默留著舊 state。
 class WeightUnitController extends Notifier<WeightUnit> {
   @override
   WeightUnit build() {

@@ -15,7 +15,7 @@ import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_controller.dart'
-    show kUserCurrentWeightKey, kUserGenderKey;
+    show kProfileFilledOnceKey, kUserCurrentWeightKey, kUserGenderKey, kUserNameKey;
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
 
 import '../../data/test_helpers.dart';
@@ -126,6 +126,10 @@ void main() {
         kHasCompletedOnboardingKey: true,
         'user_gender': '男性',
         'user_current_weight': 70.0,
+        // 個人資料頁(settings/profile)的姓名與「已存過檔」旗標也是個資,
+        // 登出必須清(波 6 core review BLOCKER:曾漏列導致跨帳號殘留)。
+        kUserNameKey: 'Previous Account Name',
+        kProfileFilledOnceKey: true,
       });
 
       // build() 已經把 onboardingStatusProvider 讀成 true(對應上面 mock 的
@@ -145,6 +149,8 @@ void main() {
       expect(prefs.containsKey(kAppleUserIdKey), isFalse);
       expect(prefs.containsKey('user_gender'), isFalse);
       expect(prefs.containsKey('user_current_weight'), isFalse);
+      expect(prefs.containsKey(kUserNameKey), isFalse, reason: 'user_name 登出必須清除');
+      expect(prefs.containsKey(kProfileFilledOnceKey), isFalse);
       expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
 
       // provider 記憶體值(不是被測方法回傳值)是真正的參照物:signOut()
@@ -323,6 +329,10 @@ void main() {
         kTestLoginUserIdPrefsKey: incomingUserId,
         kUserGenderKey: '男性',
         kUserCurrentWeightKey: 70.0,
+        // 個人資料頁姓名與已存過檔旗標:換帳號「清除並繼續」必須清掉,否則
+        // 前一位使用者的姓名會預填給新帳號(波 6 core review BLOCKER)。
+        kUserNameKey: 'Previous Account Name',
+        kProfileFilledOnceKey: true,
         kHasCompletedOnboardingKey: true,
         'has_agreed_to_analytics': true,
         'has_agreed_to_privacy': true,
@@ -417,6 +427,8 @@ void main() {
       final prefs = container.read(sharedPreferencesProvider);
       expect(prefs.containsKey(kUserGenderKey), isFalse);
       expect(prefs.containsKey(kUserCurrentWeightKey), isFalse);
+      expect(prefs.containsKey(kUserNameKey), isFalse, reason: 'user_name 換帳號必須清除');
+      expect(prefs.containsKey(kProfileFilledOnceKey), isFalse);
       expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
       expect(prefs.getBool('has_agreed_to_analytics'), isTrue);
       expect(prefs.getBool('has_agreed_to_privacy'), isTrue);

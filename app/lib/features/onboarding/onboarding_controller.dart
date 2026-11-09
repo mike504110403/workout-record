@@ -23,8 +23,16 @@ import '../../data/models/body_weight.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import '../auth/shared_preferences_provider.dart';
-import '../settings/profile/profile_controller.dart' show kUserNameKey;
 import 'onboarding_status.dart';
+
+/// 個人資料頁姓名欄的 key——onboarding 精靈不收集姓名,此 key 只由
+/// settings/profile 讀寫,定義在這裡是為了和其他個資 key 一起進清除清單。
+const kUserNameKey = 'user_name';
+
+/// 個人資料頁「已主動存過檔」旗標——姓名/身高清空語義的核心(見
+/// settings/profile/profile_controller.dart 檔頭「清空語義」)。屬個人資料頁
+/// 狀態,換帳號/登出時必須一併清掉,新帳號才會重新走 legacy/登入名預填。
+const kProfileFilledOnceKey = 'profile_filled_once';
 
 const kUserGenderKey = 'user_gender';
 const kUserAgeKey = 'user_age';
@@ -38,16 +46,15 @@ const kUserWeightUnitKey = 'user_weight_unit';
 /// 顯式列舉取代原本「掃描所有 `user_` 前綴 key」的隱式假設,哪些 key 算
 /// Onboarding 個資由這裡明確定義。
 ///
-/// `kUserNameKey`(2026-09-01 波 6 core review 修復輪追加)雖然定義在
-/// `settings/profile/profile_controller.dart`(個人資料頁姓名欄,onboarding
-/// 精靈本身不收集姓名,見該檔開頭注解),但同樣是「換帳號/登出必須清掉」的
-/// 個資——沒進這份清單會導致前一位使用者的姓名殘留、預填給新帳號(review
-/// blocker)。從 profile_controller.dart import 常數而非複製字面值,避免兩處
-/// key 名漂移;此處與 profile_controller.dart 互相 import 形成循環引用,
-/// Dart 對 library 循環 import 沒有限制,`flutter analyze`/`flutter test`
-/// 通過即為證。
+/// `kUserNameKey`/`kProfileFilledOnceKey`(2026-09-01 波 6 core review 修復輪
+/// 追加)是個人資料頁(settings/profile)的姓名與「已存過檔」旗標,onboarding
+/// 精靈本身不收集它們;但同樣是「換帳號/登出必須清掉」的個資——沒進這份
+/// 清單會導致前一位使用者的姓名殘留、預填給新帳號(review blocker),旗標
+/// 殘留則會讓新帳號的 legacy/登入名建議鏈被誤停用。常數定義在本檔(跟其他
+/// `user_*` key 並列),profile_controller.dart 單向 import,不產生循環引用。
 const kOnboardingPersonalDataKeys = <String>[
   kUserNameKey,
+  kProfileFilledOnceKey,
   kUserGenderKey,
   kUserAgeKey,
   kUserHeightKey,
