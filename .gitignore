@@ -8,3 +8,7 @@ build/
 
 # 一次性工具腳本
 resize_screenshots.sh
+
+# secrets
+.env
+.env.*
