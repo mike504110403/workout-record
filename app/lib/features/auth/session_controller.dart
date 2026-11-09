@@ -1,11 +1,18 @@
 // 登入 session 控制。對應 iOS 版
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Services/AppleIDAuthService.swift`
-// 的角色,但這裡刻意只做「本機 session」——不接任何後端 / 真 Auth token,
-// 帳號身分就是 SharedPreferences 裡的三個 key。
+// 的角色。兩種模式(切換點 [cloudAuthServiceProvider],見 cloud_auth.dart):
+// - 雲端模式(Supabase):Apple 登入走 `signInWithIdToken`,session 的
+//   userId([SessionState.appleUserId])是 **Supabase auth uid**;啟動時以
+//   Supabase 既有 session 恢復登入態;登出同時 `auth.signOut()`。
+// - 非雲端模式(USE_MOCK / 測試 / 未設定 Supabase):維持原本的「本機
+//   session」——不接任何後端,帳號身分就是 SharedPreferences 裡的三個 key。
+// 兩種模式都把身分寫進同樣三個 prefs key,帳號隔離(owner 比對)邏輯共用。
 //
 // key 命名對應 iOS 的 AppleIDUserID/UserName/UserEmail(UserDefaults),但
 // 刻意換成新的 snake_case key(`apple_user_id` 等),不是同一份——舊資料
 // 匯入(legacy_prefs_importer.dart)刻意不搬登入身分,見該檔案開頭註解。
+import 'dart:async' show unawaited;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -19,10 +26,11 @@ import '../../data/migration/coredata_importer_result.dart'
         kCoreDataImportedUserIdKey;
 import '../../data/migration/legacy_prefs_importer.dart'
     show kLegacyPrefsImportCompletedKey, kLegacyPrefsPersonalDataKeys;
-import '../../data/providers.dart' show appDatabaseProvider;
+import '../../data/providers.dart' show appDatabaseProvider, userRepositoryProvider;
 import '../onboarding/onboarding_controller.dart' show kOnboardingPersonalDataKeys;
 import '../onboarding/onboarding_status.dart'
     show kHasCompletedOnboardingKey, onboardingStatusProvider;
+import 'cloud_auth.dart';
 import 'shared_preferences_provider.dart';
 
 const kAppleUserIdKey = 'apple_user_id';
@@ -47,6 +55,12 @@ const kTestLoginUserEmail = 'test@example.com';
 const kTestLoginUserIdPrefsKey = 'test_login_user_id';
 
 const _genericLoginErrorMessage = '登入失敗,請稍後再試';
+
+/// 雲端模式在沒有原生 Apple 登入的平台(Web/Android)按下 Apple 登入時的文案。
+const kAppleSignInUnsupportedMessage = '此平台暫不支援 Apple 登入,請改用 iPhone 登入';
+
+/// 雲端模式下測試登入不可用(測試登入的本機 UUID 不是 Supabase 登入者)。
+const kTestLoginUnavailableInCloudMessage = '雲端模式不支援測試登入';
 
 /// 登入流程的結果——controller 不自己彈 UI,只回傳這個型別描述狀態,
 /// 呼叫端(login_page)依此決定要不要彈警告對話框(seam 設計,見帳號隔離
@@ -140,9 +154,28 @@ class SessionState {
 }
 
 class SessionController extends Notifier<SessionState> {
+  /// 啟動還原登入態。
+  ///
+  /// 雲端模式:以 Supabase 既有 session(supabase_flutter 從本機儲存恢復)為準,
+  /// 而且 prefs 的 [kAppleUserIdKey] 必須等於該 auth uid 才算已登入——prefs
+  /// 只在 [_persistSession] 寫入,也就是通過帳號隔離 owner 檢查後;Supabase
+  /// 已登入但還卡在 owner 衝突(或衝突時 App 被砍掉)的情況不能靠重啟繞過
+  /// 警告對話框直接進 App。沒有 Supabase session 一律未登入(不看 prefs)。
   @override
   SessionState build() {
     final prefs = ref.watch(sharedPreferencesProvider);
+    final cloud = ref.watch(cloudAuthServiceProvider);
+    if (cloud != null) {
+      final user = cloud.currentUser;
+      if (user == null || prefs.getString(kAppleUserIdKey) != user.id) {
+        return const SessionState();
+      }
+      return SessionState(
+        appleUserId: user.id,
+        appleUserName: prefs.getString(kAppleUserNameKey),
+        appleUserEmail: prefs.getString(kAppleUserEmailKey),
+      );
+    }
     return SessionState(
       appleUserId: prefs.getString(kAppleUserIdKey),
       appleUserName: prefs.getString(kAppleUserNameKey),
@@ -154,7 +187,12 @@ class SessionController extends Notifier<SessionState> {
   /// 授權(canceled)靜默處理,不當錯誤;其他失敗一律給一般化文案,不把
   /// exception 內容塞進 UI。拿到身分後交給 [_completeLoginWithOwnerCheck]
   /// 做帳號隔離的 owner 檢查(見該方法文件)。
+  ///
+  /// 雲端模式改走 [_signInWithAppleCloud](Supabase `signInWithIdToken`)。
   Future<LoginOutcome> signInWithApple() async {
+    final cloud = ref.read(cloudAuthServiceProvider);
+    if (cloud != null) return _signInWithAppleCloud(cloud);
+
     state = state.copyWith(isLoading: true, clearError: true, clearOwnerConflict: true);
     try {
       final credential = await SignInWithApple.getAppleIDCredential(
@@ -194,12 +232,70 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// 雲端模式的 Apple 登入:原生 Apple 授權(帶 SHA-256 nonce)→ Supabase
+  /// `signInWithIdToken`,以 auth uid 當登入身分交給
+  /// [_completeLoginWithOwnerCheck](帳號隔離比對也用 auth uid)。姓名/信箱
+  /// 規則同本機版(Apple 只在首次授權給姓名;信箱缺時退回 Supabase 帳號信箱)。
+  ///
+  /// Supabase 已登入但後續步驟(owner 檢查、ensure users row)失敗時,盡力
+  /// `auth.signOut()` 收掉半套 session,再走一般化錯誤文案。
+  Future<LoginOutcome> _signInWithAppleCloud(CloudAuthService cloud) async {
+    state = state.copyWith(isLoading: true, clearError: true, clearOwnerConflict: true);
+
+    final CloudAppleSignInResult result;
+    try {
+      result = await cloud.signInWithApple();
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        state = state.copyWith(isLoading: false, clearError: true);
+        return const LoginFailure();
+      }
+      state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
+    } on UnsupportedError {
+      state = state.copyWith(isLoading: false, errorMessage: kAppleSignInUnsupportedMessage);
+      return const LoginFailure();
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
+    }
+
+    try {
+      final fullName = [result.givenName, result.familyName]
+          .where((part) => part != null && part.isNotEmpty)
+          .join(' ');
+      final userName = fullName.isNotEmpty ? fullName : '用戶';
+      final userEmail = result.appleEmail ?? result.user.email ?? '未提供電子郵件';
+
+      return await _completeLoginWithOwnerCheck(
+        userId: result.user.id,
+        userName: userName,
+        userEmail: userEmail,
+      );
+    } catch (e) {
+      await _cloudSignOutQuietly();
+      state = state.copyWith(isLoading: false, errorMessage: _genericLoginErrorMessage);
+      return const LoginFailure();
+    }
+  }
+
   /// 模擬器 / Android / Web 的測試登入 fallback(對等 iOS
   /// `handleSimulatorLogin`)。身分不再用共用常數——首次測試登入時生成 UUID
   /// 存進 prefs,之後沿用同一個 id,避免未來接上同步後所有測試登入用戶
   /// 撞成同一個帳號。拿到身分後交給 [_completeLoginWithOwnerCheck] 做帳號
   /// 隔離的 owner 檢查(見該方法文件)。
+  ///
+  /// 雲端模式不可用(登入頁也不顯示按鈕):直接回 [LoginFailure] 並給
+  /// [kTestLoginUnavailableInCloudMessage]。
   Future<LoginOutcome> signInTest() async {
+    if (ref.read(cloudAuthServiceProvider) != null) {
+      state = state.copyWith(
+        isLoading: false,
+        clearOwnerConflict: true,
+        errorMessage: kTestLoginUnavailableInCloudMessage,
+      );
+      return const LoginFailure();
+    }
     state = state.copyWith(isLoading: true, clearError: true, clearOwnerConflict: true);
     try {
       final prefs = ref.read(sharedPreferencesProvider);
@@ -249,8 +345,53 @@ class SessionController extends Notifier<SessionState> {
       return conflict;
     }
 
+    await _ensureCloudUserRowIfOnboarded(userId: userId, userName: userName, userEmail: userEmail);
     await _persistSession(userId: userId, userName: userName, userEmail: userEmail);
     return const LoginSuccess();
+  }
+
+  /// 雲端模式且 Onboarding 已完成時,確保 Supabase `public.users` 有登入者
+  /// 那一列(`UserRepository.ensure(authUid)`)——給「略過 Onboarding」的路徑
+  /// (同帳號登入時旗標仍在、恢復 session)當安全網,否則各頁 `getById`
+  /// 查無此人。Onboarding 未完成時刻意**不**呼叫,交給 OnboardingController
+  /// 自己 ensure:它靠 ensure 的「本次新建」結果決定要不要寫初始體重,這裡
+  /// 先建列會讓新用戶永遠拿到 isNewUser = false(2026-11-10 裁示 A)。
+  /// 非雲端模式 no-op(本機行為不變)。
+  Future<void> _ensureCloudUserRowIfOnboarded({
+    required String userId,
+    required String? userName,
+    required String? userEmail,
+  }) async {
+    if (ref.read(cloudAuthServiceProvider) == null) return;
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (!(prefs.getBool(kHasCompletedOnboardingKey) ?? false)) return;
+    await ref.read(userRepositoryProvider).ensure(userId, name: userName, email: userEmail);
+  }
+
+  /// 啟動恢復 session 後由 `main.dart` 呼叫一次:雲端模式、已登入且
+  /// Onboarding 已完成時 ensure 登入者的 users 列(見
+  /// [_ensureCloudUserRowIfOnboarded])。例外往外拋,由呼叫端記錄。
+  Future<void> ensureCloudUserRowOnRestore() async {
+    final session = state;
+    final userId = session.appleUserId;
+    if (!session.isLoggedIn || userId == null) return;
+    await _ensureCloudUserRowIfOnboarded(
+      userId: userId,
+      userName: session.appleUserName,
+      userEmail: session.appleUserEmail,
+    );
+  }
+
+  /// 盡力登出 Supabase(雲端模式);失敗吞掉——呼叫點都是收尾路徑,本機
+  /// 狀態照常清除。非雲端模式 no-op。
+  Future<void> _cloudSignOutQuietly() async {
+    final cloud = ref.read(cloudAuthServiceProvider);
+    if (cloud == null) return;
+    try {
+      await cloud.signOut();
+    } catch (_) {
+      // 收尾路徑:登出 Supabase 失敗不影響本機狀態清除。
+    }
   }
 
   /// 警告對話框「確認清除並繼續」後呼叫:清空 Drift 全表(見
@@ -312,6 +453,11 @@ class SessionController extends Notifier<SessionState> {
 
       await prefs.setString(kLocalDataOwnerUserIdKey, pending.pendingUserId);
 
+      await _ensureCloudUserRowIfOnboarded(
+        userId: pending.pendingUserId,
+        userName: pending.pendingUserName,
+        userEmail: pending.pendingUserEmail,
+      );
       await _persistSession(
         userId: pending.pendingUserId,
         userName: pending.pendingUserName,
@@ -319,6 +465,7 @@ class SessionController extends Notifier<SessionState> {
       );
       return const LoginSuccess();
     } catch (e) {
+      await _cloudSignOutQuietly();
       state = state.copyWith(
         isLoading: false,
         clearOwnerConflict: true,
@@ -330,9 +477,13 @@ class SessionController extends Notifier<SessionState> {
 
   /// 警告對話框「取消」後呼叫:不清除任何東西、不認領、不建立 session,
   /// 只是把待確認的衝突狀態收掉,留在登入頁。
+  ///
+  /// 雲端模式另外盡力登出 Supabase:衝突當下 Supabase 已經登入了待確認的
+  /// 帳號,取消後不該留著那個 session(重啟也不會因此進 App,見 [build])。
   void cancelOwnerConflict() {
     if (state.ownerConflict == null) return;
     state = state.copyWith(isLoading: false, clearOwnerConflict: true);
+    unawaited(_cloudSignOutQuietly());
   }
 
   /// 清掉目前的錯誤訊息(對等錯誤彈窗顯示過一次就消化掉,是一次性事件)。
@@ -375,7 +526,11 @@ class SessionController extends Notifier<SessionState> {
   /// 都要跨登出持續存在,同帳號登出後回來才能無縫接續使用;真正觸發清除
   /// 的是下一次登入時偵測到「別的」帳號([_completeLoginWithOwnerCheck] +
   /// [confirmClearAndContinueLogin]),不是這裡。
+  ///
+  /// 雲端模式先 `auth.signOut()`(失敗吞掉,本機清除照做——不能因為斷網就
+  /// 讓使用者登出不了)。
   Future<void> signOut() async {
+    await _cloudSignOutQuietly();
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(kAppleUserIdKey);
     await prefs.remove(kAppleUserNameKey);

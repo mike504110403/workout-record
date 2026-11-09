@@ -7,6 +7,11 @@
 // - iOS debug/profile build、Android、Web:「測試登入」fallback 按鈕。
 // - Google 登入:占位、disabled,標示「即將推出」——真 OAuth 掛同步波,
 //   本波不接,不得新增 google_sign_in 依賴。
+//
+// 雲端模式([cloudAuthServiceProvider] 非 null)覆蓋上面的規則:測試登入
+// 不顯示(本機 UUID 不是 Supabase 登入者,資料層會全部失敗);有原生 Apple
+// 登入的平台(iOS/macOS)顯示真 Apple 登入按鈕,沒有的(Web/Android)顯示
+// 明確提示而不是呼叫(Google 登入之後補)。
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
@@ -14,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'cloud_auth.dart';
 import 'session_controller.dart';
 
 /// 是否顯示測試登入 fallback 按鈕。對等 iOS `#if targetEnvironment(simulator)`
@@ -45,8 +51,11 @@ class LoginPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionControllerProvider);
-    final showTestLogin = ref.watch(showTestLoginProvider);
-    final showRealAppleSignIn = !showTestLogin;
+    final cloudMode = ref.watch(cloudAuthServiceProvider) != null;
+    final nativeAppleAvailable = ref.watch(nativeAppleSignInAvailableProvider);
+    final showTestLogin = !cloudMode && ref.watch(showTestLoginProvider);
+    final showRealAppleSignIn = cloudMode ? nativeAppleAvailable : !showTestLogin;
+    final showAppleUnavailableNotice = cloudMode && !nativeAppleAvailable;
 
     ref.listen<SessionState>(sessionControllerProvider, (previous, next) {
       if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
@@ -146,6 +155,15 @@ class LoginPage extends ConsumerWidget {
                   SignInWithAppleButton(
                     onPressed: () =>
                         ref.read(sessionControllerProvider.notifier).signInWithApple(),
+                  )
+                else if (showAppleUnavailableNotice)
+                  Text(
+                    kAppleSignInUnsupportedMessage,
+                    key: const Key('appleSignInUnavailableNotice'),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                    textAlign: TextAlign.center,
                   )
                 else
                   SizedBox(

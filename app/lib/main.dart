@@ -8,6 +8,7 @@ import 'data/migration/coredata_importer.dart';
 import 'data/migration/legacy_prefs_importer.dart';
 import 'data/providers.dart';
 import 'data/supabase_client.dart';
+import 'features/auth/session_controller.dart';
 import 'features/auth/shared_preferences_provider.dart';
 import 'features/onboarding/onboarding_status.dart';
 
@@ -73,6 +74,14 @@ Future<void> main() async {
     await autoCompleteOnboardingForUpgradedUsersIfNeeded(container);
   } catch (e, st) {
     debugPrint('onboarding upgrade-skip check crashed: $e\n$st');
+  }
+
+  // 雲端模式:恢復 Supabase session 後,Onboarding 已完成的登入者確保有
+  // users 列(見 SessionController.ensureCloudUserRowOnRestore);失敗不擋啟動。
+  try {
+    await container.read(sessionControllerProvider.notifier).ensureCloudUserRowOnRestore();
+  } catch (e, st) {
+    debugPrint('cloud users row ensure on restore failed: $e\n$st');
   }
 
   runApp(

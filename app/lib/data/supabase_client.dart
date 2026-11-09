@@ -16,12 +16,18 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// TODO(Mike): 雲端專案的 URL 與公開 anon key 確定後可填進 defaultValue
-// (公開資訊,可進版控,同 accounting);目前留空,未帶 dart-define 時
-// [kSupabaseConfigured] 為 false,main.dart 會退回本機 Drift 並印警告。
-const kSupabaseUrl = String.fromEnvironment('SUPABASE_URL');
+// defaultValue 是雲端 workout-dev 專案的位址與 **publishable** key——本來就會
+// 打包進 App 的公開資訊,可進版控(同 accounting);權限由 RLS 把關。要連別
+// 的專案用 --dart-define 覆寫;純本機帶 USE_MOCK=true。
+const kSupabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+  defaultValue: 'https://imudkbxvkefzafptqhae.supabase.co',
+);
 
-const kSupabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+const kSupabaseAnonKey = String.fromEnvironment(
+  'SUPABASE_ANON_KEY',
+  defaultValue: 'sb_publishable_oAQnLRCuCjxS7fLAArEoxw_S-WKUK4h',
+);
 
 /// 純本機模式:不初始化 Supabase,資料層維持 Drift。
 const kUseMock = bool.fromEnvironment('USE_MOCK');
