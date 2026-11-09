@@ -44,23 +44,26 @@ class SupabasePersonalRecordRepository implements PersonalRecordRepository {
 
   @override
   Future<List<PersonalRecord>> fetchByExercise(String exerciseId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('exercise_id', exerciseId)
-        .order('achieved_at', ascending: false));
+        .order('achieved_at', ascending: false)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<PersonalRecord>> fetchByUser(String userId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('user_id', requireUid(_client))
-        .order('achieved_at', ascending: false));
+        .order('achieved_at', ascending: false)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<PersonalRecord>> fetchAll() async {
-    return _parse(await _table.select().order('achieved_at', ascending: false));
+    return _parse(await selectAllPages(
+        () => _table.select().order('achieved_at', ascending: false).order('id', ascending: true)));
   }
 
   @override
@@ -82,10 +85,11 @@ class SupabasePersonalRecordRepository implements PersonalRecordRepository {
 
   @override
   Future<List<PRSummary>> getPRSummary(String userId) async {
-    final rows = await _table
+    final rows = await selectAllPages(() => _table
         .select('*, exercises(*)')
         .eq('user_id', requireUid(_client))
-        .order('achieved_at', ascending: false);
+        .order('achieved_at', ascending: false)
+        .order('id', ascending: true));
 
     final prByExercise = <String, List<PersonalRecord>>{};
     final exerciseById = <String, Exercise>{};

@@ -28,21 +28,25 @@ class SupabaseBodyWeightRepository implements BodyWeightRepository {
 
   @override
   Future<List<BodyWeight>> fetchAll() async {
-    return _parse(await _table.select().order('measured_at', ascending: false));
+    return _parse(await selectAllPages(
+        () => _table.select().order('measured_at', ascending: false).order('id', ascending: true)));
   }
 
   @override
   Future<List<BodyWeight>> fetchByDateRange(DateTime from, DateTime to) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .gte('measured_at', encodeValue(from)!)
         .lte('measured_at', encodeValue(to)!)
-        .order('measured_at', ascending: true));
+        .order('measured_at', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<BodyWeight>> fetchRecent(int limit) async {
-    return _parse(await _table.select().order('measured_at', ascending: false).limit(limit));
+    return _parse(await selectAllPages(
+        () => _table.select().order('measured_at', ascending: false).order('id', ascending: true),
+        maxRows: limit));
   }
 
   @override

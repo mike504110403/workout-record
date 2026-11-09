@@ -1,14 +1,14 @@
 // 關於頁:版本號(package_info_plus)+ 隱私政策靜態內文。契約:zero-arg
 // const 建構子、自帶 Scaffold/AppBar(同波 6 其他新頁面慣例)。
 //
-// 隱私文案紀律(repo CLAUDE.md 地雷區,brief 明定):必須與「資料存裝置
-// 本機」現狀一致。參照 iOS `Views/About/AboutView.swift` 的
+// 隱私文案紀律(repo CLAUDE.md 地雷區,brief 明定):必須與「登入後資料
+// 存 Supabase 雲端、RLS 僅本人可讀寫」現狀一致;App 內沒有 analytics /
+// crash SDK,文案不得宣稱收集使用數據或錯誤報告。參照 iOS `Views/About/AboutView.swift` 的
 // `AboutPrivacyPolicyView` 內文精神(資訊收集/使用/安全/聯絡我們的段落
 // 結構),但**不照抄**——那份文案本身跟 iOS 實作已經不一致(探路已證),照抄
-// 會把同樣的病灶搬進 Flutter 版。改寫依據 Flutter 版已經上線、經隱私審查
-// 的既有文案(`privacy_consent_page.dart`,見該檔開頭注解「逐字對照 iOS
-// PrivacyConsentView,該文案已符合資料存本機現狀」)——本頁沿用同一組事實
-// 陳述,不新增匯出/刪除帳號等本 App 目前沒有 UI 路徑的功能宣稱。
+// 會把同樣的病灶搬進 Flutter 版。事實陳述與 `privacy_consent_page.dart`、
+// 登入頁隱私卡片同源(2026-11 改為雲端現況);不新增匯出/刪除帳號等本 App
+// 目前沒有 UI 路徑的功能宣稱。
 //
 // 版本號來源:`PackageInfo.fromPlatform()`,測試環境用
 // `PackageInfo.setMockInitialValues` 提供固定值(package_info_plus 官方
@@ -96,16 +96,16 @@ class _AboutPageState extends State<AboutPage> {
             title: '資料收集範圍',
             items: [
               'Apple ID 登入資訊(姓名、電子郵件)',
-              '應用程式使用數據與操作行為',
-              '設備資訊與錯誤報告',
+              '您輸入的訓練記錄、體重與健身目標等資料',
             ],
           ),
           const SizedBox(height: 20),
           const _PrivacySection(
             title: '資料儲存方式',
             items: [
-              '您的訓練記錄、體重與個人資料僅儲存於您的裝置本機,不會上傳雲端',
-              '解除安裝 App 或清除 App 資料會一併移除這些本機資料',
+              '登入後,您的訓練記錄、體重與個人資料儲存於雲端伺服器(Supabase),並與您的 Apple 帳號綁定,用於跨裝置存取',
+              '只有您本人登入後可以存取這些資料',
+              '登出時會清除本機的個人資料,雲端帳號內的資料仍會保留',
             ],
           ),
           const SizedBox(height: 20),
@@ -113,17 +113,16 @@ class _AboutPageState extends State<AboutPage> {
             title: '資料使用目的',
             items: [
               '提供帳號登入功能',
-              '改善應用程式功能與用戶體驗',
-              '分析與修復技術問題',
+              '儲存您的訓練資料並提供跨裝置存取',
             ],
           ),
           const SizedBox(height: 20),
           const _PrivacySection(
             title: '隱私保護承諾',
             items: [
-              '僅收集必要的帳號資訊',
+              '僅收集必要的帳號資訊與您輸入的訓練資料',
               '不用於廣告或行銷目的',
-              '不與第三方分享您的個人資料',
+              '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
             ],
           ),
           const SizedBox(height: 20),

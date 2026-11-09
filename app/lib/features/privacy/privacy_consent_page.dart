@@ -1,6 +1,7 @@
-// 隱私同意浮層。文案逐字對照 iOS
-// `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Privacy/PrivacyConsentView.swift`
-// (該文案已符合「資料存本機」現狀,不得自行改寫)。
+// 隱私同意浮層。版面對照 iOS
+// `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Privacy/PrivacyConsentView.swift`;
+// 文案已於 2026-11 改為雲端現況(登入後資料存 Supabase、僅本人可存取),
+// 且不再宣稱收集 analytics / 錯誤報告(app/lib 沒有對應 SDK)。
 //
 // 兩個勾選框是這個頁面的本地狀態(對等 iOS `@State`),按下「同意並繼續」才
 // 一次寫入 controller(見 privacy_consent_controller.dart 開頭註解)。
@@ -82,9 +83,8 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                       title: '資料收集範圍',
                       items: [
                         'Apple ID 登入資訊(姓名、電子郵件)',
-                        '應用程式使用數據與操作行為',
-                        '設備資訊與錯誤報告',
-                        '訓練記錄僅儲存於您的裝置本機',
+                        '您輸入的訓練記錄、體重與健身目標等資料',
+                        '登入後訓練資料儲存於雲端伺服器(Supabase),並與您的帳號綁定',
                       ],
                     ),
                     SizedBox(height: 24),
@@ -92,19 +92,18 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                       title: '資料使用目的',
                       items: [
                         '提供帳號登入功能',
-                        '改善應用程式功能與用戶體驗',
-                        '分析與修復技術問題',
-                        '提供更符合需求的服務',
+                        '儲存您的訓練資料並提供跨裝置存取',
                       ],
                     ),
                     SizedBox(height: 24),
                     _TermsSection(
                       title: '隱私保護承諾',
                       items: [
-                        '訓練記錄儲存在您的裝置本機,不會上傳雲端',
-                        '僅收集必要的帳號資訊',
+                        '只有您本人登入後可以存取您的訓練資料',
+                        '登出時會清除本機的個人資料',
+                        '僅收集必要的帳號資訊與訓練資料',
                         '不用於廣告或行銷目的',
-                        '不與第三方分享您的個人資料',
+                        '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
                       ],
                     ),
                   ],
@@ -121,7 +120,7 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                   _CheckboxRow(
                     key: const Key('analyticsConsentCheckbox'),
                     value: _analyticsAgreed,
-                    text: '我同意收集匿名使用數據以改善服務',
+                    text: '我同意將訓練資料儲存於雲端伺服器以提供跨裝置存取',
                     onChanged: (value) => setState(() => _analyticsAgreed = value),
                   ),
                   _CheckboxRow(

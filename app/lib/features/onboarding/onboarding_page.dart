@@ -452,7 +452,7 @@ class _FeaturesStep extends StatelessWidget {
     (Icons.calendar_month, '計劃安排', '規劃訓練計劃'),
     (Icons.emoji_events, '成就系統', '解鎖各種成就'),
     (Icons.track_changes, '目標設定', '設定健身目標'),
-    (Icons.save, '本機儲存', '資料僅存於您的裝置'),
+    (Icons.cloud_done, '雲端儲存', '登入後資料與帳號綁定,跨裝置存取'),
   ];
 
   @override

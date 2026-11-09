@@ -25,7 +25,7 @@ void main() {
   testWidgets('顯示標題與兩個勾選框文案', (tester) async {
     await _pumpPage(tester);
     expect(find.text('隱私權同意'), findsOneWidget);
-    expect(find.text('我同意收集匿名使用數據以改善服務'), findsOneWidget);
+    expect(find.text('我同意將訓練資料儲存於雲端伺服器以提供跨裝置存取'), findsOneWidget);
     expect(find.text('我已閱讀並同意隱私政策'), findsOneWidget);
   });
 

@@ -36,7 +36,7 @@ void main() {
     expect(find.text('請使用 Apple ID 登入以開始使用'), findsOneWidget);
     expect(find.text('隱私保護'), findsOneWidget);
     expect(find.text('使用 Apple ID 安全登入'), findsOneWidget);
-    expect(find.text('訓練記錄僅儲存於您的裝置本機'), findsOneWidget);
+    expect(find.text('登入後訓練記錄儲存於雲端,僅限本人存取'), findsOneWidget);
     expect(find.text('僅收集必要的帳號資訊'), findsOneWidget);
     expect(find.text('不用於廣告或第三方分享'), findsOneWidget);
   });

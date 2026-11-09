@@ -43,11 +43,12 @@ class SupabaseTemplateRepository implements TemplateRepository {
 
   @override
   Future<List<WorkoutTemplate>> fetchAll(String userId) async {
-    final rows = await _table
+    final rows = await selectAllPages(() => _table
         .select(_select)
         .eq('user_id', requireUid(_client))
         .eq('is_system', false)
-        .order('name', ascending: true);
+        .order('name', ascending: true)
+        .order('id', ascending: true));
     return rows.map(_hydrate).toList();
   }
 
@@ -59,7 +60,11 @@ class SupabaseTemplateRepository implements TemplateRepository {
 
   @override
   Future<List<WorkoutTemplate>> fetchSystemTemplates() async {
-    final rows = await _table.select(_select).eq('is_system', true).order('name', ascending: true);
+    final rows = await selectAllPages(() => _table
+        .select(_select)
+        .eq('is_system', true)
+        .order('name', ascending: true)
+        .order('id', ascending: true));
     return rows.map(_hydrate).toList();
   }
 

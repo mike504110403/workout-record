@@ -29,19 +29,21 @@ class SupabasePowerLiftRecordRepository implements PowerLiftRecordRepository {
 
   @override
   Future<List<PowerLiftRecord>> getAll(String userId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('user_id', requireUid(_client))
-        .order('achieved_at', ascending: false));
+        .order('achieved_at', ascending: false)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<PowerLiftRecord>> getRecords(PowerLift lift, String userId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('user_id', requireUid(_client))
         .eq('lift', lift.value)
-        .order('achieved_at', ascending: false));
+        .order('achieved_at', ascending: false)
+        .order('id', ascending: true)));
   }
 
   @override

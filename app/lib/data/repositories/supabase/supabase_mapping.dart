@@ -43,6 +43,57 @@ String requireUid(SupabaseClient client) {
   return id;
 }
 
+// ---------- 分頁 ----------
+
+/// PostgREST 單次回應列數上限(Supabase 預設 `max_rows = 1000`,本專案
+/// `supabase/config.toml [api] max_rows` 同值)。未加 limit 的列表查詢超過這個
+/// 數字會被**靜默截斷**,所以所有「列出全部」查詢都要走 [selectAllPages]。
+const int kPostgrestPageSize = 1000;
+
+/// 抓一頁:回傳閉區間 [from, to] 的列(對應 PostgREST `.range(from, to)`)。
+typedef PageFetcher = Future<List<Map<String, dynamic>>> Function(
+    int from, int to);
+
+/// 以 [fetchPage] 逐頁取完,依序串接。可測試的純邏輯層(seam):
+/// repository 傳入 `.range()` 查詢;測試傳入 fake 頁面來源。
+///
+/// - 終止條件:某頁列數 < 本次要求的列數(最後一頁)。因此 [pageSize] 不可大於
+///   伺服器 `max_rows`,否則伺服器截短的頁會被誤判為最後一頁。
+/// - [maxRows] 非 null 時最多取這麼多列(給 `fetchRecent(limit)` 這類 limit 超過
+///   一頁的情境),最後一頁只要求剩餘列數。
+/// - 呼叫端的查詢**必須有確定性排序**(業務鍵 + `id` 第二鍵),否則翻頁可能漏列/重複。
+Future<List<Map<String, dynamic>>> fetchAllPages(
+  PageFetcher fetchPage, {
+  int pageSize = kPostgrestPageSize,
+  int? maxRows,
+}) async {
+  assert(pageSize > 0);
+  final out = <Map<String, dynamic>>[];
+  while (true) {
+    final remaining = maxRows == null ? pageSize : maxRows - out.length;
+    if (remaining <= 0) break;
+    final want = remaining < pageSize ? remaining : pageSize;
+    final from = out.length;
+    final page = await fetchPage(from, from + want - 1);
+    out.addAll(page);
+    if (page.length < want) break;
+  }
+  return out;
+}
+
+/// PostgREST 查詢版的 [fetchAllPages]。[build] 每頁呼叫一次以產生新的查詢
+/// (builder 是一次性的),需已含完整 filter 與 `.order(...)`(含 `id` 第二鍵)。
+Future<List<Map<String, dynamic>>> selectAllPages(
+  PostgrestTransformBuilder<List<Map<String, dynamic>>> Function() build, {
+  int pageSize = kPostgrestPageSize,
+  int? maxRows,
+}) =>
+    fetchAllPages(
+      (from, to) => build().range(from, to),
+      pageSize: pageSize,
+      maxRows: maxRows,
+    );
+
 /// RPC 約定錯誤碼 → StateError,對齊 Drift 版「找不到列/狀態不允許就拋
 /// StateError」的語義(錯誤碼定義見 supabase/migrations/20261110000300_rpc.sql 檔頭)。
 Future<T> rethrowAsStateError<T>(Future<T> Function() body) async {

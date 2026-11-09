@@ -225,7 +225,7 @@ class LoginPage extends ConsumerWidget {
                       ),
                       const SizedBox(height: 12),
                       const _PrivacyBullet('使用 Apple ID 安全登入'),
-                      const _PrivacyBullet('訓練記錄僅儲存於您的裝置本機'),
+                      const _PrivacyBullet('登入後訓練記錄儲存於雲端,僅限本人存取'),
                       const _PrivacyBullet('僅收集必要的帳號資訊'),
                       const _PrivacyBullet('不用於廣告或第三方分享'),
                     ],

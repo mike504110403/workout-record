@@ -42,9 +42,11 @@ class SupabaseExerciseRepository implements ExerciseRepository {
 
   @override
   Future<List<Exercise>> fetchAll({bool includeInactive = false}) async {
-    var query = _table.select();
-    if (!includeInactive) query = query.eq('is_active', true);
-    return _parse(await query.order('name', ascending: true));
+    return _parse(await selectAllPages(() {
+      var query = _table.select();
+      if (!includeInactive) query = query.eq('is_active', true);
+      return query.order('name', ascending: true).order('id', ascending: true);
+    }));
   }
 
   @override
@@ -55,49 +57,54 @@ class SupabaseExerciseRepository implements ExerciseRepository {
 
   @override
   Future<List<Exercise>> fetchByCategory(String categoryId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('category_id', categoryId)
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<Exercise>> fetchByType(ExerciseType type) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('type', type.value)
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<Exercise>> fetchSystemExercises() async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('is_system', true)
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   /// [userId] 不參與查詢:擁有者一律是登入者(RLS),見類別文件。
   @override
   Future<List<Exercise>> fetchCustomExercises(String userId) async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('is_system', false)
         .eq('user_id', requireUid(_client))
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override
   Future<List<Exercise>> getCustomExercises() async {
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .eq('is_system', false)
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override
@@ -108,11 +115,12 @@ class SupabaseExerciseRepository implements ExerciseRepository {
     // PostgREST or() 的值用雙引號包起來,keyword 裡的逗號/括號才不會破壞語法。
     final escaped = keyword.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
     final pattern = '"%$escaped%"';
-    return _parse(await _table
+    return _parse(await selectAllPages(() => _table
         .select()
         .or('name.ilike.$pattern,name_en.ilike.$pattern')
         .eq('is_active', true)
-        .order('name', ascending: true));
+        .order('name', ascending: true)
+        .order('id', ascending: true)));
   }
 
   @override

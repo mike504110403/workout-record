@@ -128,10 +128,11 @@ class SupabaseWorkoutRepository implements WorkoutRepository {
 
   @override
   Future<List<Workout>> fetchAll() async {
-    final rows = await _table
+    final rows = await selectAllPages(() => _table
         .select(_select)
         .not('ended_at', 'is', null)
-        .order('started_at', ascending: false);
+        .order('started_at', ascending: false)
+        .order('id', ascending: true));
     return rows.map(_hydrate).toList();
   }
 
@@ -161,22 +162,25 @@ class SupabaseWorkoutRepository implements WorkoutRepository {
 
   @override
   Future<List<Workout>> fetchByDateRange(DateTime from, DateTime to) async {
-    final rows = await _table
+    final rows = await selectAllPages(() => _table
         .select(_select)
         .gte('started_at', encodeValue(from)!)
         .lte('started_at', encodeValue(to)!)
         .not('ended_at', 'is', null)
-        .order('started_at', ascending: false);
+        .order('started_at', ascending: false)
+        .order('id', ascending: true));
     return rows.map(_hydrate).toList();
   }
 
   @override
   Future<List<Workout>> fetchRecent(int limit) async {
-    final rows = await _table
-        .select(_select)
-        .not('ended_at', 'is', null)
-        .order('started_at', ascending: false)
-        .limit(limit);
+    final rows = await selectAllPages(
+        () => _table
+            .select(_select)
+            .not('ended_at', 'is', null)
+            .order('started_at', ascending: false)
+            .order('id', ascending: true),
+        maxRows: limit);
     return rows.map(_hydrate).toList();
   }
 
@@ -218,10 +222,14 @@ class SupabaseWorkoutRepository implements WorkoutRepository {
 
   @override
   Future<double> calculateTotalVolume({DateTime? from, DateTime? to}) async {
-    var query = _table.select('total_volume').not('ended_at', 'is', null);
-    if (from != null) query = query.gte('started_at', encodeValue(from)!);
-    if (to != null) query = query.lte('started_at', encodeValue(to)!);
-    final rows = await query;
+    // 全量掃描 total_volume:超過 1000 場會被截斷,所以分頁取完再加總
+    // (PostgREST 聚合預設關閉,不依賴;排序用 started_at + id 確保翻頁穩定)。
+    final rows = await selectAllPages(() {
+      var query = _table.select('total_volume').not('ended_at', 'is', null);
+      if (from != null) query = query.gte('started_at', encodeValue(from)!);
+      if (to != null) query = query.lte('started_at', encodeValue(to)!);
+      return query.order('started_at', ascending: false).order('id', ascending: true);
+    });
     return rows.fold<double>(0, (sum, row) => sum + (row['total_volume'] as num).toDouble());
   }
 

@@ -31,8 +31,14 @@ void main() {
 
     expect(find.textContaining('匯出'), findsNothing);
     expect(find.textContaining('刪除帳'), findsNothing);
-    // 現況陳述必須在:資料存裝置本機、不上傳雲端(隱私文案紀律)。
-    expect(find.textContaining('裝置本機'), findsOneWidget);
+    // 現況陳述必須在:登入後資料存雲端(Supabase)、僅本人可存取(隱私文案紀律)。
+    expect(find.textContaining('雲端伺服器(Supabase)'), findsOneWidget);
+    expect(find.textContaining('只有您本人'), findsOneWidget);
+    // 舊的本機/不上傳宣稱不得殘留;App 無 analytics/crash SDK,不得宣稱收集。
+    expect(find.textContaining('不會上傳'), findsNothing);
+    expect(find.textContaining('裝置本機'), findsNothing);
+    expect(find.textContaining('使用數據'), findsNothing);
+    expect(find.textContaining('錯誤報告'), findsNothing);
   });
 
   testWidgets('父層 rebuild(新的 AboutPage 實例)不重新查詢版本——不閃回轉圈圈(review minor)', (tester) async {
