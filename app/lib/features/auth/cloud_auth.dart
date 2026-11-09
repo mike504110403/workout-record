@@ -17,7 +17,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show OAuthProvider, SupabaseClient;
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent, OAuthProvider, SupabaseClient;
 
 import '../../data/supabase_client.dart';
 
@@ -127,4 +127,17 @@ class SupabaseCloudAuthService implements CloudAuthService {
 final cloudAuthServiceProvider = Provider<CloudAuthService?>((ref) {
   final client = ref.watch(supabaseClientProvider);
   return client == null ? null : SupabaseCloudAuthService(client);
+});
+
+/// Supabase 端 session 結束事件:token refresh 失敗、遠端登出、帳號被刪等,
+/// supabase_flutter 都會發 [AuthChangeEvent.signedOut]。SessionController 監聽它,
+/// 把本機登入態一併收掉,不必等 repository 報「需要登入」才察覺。
+/// 非雲端模式(含測試預設)為空 stream。每次事件帶不同時間戳,確保連續事件
+/// 都會通知 listener。
+final cloudSessionEndedProvider = StreamProvider<DateTime>((ref) {
+  final client = ref.watch(supabaseClientProvider);
+  if (client == null) return const Stream<DateTime>.empty();
+  return client.auth.onAuthStateChange
+      .where((s) => s.event == AuthChangeEvent.signedOut)
+      .map((_) => DateTime.now());
 });

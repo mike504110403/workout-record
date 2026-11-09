@@ -4,6 +4,7 @@
 // 登入態、登出呼叫 auth.signOut 並清本機個資、帳號隔離改用 auth uid 比對。
 // 非雲端模式的行為由 session_controller_test.dart 覆蓋(不受影響)。
 
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -86,6 +87,7 @@ Future<ProviderContainer> _container(
   Map<String, Object> prefsValues, {
   required _FakeCloudAuth cloud,
   _RecordingUserRepo? userRepo,
+  Stream<DateTime>? sessionEnded,
 }) async {
   SharedPreferences.setMockInitialValues(prefsValues);
   final prefs = await SharedPreferences.getInstance();
@@ -95,6 +97,7 @@ Future<ProviderContainer> _container(
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
       cloudAuthServiceProvider.overrideWithValue(cloud),
+      if (sessionEnded != null) cloudSessionEndedProvider.overrideWith((ref) => sessionEnded),
       if (userRepo != null) userRepositoryProvider.overrideWithValue(userRepo),
     ],
   );
@@ -408,6 +411,49 @@ void main() {
 
       expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
       expect(container.read(sharedPreferencesProvider).getString(kAppleUserIdKey), isNull);
+    });
+  });
+
+  group('Supabase session 被動結束(onAuthStateChange signedOut)', () {
+    test('已登入時收到 signedOut 事件 → 本機登入態與個資清除', () async {
+      final events = StreamController<DateTime>();
+      addTearDown(events.close);
+      final cloud = _FakeCloudAuth(current: const CloudAuthUser(id: 'auth-uid-1'));
+      final container = await _container(
+        {
+          kAppleUserIdKey: 'auth-uid-1',
+          kAppleUserNameKey: 'Mike',
+          kHasCompletedOnboardingKey: true,
+        },
+        cloud: cloud,
+        sessionEnded: events.stream,
+      );
+      expect(container.read(sessionControllerProvider).isLoggedIn, isTrue);
+      container.listen(cloudSessionEndedProvider, (_, _) {});
+
+      events.add(DateTime.now());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.containsKey(kAppleUserIdKey), isFalse);
+      expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+      expect(cloud.signOutCalls, 0, reason: '被動結束不需再呼叫雲端 signOut');
+    });
+
+    test('未收到事件時維持登入', () async {
+      final events = StreamController<DateTime>();
+      addTearDown(events.close);
+      final cloud = _FakeCloudAuth(current: const CloudAuthUser(id: 'auth-uid-1'));
+      final container = await _container(
+        {kAppleUserIdKey: 'auth-uid-1', kHasCompletedOnboardingKey: true},
+        cloud: cloud,
+        sessionEnded: events.stream,
+      );
+      container.listen(cloudSessionEndedProvider, (_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(sessionControllerProvider).isLoggedIn, isTrue);
     });
   });
 }

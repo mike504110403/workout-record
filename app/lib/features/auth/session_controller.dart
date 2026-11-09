@@ -166,6 +166,13 @@ class SessionController extends Notifier<SessionState> {
     final prefs = ref.watch(sharedPreferencesProvider);
     final cloud = ref.watch(cloudAuthServiceProvider);
     if (cloud != null) {
+      // Supabase session 被動結束(refresh 失敗/遠端登出)→ 收掉本機登入態。
+      // 主動 signOut 也會觸發此事件,_clearLocalSession 可重入,無副作用。
+      ref.listen(cloudSessionEndedProvider, (_, next) {
+        if (next.hasValue && state.isLoggedIn) {
+          unawaited(_clearLocalSession());
+        }
+      });
       final user = cloud.currentUser;
       if (user == null || prefs.getString(kAppleUserIdKey) != user.id) {
         return const SessionState();
@@ -531,6 +538,11 @@ class SessionController extends Notifier<SessionState> {
   /// 讓使用者登出不了)。
   Future<void> signOut() async {
     await _cloudSignOutQuietly();
+    await _clearLocalSession();
+  }
+
+  /// 清本機 session key 與 onboarding 個資(登出與雲端 session 被動結束共用)。
+  Future<void> _clearLocalSession() async {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.remove(kAppleUserIdKey);
     await prefs.remove(kAppleUserNameKey);
