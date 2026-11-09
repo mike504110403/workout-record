@@ -73,7 +73,7 @@ DateTime _referenceWeekStart(DateTime now) {
 
 /// 修復 M1/m3 失敗路徑測試專用:模擬 `BodyWeightRepository.create` 寫入
 /// DB 失敗(例如磁碟已滿、DB 被鎖)。只覆寫 create,其餘方法沿用真實實作。
-class _ThrowingBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingBodyWeightRepository(super.db);
 
   @override
@@ -85,7 +85,7 @@ class _ThrowingBodyWeightRepository extends BodyWeightRepository {
 /// m8 error 分支覆蓋專用:模擬 Dashboard 初始載入時查詢失敗(_load() 裡第一個
 /// await 的 repository 呼叫就拋錯),讓 dashboardControllerProvider 落入
 /// AsyncError,驗證 dashboard_page.dart 的 `error:` 分支真的會渲染。
-class _ThrowingOnLoadBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingOnLoadBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingOnLoadBodyWeightRepository(super.db);
 
   @override
@@ -98,7 +98,7 @@ class _ThrowingOnLoadBodyWeightRepository extends BodyWeightRepository {
 /// 之後恢復正常——模擬「暫時性失敗,重試就好了」的情境,用來驗證
 /// dashboard_page.dart 的重試按鈕真的能讓畫面從 error 分支恢復,不是擺好看
 /// 的裝飾。
-class _FlakyBodyWeightRepository extends BodyWeightRepository {
+class _FlakyBodyWeightRepository extends DriftBodyWeightRepository {
   _FlakyBodyWeightRepository(super.db);
 
   var _callCount = 0;
@@ -115,9 +115,9 @@ class _FlakyBodyWeightRepository extends BodyWeightRepository {
 
 class _DashboardHarness {
   _DashboardHarness(this.db, this.container)
-      : workoutRepo = WorkoutRepository(db, ExerciseRepository(db)),
-        bodyWeightRepo = BodyWeightRepository(db),
-        userGoalRepo = UserGoalRepository(db);
+      : workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db)),
+        bodyWeightRepo = DriftBodyWeightRepository(db),
+        userGoalRepo = DriftUserGoalRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;

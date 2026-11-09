@@ -15,7 +15,7 @@ void main() {
   setUp(() async {
     db = openTestDatabase();
     await seedTestUser(db);
-    repository = BodyWeightRepository(db);
+    repository = DriftBodyWeightRepository(db);
   });
 
   tearDown(() async => db.close());

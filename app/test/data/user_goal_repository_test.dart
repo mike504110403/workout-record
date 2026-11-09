@@ -15,7 +15,7 @@ void main() {
   setUp(() async {
     db = openTestDatabase();
     await seedTestUser(db);
-    repository = UserGoalRepository(db);
+    repository = DriftUserGoalRepository(db);
   });
 
   tearDown(() async => db.close());

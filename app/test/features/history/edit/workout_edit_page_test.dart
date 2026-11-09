@@ -32,7 +32,7 @@ DateTime _secondPrecisionNow() {
 
 /// 失敗路徑測試專用:只覆寫 `updateSet`,模擬寫入失敗(例如磁碟已滿),其餘
 /// 方法沿用真實實作(對照 dashboard_page_test.dart `_ThrowingBodyWeightRepository`)。
-class _ThrowingUpdateSetWorkoutRepository extends WorkoutRepository {
+class _ThrowingUpdateSetWorkoutRepository extends DriftWorkoutRepository {
   _ThrowingUpdateSetWorkoutRepository(super.db, super.exerciseRepository);
 
   @override
@@ -43,8 +43,8 @@ class _ThrowingUpdateSetWorkoutRepository extends WorkoutRepository {
 
 class _EditHarness {
   _EditHarness(this.db, this.container)
-      : workoutRepo = WorkoutRepository(db, ExerciseRepository(db)),
-        exerciseRepo = ExerciseRepository(db);
+      : workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db)),
+        exerciseRepo = DriftExerciseRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -205,7 +205,7 @@ void main() {
   // 不需要額外關掉它。
   testWidgets('失敗路徑:寫入拋錯 → 解除 loading、浮出錯誤、UI 狀態與 DB 一致(重讀)', (tester) async {
     final harness = await _setUpHarness(
-      workoutRepoBuilder: (db) => _ThrowingUpdateSetWorkoutRepository(db, ExerciseRepository(db)),
+      workoutRepoBuilder: (db) => _ThrowingUpdateSetWorkoutRepository(db, DriftExerciseRepository(db)),
     );
     final exerciseId = (await harness.exerciseRepo.fetchSystemExercises()).first.id;
     final (_, setId) = await seedSingleSetWorkout(

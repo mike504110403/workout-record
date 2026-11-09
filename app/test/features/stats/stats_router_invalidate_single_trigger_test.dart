@@ -21,7 +21,7 @@ import 'package:workout_record/features/privacy/privacy_consent_controller.dart'
 
 import '../../data/test_helpers.dart';
 
-class _CountingWorkoutRepository extends WorkoutRepository {
+class _CountingWorkoutRepository extends DriftWorkoutRepository {
   _CountingWorkoutRepository(super.db, super.exerciseRepository);
 
   var fetchByDateRangeCallCount = 0;
@@ -48,7 +48,7 @@ void main() {
     final db = openTestDatabase();
     addTearDown(db.close);
     await seedTestUser(db);
-    final repo = _CountingWorkoutRepository(db, ExerciseRepository(db));
+    final repo = _CountingWorkoutRepository(db, DriftExerciseRepository(db));
 
     await tester.pumpWidget(
       ProviderScope(

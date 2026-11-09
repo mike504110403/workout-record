@@ -34,7 +34,7 @@ import 'package:workout_record/features/stats/powerlifting/powerlifting_tab.dart
 import '../../../data/test_helpers.dart';
 
 /// M1 失敗路徑測試專用:模擬 `PowerLiftRecordRepository.create` 寫入失敗。
-class _ThrowingOnCreateRepository extends PowerLiftRecordRepository {
+class _ThrowingOnCreateRepository extends DriftPowerLiftRecordRepository {
   _ThrowingOnCreateRepository(super.db);
 
   @override
@@ -44,7 +44,7 @@ class _ThrowingOnCreateRepository extends PowerLiftRecordRepository {
 }
 
 /// M2 失敗路徑測試專用:模擬 `PowerLiftRecordRepository.delete` 失敗。
-class _ThrowingOnDeleteRepository extends PowerLiftRecordRepository {
+class _ThrowingOnDeleteRepository extends DriftPowerLiftRecordRepository {
   _ThrowingOnDeleteRepository(super.db);
 
   @override
@@ -55,9 +55,9 @@ class _ThrowingOnDeleteRepository extends PowerLiftRecordRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : powerLiftRepo = PowerLiftRecordRepository(db),
-        exerciseRepo = ExerciseRepository(db),
-        personalRecordRepo = PersonalRecordRepository(db, ExerciseRepository(db));
+      : powerLiftRepo = DriftPowerLiftRecordRepository(db),
+        exerciseRepo = DriftExerciseRepository(db),
+        personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -374,7 +374,7 @@ void main() {
       );
       // 種子資料直接用真實 repository 寫入(harness.powerLiftRepo 是真實的,
       // 只有 provider 注入的那份是會拋錯的版本)。
-      await PowerLiftRecordRepository(harness.db).create(
+      await DriftPowerLiftRecordRepository(harness.db).create(
         _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100),
       );
 

@@ -4,10 +4,41 @@ import '../db/app_database.dart' as db;
 import '../models/workout.dart';
 import 'exercise_repository.dart';
 
+/// WorkoutRepository 的資料存取介面(公開方法簽名即原本 Drift 實作的公開 API)。
+///
+/// 實作:[DriftWorkoutRepository](本機 Drift,`USE_MOCK`/測試/未設定 Supabase 時使用)、
+/// `SupabaseWorkoutRepository`(`supabase/supabase_workout_repository.dart`)。由
+/// `data/providers.dart` 依 `supabaseClientProvider` 切換。各方法語義以
+/// [DriftWorkoutRepository] 的文件為準,Supabase 版的差異寫在該實作的類別文件。
+abstract interface class WorkoutRepository {
+  Future<void> create(Workout workout);
+  Future<void> addExerciseToWorkout(WorkoutExercise exercise);
+  Future<void> removeExercise(String workoutExerciseId, {required String workoutId});
+  Future<void> setExerciseCompleted(String workoutExerciseId, {required bool isCompleted});
+  Future<void> addSet(WorkoutSet set);
+  Future<void> updateSet(WorkoutSet set);
+  Future<void> deleteSet(String setId, {required String workoutExerciseId});
+  Future<void> discardDraft(String workoutId);
+  Future<List<Workout>> fetchAll();
+  Future<List<Workout>> getAllWorkouts();
+  Future<Workout?> fetchById(String id);
+  Future<Workout?> getWorkout(String id);
+  Future<Workout?> fetchDraft(String userId);
+  Future<List<Workout>> fetchByDateRange(DateTime from, DateTime to);
+  Future<List<Workout>> fetchRecent(int limit);
+  Future<void> update(Workout workout);
+  Future<void> delete(String id);
+  Future<void> deleteOlderThan(DateTime date);
+  Future<double> calculateTotalVolume({DateTime? from, DateTime? to});
+  Future<int> countWorkouts({DateTime? from, DateTime? to});
+  Future<Workout> completeWorkout(String workoutId, {DateTime? endedAt});
+  Future<Workout> recomputeSummary(String workoutId);
+}
+
 /// 訓練記錄的資料存取層。對照 iOS 版
 /// `ios/WorkoutRecord/WorkoutRecord/Sources/Repositories/WorkoutRepository.swift`。
-class WorkoutRepository {
-  WorkoutRepository(this._db, this._exerciseRepository);
+class DriftWorkoutRepository implements WorkoutRepository {
+  DriftWorkoutRepository(this._db, this._exerciseRepository);
 
   final db.AppDatabase _db;
   final ExerciseRepository _exerciseRepository;
@@ -19,6 +50,7 @@ class WorkoutRepository {
   /// [Workout](自由訓練 exercises 為空清單;從模板開始則帶入
   /// `applyTemplate` 展開好的 exercises/sets),即完成「開始訓練即建草稿列」
   /// (見 .claude/decisions/2026-08-04-波3訓練流草稿寫穿與系統模板.md)。
+  @override
   Future<void> create(Workout workout) async {
     await _db.transaction(() async {
       await _db.into(_db.workouts).insert(workout.toCompanion());
@@ -40,6 +72,7 @@ class WorkoutRepository {
 
   /// 新增一個動作到進行中的訓練([exercise.sets] 通常是空清單——「從模板
   /// 開始」的初始展開走 [create] 一次性建立,這裡只服務訓練途中新增動作)。
+  @override
   Future<void> addExerciseToWorkout(WorkoutExercise exercise) async {
     await _db.transaction(() async {
       await _db.into(_db.workoutExercises).insert(exercise.toCompanion());
@@ -59,6 +92,7 @@ class WorkoutRepository {
   /// 屬於別筆訓練,不會被這裡誤刪——連帶讓「動作不存在,或不屬於這筆
   /// 訓練」統一落在 rowsAffected 0 → 拋 StateError 這條路徑,與同批方法
   /// 一致。
+  @override
   Future<void> removeExercise(String workoutExerciseId, {required String workoutId}) async {
     await _db.transaction(() async {
       final rowsAffected = await (_db.delete(_db.workoutExercises)
@@ -82,6 +116,7 @@ class WorkoutRepository {
   }
 
   /// 標記動作完成/取消完成。
+  @override
   Future<void> setExerciseCompleted(String workoutExerciseId, {required bool isCompleted}) async {
     final rowsAffected = await (_db.update(_db.workoutExercises)
           ..where((t) => t.id.equals(workoutExerciseId)))
@@ -95,6 +130,7 @@ class WorkoutRepository {
   }
 
   /// 記一組新的組數。
+  @override
   Future<void> addSet(WorkoutSet set) async {
     await _db.into(_db.workoutSets).insert(set.toCompanion());
   }
@@ -102,6 +138,7 @@ class WorkoutRepository {
   /// 更新既有組數的內容(重量/次數/RPE/暖身/休息秒數)。[set.volume] 由
   /// [WorkoutSet] 建構子依 weight × reps 自動算好,這裡照抄寫入,呼叫端
   /// 不需要另外算。
+  @override
   Future<void> updateSet(WorkoutSet set) async {
     final rowsAffected = await (_db.update(_db.workoutSets)..where((t) => t.id.equals(set.id)))
         .write(db.WorkoutSetsCompanion(
@@ -121,6 +158,7 @@ class WorkoutRepository {
   /// 刪除一組組數,並把同一動作下剩餘組數的 `setNumber` 重新編號成連續的
   /// 1..N(對照 iOS `WorkoutViewModel.deleteSet` 的 renumber 行為——不留
   /// 編號空洞)。單一 transaction,刪除與重編號要嘛都成功要嘛都不生效。
+  @override
   Future<void> deleteSet(String setId, {required String workoutExerciseId}) async {
     await _db.transaction(() async {
       final rowsAffected =
@@ -150,6 +188,7 @@ class WorkoutRepository {
   /// `endedAt` 已非 null)時 rowsAffected 為 0,靜默視為冪等 no-op,不拋錯
   /// ——對照 [WorkoutController.abandonWorkout]/`discardRecoverableDraft`
   /// 的冪等呼叫慣例(連續呼叫兩次都必須安全)。
+  @override
   Future<void> discardDraft(String workoutId) async {
     await (_db.delete(_db.workouts)
           ..where((t) => t.id.equals(workoutId) & t.endedAt.isNull()))
@@ -168,6 +207,7 @@ class WorkoutRepository {
   /// 參照(callback 的 `t`,或 `_db.workouts` 本身)傳進來,依賴關係看得到。
   Expression<bool> _isCompleted(db.$WorkoutsTable table) => table.endedAt.isNotNull();
 
+  @override
   Future<List<Workout>> fetchAll() async {
     final rows = await (_db.select(_db.workouts)
           ..where((t) => _isCompleted(t))
@@ -177,8 +217,10 @@ class WorkoutRepository {
   }
 
   /// 獲取所有訓練記錄(別名方法,對照 Swift `getAllWorkouts`)。
+  @override
   Future<List<Workout>> getAllWorkouts() => fetchAll();
 
+  @override
   Future<Workout?> fetchById(String id) async {
     final row = await (_db.select(_db.workouts)..where((t) => t.id.equals(id)))
         .getSingleOrNull();
@@ -187,12 +229,14 @@ class WorkoutRepository {
   }
 
   /// 根據 ID 獲取訓練(別名方法,對照 Swift `getWorkout(by:)`)。
+  @override
   Future<Workout?> getWorkout(String id) => fetchById(id);
 
   /// 查詢目前使用者「進行中」的訓練草稿(`endedAt IS NULL`)——重啟恢復流程
   /// 用這個判斷要不要彈「繼續上次訓練 / 放棄」對話框。理論上同一使用者
   /// 至多一筆草稿(UI 層 [WorkoutController] 會擋開始訓練連點/已有草稿時
   /// 再開始);萬一意外存在多筆,取 `startedAt` 最新的一筆。
+  @override
   Future<Workout?> fetchDraft(String userId) async {
     final row = await (_db.select(_db.workouts)
           ..where((t) => t.userId.equals(userId) & t.endedAt.isNull())
@@ -203,6 +247,7 @@ class WorkoutRepository {
     return _hydrate(row);
   }
 
+  @override
   Future<List<Workout>> fetchByDateRange(DateTime from, DateTime to) async {
     final rows = await (_db.select(_db.workouts)
           ..where((t) => t.startedAt.isBetweenValues(from, to) & _isCompleted(t))
@@ -211,6 +256,7 @@ class WorkoutRepository {
     return [for (final row in rows) await _hydrate(row)];
   }
 
+  @override
   Future<List<Workout>> fetchRecent(int limit) async {
     final rows = await (_db.select(_db.workouts)
           ..where((t) => _isCompleted(t))
@@ -224,6 +270,7 @@ class WorkoutRepository {
 
   /// 更新訓練記錄的基本屬性(對照 Swift `update`:只更新
   /// endedAt/duration/統計欄位/note,不重寫 exercises/sets)。
+  @override
   Future<void> update(Workout workout) async {
     final rowsAffected = await (_db.update(_db.workouts)
           ..where((t) => t.id.equals(workout.id)))
@@ -247,6 +294,7 @@ class WorkoutRepository {
   // MARK: - Delete
 
   /// 刪除訓練記錄(exercises/sets 透過 FK cascade 一併刪除,見 tables.dart)。
+  @override
   Future<void> delete(String id) async {
     await (_db.delete(_db.workouts)..where((t) => t.id.equals(id))).go();
   }
@@ -254,6 +302,7 @@ class WorkoutRepository {
   /// 批量刪除舊訓練(清理數據)。只清「已完成」的訓練——進行中草稿
   /// (`endedAt IS NULL`)不管 `startedAt` 多舊都不在清理範圍內,理由同
   /// [_isCompleted] 文件:草稿不該被「已完成訓練」語意的批次操作誤傷。
+  @override
   Future<void> deleteOlderThan(DateTime date) async {
     await (_db.delete(_db.workouts)
           ..where((t) => t.startedAt.isSmallerThanValue(date) & _isCompleted(t)))
@@ -263,6 +312,7 @@ class WorkoutRepository {
   // MARK: - Statistics
 
   /// 計算總容量(指定時間範圍)。草稿(`endedAt IS NULL`)不計入。
+  @override
   Future<double> calculateTotalVolume({DateTime? from, DateTime? to}) async {
     final query = _db.selectOnly(_db.workouts)
       ..addColumns([_db.workouts.totalVolume.sum()])
@@ -278,6 +328,7 @@ class WorkoutRepository {
   }
 
   /// 計算訓練次數。草稿(`endedAt IS NULL`)不計入。
+  @override
   Future<int> countWorkouts({DateTime? from, DateTime? to}) async {
     final query = _db.selectOnly(_db.workouts)
       ..addColumns([_db.workouts.id.count()])
@@ -304,6 +355,7 @@ class WorkoutRepository {
   /// 繞過 controller 直接呼叫 repository,或 state 已經失準的情境)。
   /// 整個計算與寫入包在單一 transaction 內,讀到的 exercises/sets 與最終
   /// 寫入的統計欄位一致,不會被同時發生的其他寫入插隊。
+  @override
   Future<Workout> completeWorkout(String workoutId, {DateTime? endedAt}) {
     return _db.transaction(() async {
       final workoutRow = await (_db.select(_db.workouts)..where((t) => t.id.equals(workoutId)))
@@ -365,6 +417,7 @@ class WorkoutRepository {
   /// 不對。**`isSynced` 刻意不動**:目前沒有任何消費者讀它,要不要在這裡
   /// 順手撥 false 留給同步波實作時一併決定,不在這裡搶著猜。整個計算與
   /// 寫入包在單一 transaction 內。
+  @override
   Future<Workout> recomputeSummary(String workoutId) {
     return _db.transaction(() async {
       final workoutRow = await (_db.select(_db.workouts)..where((t) => t.id.equals(workoutId)))

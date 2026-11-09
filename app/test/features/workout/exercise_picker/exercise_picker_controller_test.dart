@@ -44,7 +44,7 @@ import '../../../data/test_helpers.dart';
 /// `fetchByCategory` 可用外部 [Completer] 控制何時回傳——用來製造「使用者
 /// 快速連點兩個分類、較早點的那個查詢反而較晚回來」的競態情境。沒有掛
 /// gate 的 categoryId 照常直接返回(真實查詢),不影響其他測試路徑。
-class _GatedCategoryExerciseRepository extends ExerciseRepository {
+class _GatedCategoryExerciseRepository extends DriftExerciseRepository {
   _GatedCategoryExerciseRepository(super.db);
 
   final Map<String, Completer<void>> gates = {};
@@ -57,7 +57,7 @@ class _GatedCategoryExerciseRepository extends ExerciseRepository {
   }
 }
 
-class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
+class _ThrowingFetchByCategoryRepository extends DriftExerciseRepository {
   _ThrowingFetchByCategoryRepository(super.db);
 
   @override
@@ -108,7 +108,7 @@ Future<_Harness> _setUpHarness({
   if (seedUser) {
     await seedTestUser(db);
   }
-  final exerciseRepo = exerciseRepoBuilder?.call(db) ?? ExerciseRepository(db);
+  final exerciseRepo = exerciseRepoBuilder?.call(db) ?? DriftExerciseRepository(db);
 
   final container = ProviderContainer(
     overrides: [

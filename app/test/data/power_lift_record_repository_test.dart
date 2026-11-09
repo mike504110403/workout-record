@@ -14,7 +14,7 @@ void main() {
   setUp(() async {
     db = openTestDatabase();
     await seedTestUser(db);
-    repository = PowerLiftRecordRepository(db);
+    repository = DriftPowerLiftRecordRepository(db);
   });
 
   tearDown(() async => db.close());

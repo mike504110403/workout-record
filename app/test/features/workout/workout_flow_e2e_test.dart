@@ -112,7 +112,7 @@ void main() {
     '自由訓練:選動作→記一暖身一正式組→完成→summary 顯示排除暖身的統計→首頁今日卡反映',
     (tester) async {
       final harness = await _setUpLoggedInHarness();
-      final exercises = await ExerciseRepository(harness.db).fetchAll();
+      final exercises = await DriftExerciseRepository(harness.db).fetchAll();
       final targetExercise = exercises.first;
 
       await _pumpApp(tester, harness);
@@ -130,7 +130,7 @@ void main() {
 
       // 動作已加入草稿——獨立 SELECT 取得這個 WorkoutExercise 的 id,才能
       // 點對應的「新增組數」按鈕(key 帶 workoutExercise id,不是 exercise id)。
-      final workoutRepo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final workoutRepo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
       final draftAfterAddExercise = await workoutRepo.fetchDraft(testUserId);
       expect(draftAfterAddExercise, isNotNull);
       final workoutExerciseId = draftAfterAddExercise!.exercises.single.id;
@@ -205,7 +205,7 @@ void main() {
     await tester.tap(find.byKey(Key('templatePickerCardTap_${await _systemTemplateId(harness.db, '全身訓練')}')));
     await tester.pumpAndSettle();
 
-    final workoutRepo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+    final workoutRepo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
     final draft = await workoutRepo.fetchDraft(testUserId);
     expect(draft, isNotNull);
     expect(draft!.exercises, hasLength(5)); // 全身訓練模板固定 5 個動作

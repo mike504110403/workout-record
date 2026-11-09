@@ -13,11 +13,23 @@ import 'package:drift/drift.dart';
 
 import '../db/app_database.dart';
 
-class UserRepository {
-  UserRepository(this._db);
+/// UserRepository 的資料存取介面(公開方法簽名即原本 Drift 實作的公開 API)。
+///
+/// 實作:[DriftUserRepository](本機 Drift,`USE_MOCK`/測試/未設定 Supabase 時使用)、
+/// `SupabaseUserRepository`(`supabase/supabase_user_repository.dart`)。由
+/// `data/providers.dart` 依 `supabaseClientProvider` 切換。各方法語義以
+/// [DriftUserRepository] 的文件為準,Supabase 版的差異寫在該實作的類別文件。
+abstract interface class UserRepository {
+  Future<User?> getById(String id);
+  Future<bool> ensure(String id, {String? name, String? email});
+}
+
+class DriftUserRepository implements UserRepository {
+  DriftUserRepository(this._db);
 
   final AppDatabase _db;
 
+  @override
   Future<User?> getById(String id) =>
       (_db.select(_db.users)..where((t) => t.id.equals(id))).getSingleOrNull();
 
@@ -26,6 +38,7 @@ class UserRepository {
   /// 拿這個結果決定要不要另外寫一筆初始 BodyWeight(只有真正新建的使用者
   /// 才該有「初始體重」,沿用既有 row 不該重複寫,見重複初始體重回歸修正,
   /// review 2026-07-30)。
+  @override
   Future<bool> ensure(String id, {String? name, String? email}) async {
     final existing = await getById(id);
     if (existing != null) return false;

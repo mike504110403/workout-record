@@ -21,7 +21,7 @@ import '../../../data/test_helpers.dart';
 /// (controller.build() 的初始查詢)永遠不受控制、直接放行;之後每呼叫一次
 /// [addGate],下一次 `fetchByDateRange` 呼叫就會卡在該 gate,直到測試呼叫
 /// `complete()`。
-class _GatedWorkoutRepository extends WorkoutRepository {
+class _GatedWorkoutRepository extends DriftWorkoutRepository {
   _GatedWorkoutRepository(super.db, super.exerciseRepository);
 
   final List<Completer<void>> _gates = [];
@@ -53,7 +53,7 @@ void main() {
       final db = openTestDatabase();
       addTearDown(db.close);
       await seedTestUser(db);
-      final repo = _GatedWorkoutRepository(db, ExerciseRepository(db));
+      final repo = _GatedWorkoutRepository(db, DriftExerciseRepository(db));
 
       final container = ProviderContainer(
         overrides: [

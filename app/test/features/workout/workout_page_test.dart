@@ -50,7 +50,7 @@ Future<_Harness> _setUpHarness() async {
 /// `startedAt` 用整秒的字面量(不用 `DateTime.now()`)避免 DB 往返的時間
 /// 精度落差影響比對。
 Future<String> _seedDraft(AppDatabase db, {String workoutId = 'recoverable-draft-1'}) async {
-  final repo = WorkoutRepository(db, ExerciseRepository(db));
+  final repo = DriftWorkoutRepository(db, DriftExerciseRepository(db));
   final startedAt = DateTime(2026, 3, 1, 9, 0);
   await repo.create(Workout(
     id: workoutId,
@@ -95,7 +95,7 @@ void main() {
     testWidgets('有草稿 → 彈對話框 → 放棄 → state 仍是 idle,DB 查不到該列', (tester) async {
       final harness = await _setUpHarness();
       final workoutId = await _seedDraft(harness.db);
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await _pumpPage(tester, harness);
 

@@ -6,7 +6,7 @@
 //
 // 失敗測試用的四個 _Throwing*Controller 是刻意讓 setXxx() 拋例外的真
 // Controller 子類——跟 dashboard_page_test.dart 的
-// `_ThrowingBodyWeightRepository extends BodyWeightRepository` 是同一套「用
+// `_ThrowingBodyWeightRepository extends DriftBodyWeightRepository` 是同一套「用
 // override 換掉單一方法」慣例,不需要額外的 mock 套件。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

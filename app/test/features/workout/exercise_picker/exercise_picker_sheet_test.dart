@@ -28,7 +28,7 @@ import '../../../data/test_helpers.dart';
 /// 建立自訂動作寫入失敗的 `create()`,其餘方法沿用真實實作——用來驗證
 /// quick add 表單的失敗路徑真的會浮出錯誤、解除 loading,而不是
 /// fire-and-forget(brief 常備紀律)。
-class _ThrowingCreateExerciseRepository extends ExerciseRepository {
+class _ThrowingCreateExerciseRepository extends DriftExerciseRepository {
   _ThrowingCreateExerciseRepository(super.db);
 
   @override
@@ -40,7 +40,7 @@ class _ThrowingCreateExerciseRepository extends ExerciseRepository {
 /// `fetchByCategory` 一律拋錯——用來驗證分類切換失敗時,畫面上真的浮出
 /// code review major 1 要求的 inline 錯誤提示(`exercise_picker_category_error`),
 /// 不是靜默吞掉。
-class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
+class _ThrowingFetchByCategoryRepository extends DriftExerciseRepository {
   _ThrowingFetchByCategoryRepository(super.db);
 
   @override
@@ -60,7 +60,7 @@ class _ThrowingFetchByCategoryRepository extends ExerciseRepository {
 /// 分歧(例如 fetchByCategory 多了 fetchAll 沒有的條件,或反過來)」的情境
 /// ——`fetchAll()` 查真實 DB,永遠找不到這筆合成動作,聯集邏輯若被移除,
 /// 靠它勾選的動作在確認當下真的會消失,測試才有辦法變紅。
-class _CategoryOnlyBonusExerciseRepository extends ExerciseRepository {
+class _CategoryOnlyBonusExerciseRepository extends DriftExerciseRepository {
   _CategoryOnlyBonusExerciseRepository(super.db);
 
   static final categoryOnlyBonusExercise = Exercise(
@@ -137,7 +137,7 @@ Future<_Harness> _setUpHarness({
   final db = openTestDatabase();
   addTearDown(db.close);
   await seedTestUser(db);
-  final exerciseRepo = exerciseRepoBuilder?.call(db) ?? ExerciseRepository(db);
+  final exerciseRepo = exerciseRepoBuilder?.call(db) ?? DriftExerciseRepository(db);
   return (db: db, prefs: prefs, exerciseRepo: exerciseRepo);
 }
 

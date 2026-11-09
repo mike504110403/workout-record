@@ -49,7 +49,7 @@ Future<_Harness> _setUpHarness({WeightUnit? weightUnit}) async {
 }
 
 Future<Exercise> _firstSystemExercise(AppDatabase db) async {
-  final exercises = await ExerciseRepository(db).fetchSystemExercises();
+  final exercises = await DriftExerciseRepository(db).fetchSystemExercises();
   return exercises.first;
 }
 
@@ -135,7 +135,7 @@ void main() {
         (tester) async {
       final harness = await harnessWithDraft(tester);
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await tester.tap(find.byKey(const Key('abandonWorkoutButton')));
       await tester.pumpAndSettle();
@@ -153,7 +153,7 @@ void main() {
     testWidgets('點放棄 → 彈確認框 → 確定 → 草稿刪除,畫面切回開始畫面', (tester) async {
       final harness = await harnessWithDraft(tester);
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await tester.tap(find.byKey(const Key('abandonWorkoutButton')));
       await tester.pumpAndSettle();
@@ -299,7 +299,7 @@ void main() {
       await tester.tap(find.byKey(const Key('addSetSaveButton')));
       await tester.pumpAndSettle();
 
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
       final saved = await repo.fetchById(workoutId);
       final setWeight = saved!.exercises.single.sets.single.weight;

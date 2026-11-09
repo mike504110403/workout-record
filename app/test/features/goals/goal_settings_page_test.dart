@@ -50,7 +50,7 @@ import '../../data/test_helpers.dart';
 /// 失敗路徑用:只覆寫 `createOrUpdate`,其餘方法(含 `fetchByUser`,頁面初次
 /// 載入需要它)沿用真實實作(仿 dashboard_page_test.dart 的
 /// `_ThrowingBodyWeightRepository` 慣例)。
-class _ThrowingUserGoalRepository extends UserGoalRepository {
+class _ThrowingUserGoalRepository extends DriftUserGoalRepository {
   _ThrowingUserGoalRepository(super.db);
 
   @override
@@ -62,7 +62,7 @@ class _ThrowingUserGoalRepository extends UserGoalRepository {
 /// 初次載入失敗路徑用:`build()` 內第一個 await 的 `fetchByUser()` 就拋錯,
 /// 讓 `goalSettingsControllerProvider` 落入 `AsyncError`(仿
 /// dashboard_page_test.dart 的 `_ThrowingOnLoadBodyWeightRepository`)。
-class _ThrowingOnLoadUserGoalRepository extends UserGoalRepository {
+class _ThrowingOnLoadUserGoalRepository extends DriftUserGoalRepository {
   _ThrowingOnLoadUserGoalRepository(super.db);
 
   @override
@@ -74,7 +74,7 @@ class _ThrowingOnLoadUserGoalRepository extends UserGoalRepository {
 /// 重試恢復路徑用:只有第一次呼叫 `fetchByUser()` 拋錯,之後恢復正常——
 /// 模擬「暫時性失敗,重試就好了」的情境(仿 dashboard_page_test.dart 的
 /// `_FlakyBodyWeightRepository`)。
-class _FlakyUserGoalRepository extends UserGoalRepository {
+class _FlakyUserGoalRepository extends DriftUserGoalRepository {
   _FlakyUserGoalRepository(super.db);
 
   var _callCount = 0;
@@ -90,7 +90,7 @@ class _FlakyUserGoalRepository extends UserGoalRepository {
 }
 
 class _Harness {
-  _Harness(this.db, this.container) : userGoalRepo = UserGoalRepository(db);
+  _Harness(this.db, this.container) : userGoalRepo = DriftUserGoalRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;

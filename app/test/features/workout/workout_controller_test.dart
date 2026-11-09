@@ -27,7 +27,7 @@ typedef _Harness = ({AppDatabase db, ProviderContainer container});
 /// M4 失敗路徑測試專用:模擬 `WorkoutRepository.completeWorkout` 寫入失敗。
 /// 只覆寫這一個方法,其餘沿用真實實作,對照
 /// templates_crud_test.dart `_ThrowingCreateTemplateRepository` 既有慣例。
-class _ThrowingCompleteWorkoutRepository extends WorkoutRepository {
+class _ThrowingCompleteWorkoutRepository extends DriftWorkoutRepository {
   _ThrowingCompleteWorkoutRepository(super.db, super.exerciseRepository);
 
   @override
@@ -37,7 +37,7 @@ class _ThrowingCompleteWorkoutRepository extends WorkoutRepository {
 }
 
 /// M4 失敗路徑測試專用:模擬 `WorkoutRepository.discardDraft` 寫入失敗。
-class _ThrowingDiscardDraftRepository extends WorkoutRepository {
+class _ThrowingDiscardDraftRepository extends DriftWorkoutRepository {
   _ThrowingDiscardDraftRepository(super.db, super.exerciseRepository);
 
   @override
@@ -70,7 +70,7 @@ Future<_Harness> _setUpHarness({
 }
 
 Future<Exercise> _firstSystemExercise(AppDatabase db) async {
-  final exercises = await ExerciseRepository(db).fetchSystemExercises();
+  final exercises = await DriftExerciseRepository(db).fetchSystemExercises();
   return exercises.first;
 }
 
@@ -131,7 +131,7 @@ void main() {
       final harness = await _setUpHarness();
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await notifier.startFreeWorkout();
       final firstDraftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
@@ -358,7 +358,7 @@ void main() {
     // `WorkoutRepository.completeWorkout` 的 StateError:Workout not found)。
     test('完成訓練連點/完成後再完成 → 冪等,不重複結算、不重複 PR', () async {
       final notifier = harness.container.read(workoutControllerProvider.notifier);
-      final prRepo = PersonalRecordRepository(harness.db, ExerciseRepository(harness.db));
+      final prRepo = DriftPersonalRecordRepository(harness.db, DriftExerciseRepository(harness.db));
 
       final firstOutcome = await notifier.completeWorkout();
       expect(firstOutcome, isA<WorkoutCompleted>());
@@ -384,7 +384,7 @@ void main() {
     // 釘住的是外部可觀察契約:不管內部怎麼實作,呼叫兩次都必須安全。
     test('放棄確認後再放棄 → no-op', () async {
       final notifier = harness.container.read(workoutControllerProvider.notifier);
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
 
       await notifier.abandonWorkout();
@@ -482,7 +482,7 @@ void main() {
       final exercise = await _firstSystemExercise(harness.db);
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await notifier.startFreeWorkout();
       await notifier.addExercise(exercise);
@@ -499,7 +499,7 @@ void main() {
       final harness = await _setUpHarness();
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
-      final repo = WorkoutRepository(harness.db, ExerciseRepository(harness.db));
+      final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
 
       await notifier.startFreeWorkout();
       await notifier.abandonWorkout();
@@ -529,7 +529,7 @@ void main() {
     // 呼叫前一刻設成 isCompleting:true 的那個中間態)。
     test('completeWorkout 失敗路徑:寫入拋錯 → rethrow,isCompleting 復位且草稿還在', () async {
       final harness = await _setUpHarness(
-        workoutRepoBuilder: (db) => _ThrowingCompleteWorkoutRepository(db, ExerciseRepository(db)),
+        workoutRepoBuilder: (db) => _ThrowingCompleteWorkoutRepository(db, DriftExerciseRepository(db)),
       );
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
@@ -552,7 +552,7 @@ void main() {
     // state,這則測試會紅(isAbandoning 停在 true)。
     test('abandonWorkout 失敗路徑:寫入拋錯 → rethrow,isAbandoning 復位且草稿還在', () async {
       final harness = await _setUpHarness(
-        workoutRepoBuilder: (db) => _ThrowingDiscardDraftRepository(db, ExerciseRepository(db)),
+        workoutRepoBuilder: (db) => _ThrowingDiscardDraftRepository(db, DriftExerciseRepository(db)),
       );
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
@@ -581,7 +581,7 @@ void main() {
         () async {
       final harness = await _setUpHarness();
       final exercise = await _firstSystemExercise(harness.db);
-      final prRepo = PersonalRecordRepository(harness.db, ExerciseRepository(harness.db));
+      final prRepo = DriftPersonalRecordRepository(harness.db, DriftExerciseRepository(harness.db));
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
 

@@ -51,7 +51,7 @@ void main() {
 
     workoutRepo = container.read(workoutRepositoryProvider);
     prRepo = container.read(personalRecordRepositoryProvider);
-    final exerciseRepo = ExerciseRepository(db);
+    final exerciseRepo = DriftExerciseRepository(db);
     exerciseId = (await exerciseRepo.fetchSystemExercises()).first.id;
   });
 

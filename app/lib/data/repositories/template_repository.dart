@@ -5,13 +5,28 @@ import '../models/exercise.dart';
 import '../models/workout_template.dart';
 import 'exercise_repository.dart';
 
+/// TemplateRepository 的資料存取介面(公開方法簽名即原本 Drift 實作的公開 API)。
+///
+/// 實作:[DriftTemplateRepository](本機 Drift,`USE_MOCK`/測試/未設定 Supabase 時使用)、
+/// `SupabaseTemplateRepository`(`supabase/supabase_template_repository.dart`)。由
+/// `data/providers.dart` 依 `supabaseClientProvider` 切換。各方法語義以
+/// [DriftTemplateRepository] 的文件為準,Supabase 版的差異寫在該實作的類別文件。
+abstract interface class TemplateRepository {
+  Future<void> create(WorkoutTemplate template);
+  Future<List<WorkoutTemplate>> fetchAll(String userId);
+  Future<WorkoutTemplate?> fetchById(String id);
+  Future<List<WorkoutTemplate>> fetchSystemTemplates();
+  Future<void> update(WorkoutTemplate template);
+  Future<void> delete(String id);
+}
+
 /// 訓練模板的資料存取層。對照 iOS 版
 /// `ios/WorkoutRecord/WorkoutRecord/Sources/Repositories/TemplateRepository.swift`。
 ///
 /// 呼叫端需自行為 [TemplateExercise.id] 產生唯一值(如同其他 repository,
 /// id 產生不是 data 層的職責)。
-class TemplateRepository {
-  TemplateRepository(this._db, this._exerciseRepository);
+class DriftTemplateRepository implements TemplateRepository {
+  DriftTemplateRepository(this._db, this._exerciseRepository);
 
   final db.AppDatabase _db;
   final ExerciseRepository _exerciseRepository;
@@ -19,6 +34,7 @@ class TemplateRepository {
   // MARK: - Create
 
   /// 建立模板,連同其下的 template exercises 一併寫入(單一 transaction)。
+  @override
   Future<void> create(WorkoutTemplate template) async {
     await _db.transaction(() async {
       await _db.into(_db.templates).insert(template.toCompanion());
@@ -44,6 +60,7 @@ class TemplateRepository {
   /// 跟 fetchSystemTemplates() 撈到的同一筆重複列出兩次。加這個條件讓
   /// fetchAll 名副其實只回傳個人模板,系統模板一律只從 fetchSystemTemplates()
   /// 出現一次。
+  @override
   Future<List<WorkoutTemplate>> fetchAll(String userId) async {
     final rows = await (_db.select(_db.templates)
           ..where((t) => t.userId.equals(userId) & t.isSystem.equals(false))
@@ -54,6 +71,7 @@ class TemplateRepository {
     return [for (final row in rows) await _hydrate(row)];
   }
 
+  @override
   Future<WorkoutTemplate?> fetchById(String id) async {
     final row = await (_db.select(_db.templates)..where((t) => t.id.equals(id)))
         .getSingleOrNull();
@@ -61,6 +79,7 @@ class TemplateRepository {
     return _hydrate(row);
   }
 
+  @override
   Future<List<WorkoutTemplate>> fetchSystemTemplates() async {
     final rows = await (_db.select(_db.templates)
           ..where((t) => t.isSystem.equals(true))
@@ -73,6 +92,7 @@ class TemplateRepository {
 
   /// 更新模板基本資訊,並整批重建 template exercises(對照 Swift `update`:
   /// 刪除舊的動作關聯,再依 [template.exercises] 建立新的)。
+  @override
   Future<void> update(WorkoutTemplate template) async {
     await _db.transaction(() async {
       final rowsAffected = await (_db.update(_db.templates)
@@ -110,6 +130,7 @@ class TemplateRepository {
 
   // MARK: - Delete
 
+  @override
   Future<void> delete(String id) async {
     await (_db.delete(_db.templates)
           ..where((t) => t.id.equals(id) & t.isSystem.equals(false)))

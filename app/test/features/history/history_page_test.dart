@@ -108,7 +108,7 @@ WorkoutSet _buildSet({
 /// M4/失敗路徑測試專用:模擬 `WorkoutRepository.delete` 拋錯(例如 DB 被
 /// 鎖)。只覆寫 delete,其餘方法(fetchAll/fetchByDateRange/fetchById)沿用
 /// 真實實作,指向同一個 db。
-class _ThrowingDeleteWorkoutRepository extends WorkoutRepository {
+class _ThrowingDeleteWorkoutRepository extends DriftWorkoutRepository {
   _ThrowingDeleteWorkoutRepository(super.db, super.exerciseRepository);
 
   @override
@@ -119,8 +119,8 @@ class _ThrowingDeleteWorkoutRepository extends WorkoutRepository {
 
 class _HistoryHarness {
   _HistoryHarness(this.db, this.container)
-    : workoutRepo = WorkoutRepository(db, ExerciseRepository(db)),
-      exerciseRepo = ExerciseRepository(db);
+    : workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db)),
+      exerciseRepo = DriftExerciseRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -290,7 +290,7 @@ void main() {
 
     testWidgets('刪除失敗:UI 解除 loading、浮出錯誤、該筆仍在列表與 DB 內', (tester) async {
       final harness = await _setUpHarness(
-        workoutRepoBuilder: (db) => _ThrowingDeleteWorkoutRepository(db, ExerciseRepository(db)),
+        workoutRepoBuilder: (db) => _ThrowingDeleteWorkoutRepository(db, DriftExerciseRepository(db)),
         disableAutoRetry: true,
       );
       // 種子資料透過 harness.workoutRepo(真實 repository,同一個 db)寫入,
@@ -561,7 +561,7 @@ void main() {
     // 處理(`_isDeleting` 旗標 + try/catch),沒有測試守著。
     testWidgets('刪除按鈕:刪除失敗 → 解除 loading(按鈕恢復可按)、浮出錯誤、停留在詳情頁,該筆仍在列表與 DB', (tester) async {
       final harness = await _setUpHarness(
-        workoutRepoBuilder: (db) => _ThrowingDeleteWorkoutRepository(db, ExerciseRepository(db)),
+        workoutRepoBuilder: (db) => _ThrowingDeleteWorkoutRepository(db, DriftExerciseRepository(db)),
         disableAutoRetry: true,
       );
       await harness.workoutRepo.create(_buildWorkout(id: 'w-1', startedAt: DateTime.now()));

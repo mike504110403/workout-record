@@ -51,8 +51,8 @@ Workout _buildWorkout({required String id, required DateTime startedAt}) {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : userGoalRepo = UserGoalRepository(db),
-        workoutRepo = WorkoutRepository(db, ExerciseRepository(db));
+      : userGoalRepo = DriftUserGoalRepository(db),
+        workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;

@@ -21,8 +21,8 @@ import '../../../data/test_helpers.dart';
 
 class _Harness {
   _Harness(this.db, this.container)
-      : exerciseRepo = ExerciseRepository(db),
-        personalRecordRepo = PersonalRecordRepository(db, ExerciseRepository(db));
+      : exerciseRepo = DriftExerciseRepository(db),
+        personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;

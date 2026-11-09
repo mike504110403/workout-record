@@ -19,8 +19,8 @@ void main() {
   setUp(() async {
     db = openTestDatabase();
     await seedTestUser(db);
-    exerciseRepository = ExerciseRepository(db);
-    repository = TemplateRepository(db, exerciseRepository);
+    exerciseRepository = DriftExerciseRepository(db);
+    repository = DriftTemplateRepository(db, exerciseRepository);
 
     final systemExercises = await exerciseRepository.fetchSystemExercises();
     exerciseIds = systemExercises.take(5).map((e) => e.id).toList();

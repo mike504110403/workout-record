@@ -69,7 +69,7 @@ void main() {
     // 在使用者切走的期間,資料庫多了一筆今日訓練(模擬波 3「記完訓練切回
     // 首頁」或「跨午夜後今日概覽該換一批資料」的場景)。
     final now = DateTime.now();
-    await WorkoutRepository(db, ExerciseRepository(db)).create(
+    await DriftWorkoutRepository(db, DriftExerciseRepository(db)).create(
       Workout(
         id: 'landed-while-away',
         userId: testUserId,

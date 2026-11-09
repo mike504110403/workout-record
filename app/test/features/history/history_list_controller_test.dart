@@ -50,7 +50,7 @@ Workout _buildWorkout({required String id, required DateTime startedAt}) {
 /// null),`delete()`/`fetchByDateRange()` 等其他方法完全沿用真實實作,不
 /// 受影響——這樣才能驗證「state 還沒載入完成時呼叫 deleteWorkout,delete
 /// 本身仍然真的執行」。
-class _GatedFetchAllWorkoutRepository extends WorkoutRepository {
+class _GatedFetchAllWorkoutRepository extends DriftWorkoutRepository {
   _GatedFetchAllWorkoutRepository(super.db, super.exerciseRepository);
 
   Completer<void>? fetchAllGate;
@@ -74,8 +74,8 @@ void main() {
         addTearDown(db.close);
         await seedTestUser(db);
 
-        final gatedRepo = _GatedFetchAllWorkoutRepository(db, ExerciseRepository(db));
-        final realRepo = WorkoutRepository(db, ExerciseRepository(db));
+        final gatedRepo = _GatedFetchAllWorkoutRepository(db, DriftExerciseRepository(db));
+        final realRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db));
         await realRepo.create(_buildWorkout(id: 'w-not-loaded-yet', startedAt: DateTime.now()));
 
         final container = ProviderContainer(

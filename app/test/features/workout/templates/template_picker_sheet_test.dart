@@ -54,7 +54,7 @@ Future<void> _createPersonalTemplate(
   required String name,
   required List<String> exerciseIds,
 }) async {
-  final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+  final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
   final now = DateTime.now();
   await repo.create(
     WorkoutTemplate(
@@ -114,7 +114,7 @@ Future<Future<AppliedTemplate?>> _pumpPicker(WidgetTester tester, _Harness harne
 void main() {
   testWidgets('分區顯示系統模板與個人模板,每個模板預覽前 3 個動作', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
     await _createPersonalTemplate(
       harness,
       id: 'personal-template-1',
@@ -148,7 +148,7 @@ void main() {
 
   testWidgets('點選個人模板卡片後,onSelect 回傳的 AppliedTemplate 動作數與模板一致', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
     await _createPersonalTemplate(
       harness,
       id: 'personal-template-2',

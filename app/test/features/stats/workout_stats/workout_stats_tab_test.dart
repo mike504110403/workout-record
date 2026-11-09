@@ -121,7 +121,7 @@ WorkoutExercise _workoutExercise({
 /// 修復 M1/m3 風格的失敗路徑測試專用:模擬 `fetchByDateRange` 查詢拋錯,
 /// 讓 workoutStatsControllerProvider 落入 AsyncError,驗證 error 分支真的
 /// 會渲染、重試按鈕真的有效。只覆寫這一個方法,其餘沿用真實實作。
-class _ThrowingWorkoutRepository extends WorkoutRepository {
+class _ThrowingWorkoutRepository extends DriftWorkoutRepository {
   _ThrowingWorkoutRepository(super.db, super.exerciseRepository);
 
   var callCount = 0;
@@ -138,8 +138,8 @@ class _ThrowingWorkoutRepository extends WorkoutRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-    : exerciseRepo = ExerciseRepository(db),
-      workoutRepo = WorkoutRepository(db, ExerciseRepository(db));
+    : exerciseRepo = DriftExerciseRepository(db),
+      workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -165,7 +165,7 @@ Future<_Harness> _setUpHarness({
       if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
       if (useThrowingWorkoutRepo)
         workoutRepositoryProvider.overrideWithValue(
-          _ThrowingWorkoutRepository(db, ExerciseRepository(db)),
+          _ThrowingWorkoutRepository(db, DriftExerciseRepository(db)),
         ),
     ],
   );

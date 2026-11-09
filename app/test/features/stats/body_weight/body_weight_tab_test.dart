@@ -60,7 +60,7 @@ import '../../../data/test_helpers.dart';
 // _ThrowingBodyWeightRepository 慣例:只覆寫要測的那個方法,其餘沿用真實
 // 實作)。
 
-class _ThrowingCreateBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingCreateBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingCreateBodyWeightRepository(super.db);
 
   @override
@@ -69,7 +69,7 @@ class _ThrowingCreateBodyWeightRepository extends BodyWeightRepository {
   }
 }
 
-class _ThrowingUpdateBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingUpdateBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingUpdateBodyWeightRepository(super.db);
 
   @override
@@ -78,7 +78,7 @@ class _ThrowingUpdateBodyWeightRepository extends BodyWeightRepository {
   }
 }
 
-class _ThrowingDeleteBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingDeleteBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingDeleteBodyWeightRepository(super.db);
 
   @override
@@ -90,7 +90,7 @@ class _ThrowingDeleteBodyWeightRepository extends BodyWeightRepository {
 /// 載入失敗路徑用:`_load()` 第一個 await 的 repository 呼叫就拋錯,讓
 /// `bodyWeightTabControllerProvider` 落入 `AsyncError`(仿
 /// dashboard_page_test.dart 的 `_ThrowingOnLoadBodyWeightRepository`)。
-class _ThrowingOnLoadBodyWeightRepository extends BodyWeightRepository {
+class _ThrowingOnLoadBodyWeightRepository extends DriftBodyWeightRepository {
   _ThrowingOnLoadBodyWeightRepository(super.db);
 
   @override
@@ -102,7 +102,7 @@ class _ThrowingOnLoadBodyWeightRepository extends BodyWeightRepository {
 /// 重試恢復路徑用:只有第一次呼叫 `fetchAll()` 拋錯,之後恢復正常——模擬
 /// 「暫時性失敗,重試就好了」的情境(仿 dashboard_page_test.dart 的
 /// `_FlakyBodyWeightRepository`)。
-class _FlakyBodyWeightRepository extends BodyWeightRepository {
+class _FlakyBodyWeightRepository extends DriftBodyWeightRepository {
   _FlakyBodyWeightRepository(super.db);
 
   var _callCount = 0;
@@ -119,8 +119,8 @@ class _FlakyBodyWeightRepository extends BodyWeightRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : bodyWeightRepo = BodyWeightRepository(db),
-        userGoalRepo = UserGoalRepository(db);
+      : bodyWeightRepo = DriftBodyWeightRepository(db),
+        userGoalRepo = DriftUserGoalRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;

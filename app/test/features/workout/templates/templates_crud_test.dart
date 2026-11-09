@@ -25,7 +25,7 @@ import '../../../data/test_helpers.dart';
 /// M1 失敗路徑測試專用:模擬 `TemplateRepository.create` 寫入失敗(例如
 /// 磁碟已滿、DB 被鎖)。只覆寫 create,其餘方法沿用真實實作,對照
 /// dashboard_page_test.dart 的 `_ThrowingBodyWeightRepository` 既有慣例。
-class _ThrowingCreateTemplateRepository extends TemplateRepository {
+class _ThrowingCreateTemplateRepository extends DriftTemplateRepository {
   _ThrowingCreateTemplateRepository(super.db, super.exerciseRepository);
 
   @override
@@ -105,7 +105,7 @@ Future<void> _pickExercisesInForm(WidgetTester tester, List<String> exerciseIds)
 void main() {
   testWidgets('建立模板:填名稱、挑動作、儲存後列表立即出現該模板(獨立 SELECT 驗證落地)', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
     final pickedIds = exercises.take(2).map((e) => e.id).toList();
 
     await _pumpList(tester, harness);
@@ -132,7 +132,7 @@ void main() {
 
     // 獨立 SELECT(不透過畫面/controller state,重新查一次 repository)驗證
     // 真的落地,不是畫面上看起來對但資料庫沒寫進去。
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final landed = (await repo.fetchAll(testUserId)).singleWhere((t) => t.name == '我的新模板');
     expect(landed.exercises, hasLength(2));
     expect(landed.exercises.map((e) => e.exerciseId).toSet(), pickedIds.toSet());
@@ -140,8 +140,8 @@ void main() {
 
   testWidgets('編輯模板:新增一個動作後,列表與資料庫的動作數都反映更新(獨立 SELECT)', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final now = DateTime.now();
     await repo.create(
       WorkoutTemplate(
@@ -192,8 +192,8 @@ void main() {
       'code-M-A:編輯模板時清空描述 -> 落地為 null(獨立 SELECT),'
       '不是被 copyWith 的 ?? 吃掉、悄悄留著舊描述', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final now = DateTime.now();
     await repo.create(
       WorkoutTemplate(
@@ -250,7 +250,7 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final unchanged = await repo.fetchById(systemTemplate.id);
     expect(unchanged, isNotNull);
     expect(unchanged!.name, systemTemplate.name);
@@ -259,8 +259,8 @@ void main() {
 
   testWidgets('刪除個人模板:確認對話框確認後從列表消失,資料庫也真的刪除(獨立 SELECT)', (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final now = DateTime.now();
     await repo.create(
       WorkoutTemplate(
@@ -315,7 +315,7 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final systemTemplatesAfter = await repo.fetchSystemTemplates();
     expect(systemTemplatesAfter, hasLength(5));
   });
@@ -323,9 +323,9 @@ void main() {
   testWidgets('建立模板失敗時:停留在表單畫面、解除 loading、顯示錯誤 SnackBar', (tester) async {
     final harness = await _setUpHarness(
       templateRepoBuilder: (db) =>
-          _ThrowingCreateTemplateRepository(db, ExerciseRepository(db)),
+          _ThrowingCreateTemplateRepository(db, DriftExerciseRepository(db)),
     );
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
 
     await _pumpList(tester, harness);
 
@@ -351,7 +351,7 @@ void main() {
       'minor:組數欄位打非數字字元 -> 顯示 inline 錯誤且擋下儲存(不是靜默把值變成 null)',
       (tester) async {
     final harness = await _setUpHarness();
-    final exercises = await ExerciseRepository(harness.db).fetchAll();
+    final exercises = await DriftExerciseRepository(harness.db).fetchAll();
 
     await _pumpList(tester, harness);
     await tester.tap(find.byKey(const Key('templateListAddButton')));
@@ -371,7 +371,7 @@ void main() {
 
     // 沒有被存進去:還在表單畫面,且資料庫沒有這筆模板。
     expect(find.byKey(const Key('templateFormNameField')), findsOneWidget);
-    final repo = TemplateRepository(harness.db, ExerciseRepository(harness.db));
+    final repo = DriftTemplateRepository(harness.db, DriftExerciseRepository(harness.db));
     final landed = await repo.fetchAll(testUserId);
     expect(landed.where((t) => t.name == '打錯字的模板'), isEmpty);
   });
