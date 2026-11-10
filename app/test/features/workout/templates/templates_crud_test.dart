@@ -122,12 +122,16 @@ void main() {
     // 回到列表頁,新模板應該立即出現(templatesControllerProvider 在
     // createTemplate 成功後呼叫 refresh(),不需要手動下拉刷新)。
     expect(find.text('我的新模板'), findsOneWidget);
+    // 卡片(原 ListTile,改為 iOS TemplateCard 樣式)預覽出 2 個動作列。
+    final card = find.ancestor(of: find.text('我的新模板'), matching: find.byType(Card));
     expect(
       find.descendant(
-        of: find.ancestor(of: find.text('我的新模板'), matching: find.byType(ListTile)),
-        matching: find.text('2 個動作'),
+        of: card,
+        matching: find.byWidgetPredicate(
+          (w) => w.key is Key && '${w.key}'.contains('templateCardExercise_'),
+        ),
       ),
-      findsOneWidget,
+      findsNWidgets(2),
     );
 
     // 獨立 SELECT(不透過畫面/controller state,重新查一次 repository)驗證
@@ -165,7 +169,8 @@ void main() {
 
     await _pumpList(tester, harness);
 
-    expect(find.text('1 個動作'), findsOneWidget);
+    expect(find.byKey(const Key('templateCardExercise_editable-template_0')), findsOneWidget);
+    expect(find.byKey(const Key('templateCardExercise_editable-template_1')), findsNothing);
 
     await tester.tap(find.byKey(const Key('templateEditButton_editable-template')));
     await tester.pumpAndSettle();
@@ -177,7 +182,7 @@ void main() {
     await tester.tap(find.byKey(const Key('templateFormSaveButton')));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 個動作'), findsOneWidget);
+    expect(find.byKey(const Key('templateCardExercise_editable-template_1')), findsOneWidget);
 
     final landed = await repo.fetchById('editable-template');
     expect(landed, isNotNull);

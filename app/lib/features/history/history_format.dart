@@ -37,3 +37,13 @@ String formatWeightKg(double weight, WeightUnit unit) =>
 /// 容量分布卡的百分比文字,對照 iOS
 /// `String(format: "(%.0f%%)", exercise.percentage)`。
 String formatPercentage(double percentage) => '${percentage.toStringAsFixed(0)}%';
+
+/// 單組休息時間,照搬 iOS `WorkoutDetailView.formatRestTime`
+/// (WorkoutDetailView.swift:367-376):滿 1 分鐘顯示「m:ss」(例如 90 秒 →
+/// 「1:30」,秒數補零),不滿 1 分鐘顯示「Ns」(例如 45 秒 → 「45s」)。
+String formatRestSeconds(int seconds) {
+  final minutes = seconds ~/ 60;
+  final secs = seconds % 60;
+  if (minutes > 0) return '$minutes:${secs.toString().padLeft(2, '0')}';
+  return '${secs}s';
+}

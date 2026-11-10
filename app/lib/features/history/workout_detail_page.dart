@@ -287,6 +287,27 @@ class _ExerciseDetailList extends ConsumerWidget {
                     ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
+                  // 表頭:對照 iOS WorkoutDetailView.swift:283-296(組/重量/次數/
+                  // 休息/容量),欄寬與下方每組列一致。
+                  Padding(
+                    key: Key('workoutDetailSetHeader-${exercise.id}'),
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: DefaultTextStyle.merge(
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      child: const Row(
+                        children: [
+                          SizedBox(width: 56, child: Text('組')),
+                          SizedBox(width: 8),
+                          Expanded(child: Text('重量')),
+                          Expanded(child: Text('次數')),
+                          Expanded(child: Text('休息')),
+                          Expanded(child: Text('容量', textAlign: TextAlign.end)),
+                        ],
+                      ),
+                    ),
+                  ),
                   for (final set in exercise.sets)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -318,6 +339,17 @@ class _ExerciseDetailList extends ConsumerWidget {
                           // double(避免「60.0 kg」這種不必要的浮點尾綴)。
                           Expanded(child: Text(formatWeightKg(set.weight, unit))),
                           Expanded(child: Text('${set.reps} 次')),
+                          // 休息時間:對照 iOS WorkoutDetailView.swift:328-340,
+                          // 有值顯示 formatRestSeconds、無值顯示「-」。
+                          Expanded(
+                            child: Text(
+                              set.restSeconds != null ? formatRestSeconds(set.restSeconds!) : '-',
+                              key: Key('workoutDetailRest_${set.id}'),
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
                           Expanded(
                             child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end),
                           ),
