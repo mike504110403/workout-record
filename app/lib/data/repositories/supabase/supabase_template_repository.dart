@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../models/exercise.dart';
 import '../../models/workout_template.dart';
 import '../template_repository.dart';
 import 'supabase_mapping.dart';
@@ -93,20 +92,5 @@ class SupabaseTemplateRepository implements TemplateRepository {
     await _table.delete().eq('id', id).eq('is_system', false);
   }
 
-  WorkoutTemplate _hydrate(Map<String, dynamic> row) {
-    final children = [
-      for (final child in (row['template_exercises'] as List? ?? const []))
-        Map<String, dynamic>.from(child as Map),
-    ]..sort((a, b) => (a['order_index'] as num).compareTo(b['order_index'] as num));
-
-    final exercises = <TemplateExercise>[];
-    for (final child in children) {
-      final exerciseJson = child['exercises'];
-      final Exercise? exercise = exerciseJson is Map<String, dynamic>
-          ? Exercise.fromRow(exerciseRowFromJson(exerciseJson))
-          : null;
-      exercises.add(TemplateExercise.fromRow(templateExerciseRowFromJson(child), exercise: exercise));
-    }
-    return WorkoutTemplate.fromRow(templateRowFromJson(row), exercises: exercises);
-  }
+  WorkoutTemplate _hydrate(Map<String, dynamic> row) => templateFromNestedJson(row);
 }

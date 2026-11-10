@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../db/app_database.dart' as db;
 import '../../models/exercise.dart';
 import '../../models/workout.dart';
+import '../../models/workout_template.dart';
 
 /// Drift 產生的 SQL 欄名 → Postgres 欄名的例外清單(其餘同名)。
 /// Drift 把 `videoURL` 轉成 `video_u_r_l`,Postgres 這邊用可讀的 `video_url`。
@@ -328,3 +329,34 @@ Map<String, dynamic> workoutToNestedJson(Workout workout) => {
       },
   ],
 };
+
+/// PostgREST 巢狀查詢 `*, template_exercises(*, exercises(*))` 的一列 →
+/// [WorkoutTemplate](動作依 order_index 排序)。離線快取也存這個形狀。
+WorkoutTemplate templateFromNestedJson(Map<String, dynamic> row) {
+  final children = [
+    for (final child in (row['template_exercises'] as List? ?? const []))
+      Map<String, dynamic>.from(child as Map),
+  ]..sort((a, b) => (a['order_index'] as num).compareTo(b['order_index'] as num));
+
+  final exercises = <TemplateExercise>[];
+  for (final child in children) {
+    final exerciseJson = child['exercises'];
+    final Exercise? exercise = exerciseJson is Map
+        ? Exercise.fromRow(exerciseRowFromJson(Map<String, dynamic>.from(exerciseJson)))
+        : null;
+    exercises.add(TemplateExercise.fromRow(templateExerciseRowFromJson(child), exercise: exercise));
+  }
+  return WorkoutTemplate.fromRow(templateRowFromJson(row), exercises: exercises);
+}
+
+/// [templateFromNestedJson] 的反向(離線快取寫入用)。
+Map<String, dynamic> templateToNestedJson(WorkoutTemplate template) => {
+      ...companionToJson(template.toCompanion()),
+      'template_exercises': [
+        for (final e in template.exercises)
+          {
+            ...companionToJson(e.toCompanion()),
+            if (e.exercise != null) 'exercises': companionToJson(e.exercise!.toCompanion()),
+          },
+      ],
+    };

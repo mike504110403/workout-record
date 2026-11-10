@@ -7,6 +7,7 @@ import 'db/app_database.dart';
 import 'repositories/body_weight_repository.dart';
 import 'repositories/exercise_repository.dart';
 import 'repositories/offline/offline_cached_exercise_repository.dart';
+import 'repositories/offline/offline_cached_template_repository.dart';
 import 'repositories/offline/offline_cached_user_repository.dart';
 import 'repositories/offline/offline_draft_workout_repository.dart';
 import 'repositories/personal_record_repository.dart';
@@ -29,9 +30,9 @@ import 'supabase_client.dart';
 // → Drift 實作;非 null(main.dart 初始化 Supabase 後 override)→ Supabase 實作。
 // 見 data/supabase_client.dart。
 //
-// 雲端模式的離線支援(訓練進行中可離線):workout/exercise/user 三個 repository
+// 雲端模式的離線支援(訓練進行中可離線):workout/exercise/user/template 四個 repository
 // 外面各包一層本機裝飾器(data/repositories/offline/)——訓練草稿只存本機、
-// 完成時才一次上傳;動作清單與登入者 users 列成功讀取時快取,網路失敗時回快取。
+// 完成時才一次上傳;動作清單、模板清單與登入者 users 列成功讀取時快取,網路失敗時回快取。
 // 本機儲存用 SharedPreferences(main.dart 已 override [sharedPreferencesProvider])。
 
 String? Function() _currentUid(SupabaseClient client) =>
@@ -73,7 +74,13 @@ final workoutRepositoryProvider = Provider<WorkoutRepository>((ref) {
 
 final templateRepositoryProvider = Provider<TemplateRepository>((ref) {
   final client = ref.watch(supabaseClientProvider);
-  if (client != null) return SupabaseTemplateRepository(client);
+  if (client != null) {
+    return OfflineCachedTemplateRepository(
+      SupabaseTemplateRepository(client),
+      ref.watch(sharedPreferencesProvider),
+      _currentUid(client),
+    );
+  }
   return DriftTemplateRepository(
     ref.watch(appDatabaseProvider),
     ref.watch(exerciseRepositoryProvider),
