@@ -11,6 +11,23 @@ class RestTimerBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 自然倒數結束 → 提示框(對照 iOS `WorkoutView.swift:77-92`;iOS 手動調到 0
+    // 也會跳,這裡與震動一致只在自然結束時跳)。
+    ref.listen<int>(restTimerControllerProvider.select((s) => s.finishedCount), (prev, next) {
+      if (prev == null || next <= prev) return;
+      final name = ref.read(restTimerControllerProvider).exerciseName;
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          key: const Key('restFinishedDialog'),
+          title: const Text('休息時間結束'),
+          content: Text(name != null ? '準備好進行下一組 $name 了嗎?' : '準備好進行下一組了嗎?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('知道了')),
+          ],
+        ),
+      );
+    });
     final timer = ref.watch(restTimerControllerProvider);
     if (!timer.isVisible) return const SizedBox.shrink();
 

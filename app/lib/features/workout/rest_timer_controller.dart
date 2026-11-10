@@ -26,7 +26,12 @@ class RestTimerState {
     this.remainingSeconds = 0,
     this.isRunning = false,
     this.exerciseName,
+    this.finishedCount = 0,
   });
+
+  /// 自然倒數結束的累計次數(手動調到 0、跳過不算)。畫面 listen 這個值的
+  /// 變化跳「休息時間結束」提示(對照 iOS `WorkoutView.swift:77` 的 alert)。
+  final int finishedCount;
 
   final int totalSeconds;
   final int remainingSeconds;
@@ -47,12 +52,14 @@ class RestTimerState {
     int? remainingSeconds,
     bool? isRunning,
     String? exerciseName,
+    int? finishedCount,
   }) {
     return RestTimerState(
       totalSeconds: totalSeconds ?? this.totalSeconds,
       remainingSeconds: remainingSeconds ?? this.remainingSeconds,
       isRunning: isRunning ?? this.isRunning,
       exerciseName: exerciseName ?? this.exerciseName,
+      finishedCount: finishedCount ?? this.finishedCount,
     );
   }
 }
@@ -79,7 +86,7 @@ class RestTimerController extends Notifier<RestTimerState> {
     _timer = null;
 
     if (seconds <= 0) {
-      state = RestTimerState(exerciseName: exerciseName);
+      state = RestTimerState(exerciseName: exerciseName, finishedCount: state.finishedCount);
       return;
     }
 
@@ -88,6 +95,7 @@ class RestTimerController extends Notifier<RestTimerState> {
       remainingSeconds: seconds,
       isRunning: true,
       exerciseName: exerciseName,
+      finishedCount: state.finishedCount,
     );
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
   }
@@ -96,7 +104,7 @@ class RestTimerController extends Notifier<RestTimerState> {
     if (state.remainingSeconds <= 1) {
       _timer?.cancel();
       _timer = null;
-      state = state.copyWith(remainingSeconds: 0, isRunning: false);
+      state = state.copyWith(remainingSeconds: 0, isRunning: false, finishedCount: state.finishedCount + 1);
       ref.read(restTimerFinishedFeedbackProvider)();
       return;
     }
@@ -124,7 +132,7 @@ class RestTimerController extends Notifier<RestTimerState> {
   void skip() {
     _timer?.cancel();
     _timer = null;
-    state = const RestTimerState();
+    state = RestTimerState(finishedCount: state.finishedCount);
   }
 }
 
