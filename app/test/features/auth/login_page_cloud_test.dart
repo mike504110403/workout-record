@@ -20,6 +20,9 @@ class _NoopCloudAuth implements CloudAuthService {
 
   @override
   Future<void> signOut() async {}
+
+  @override
+  Future<void> deleteAccount() async {}
 }
 
 Future<void> _pump(WidgetTester tester, {required bool nativeApple}) async {

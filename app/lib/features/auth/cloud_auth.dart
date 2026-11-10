@@ -66,6 +66,10 @@ abstract interface class CloudAuthService {
   Future<CloudAppleSignInResult> signInWithApple();
 
   Future<void> signOut();
+
+  /// 刪除目前登入者的帳號與全部雲端資料(RPC `delete_my_account`,刪
+  /// auth.users 那一列,資料表全 cascade)。失敗拋例外,呼叫端不得清本機。
+  Future<void> deleteAccount();
 }
 
 class SupabaseCloudAuthService implements CloudAuthService {
@@ -121,6 +125,11 @@ class SupabaseCloudAuthService implements CloudAuthService {
 
   @override
   Future<void> signOut() => _client.auth.signOut();
+
+  @override
+  Future<void> deleteAccount() async {
+    await _client.rpc<void>('delete_my_account');
+  }
 }
 
 /// null = 非雲端模式(見檔頭)。

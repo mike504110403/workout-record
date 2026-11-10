@@ -19,6 +19,8 @@ import 'package:workout_record/features/onboarding/onboarding_controller.dart'
     show kUserCurrentWeightKey;
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
 
+import 'package:workout_record/data/migration/coredata_importer_result.dart';
+
 import '../../data/test_helpers.dart';
 
 class _FakeCloudAuth implements CloudAuthService {
@@ -30,6 +32,8 @@ class _FakeCloudAuth implements CloudAuthService {
   Object? signOutError;
   int signInCalls = 0;
   int signOutCalls = 0;
+  Object? deleteError;
+  int deleteCalls = 0;
 
   @override
   CloudAuthUser? get currentUser => _current;
@@ -50,6 +54,14 @@ class _FakeCloudAuth implements CloudAuthService {
     _current = null;
     final error = signOutError;
     if (error != null) throw error;
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    deleteCalls++;
+    final error = deleteError;
+    if (error != null) throw error;
+    _current = null;
   }
 }
 
@@ -454,6 +466,72 @@ void main() {
       container.listen(cloudSessionEndedProvider, (_, _) {});
       await Future<void>.delayed(Duration.zero);
       expect(container.read(sessionControllerProvider).isLoggedIn, isTrue);
+    });
+  });
+  group('刪除帳號', () {
+    Future<int> userRows(ProviderContainer c) async {
+      final db = c.read(appDatabaseProvider);
+      return (await db.select(db.users).get()).length;
+    }
+
+    test('成功:呼叫雲端刪除 → 本機 Drift 清空、退休舊 iOS 匯入、移除 owner、登出', () async {
+      final cloud = _FakeCloudAuth(current: const CloudAuthUser(id: 'auth-uid-1'));
+      final container = await _container(
+        {
+          kAppleUserIdKey: 'auth-uid-1',
+          kHasCompletedOnboardingKey: true,
+          kLocalDataOwnerUserIdKey: 'auth-uid-1',
+        },
+        cloud: cloud,
+      );
+      await seedTestUser(container.read(appDatabaseProvider), id: 'auth-uid-1');
+      expect(await userRows(container), 1);
+
+      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+
+      expect(ok, isTrue);
+      expect(cloud.deleteCalls, 1);
+      expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
+      expect(await userRows(container), 0);
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.containsKey(kAppleUserIdKey), isFalse);
+      expect(prefs.containsKey(kLocalDataOwnerUserIdKey), isFalse);
+      expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
+      expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue,
+          reason: '舊 iOS 資料不可在下次登入時被重新匯入/上傳');
+    });
+
+    test('雲端刪除失敗:回 false,本機登入態與資料都不動', () async {
+      final cloud = _FakeCloudAuth(current: const CloudAuthUser(id: 'auth-uid-1'))
+        ..deleteError = Exception('network');
+      final container = await _container(
+        {
+          kAppleUserIdKey: 'auth-uid-1',
+          kHasCompletedOnboardingKey: true,
+          kLocalDataOwnerUserIdKey: 'auth-uid-1',
+        },
+        cloud: cloud,
+      );
+      await seedTestUser(container.read(appDatabaseProvider), id: 'auth-uid-1');
+
+      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+
+      expect(ok, isFalse);
+      expect(container.read(sessionControllerProvider).isLoggedIn, isTrue);
+      expect(await userRows(container), 1);
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kLocalDataOwnerUserIdKey), 'auth-uid-1');
+      expect(cloud.signOutCalls, 0);
+    });
+
+    test('未登入時不呼叫雲端', () async {
+      final cloud = _FakeCloudAuth();
+      final container = await _container({}, cloud: cloud);
+
+      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+
+      expect(ok, isFalse);
+      expect(cloud.deleteCalls, 0);
     });
   });
 }

@@ -40,6 +40,9 @@ class _FakeCloudAuth implements CloudAuthService {
 
   @override
   Future<void> signOut() async => current = null;
+
+  @override
+  Future<void> deleteAccount() async {}
 }
 
 /// 模擬 Supabase 版 UserRepository:getById 只認 auth uid(CoreData 舊 id 必拿 null)。

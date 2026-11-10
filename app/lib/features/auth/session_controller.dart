@@ -431,33 +431,8 @@ class SessionController extends Notifier<SessionState> {
     state = state.copyWith(isLoading: true, clearOwnerConflict: true);
 
     try {
-      final db = ref.read(appDatabaseProvider);
-      await db.resetForNewOwner();
-
+      await _wipeLocalDataAndRetireImports();
       final prefs = ref.read(sharedPreferencesProvider);
-      for (final key in kOnboardingPersonalDataKeys) {
-        await prefs.remove(key);
-      }
-      await prefs.remove(kHasCompletedOnboardingKey);
-      ref.invalidate(onboardingStatusProvider);
-      await prefs.remove(kCoreDataImportedUserIdKey);
-
-      // 退休裝置層匯入——標成「已匯入過」讓 importIfNeeded 之後直接 skip,
-      // 不會把前人的舊 iOS SQLite 歷史匯回給新帳號。
-      await prefs.setBool(kCoreDataImportCompletedKey, true);
-      await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
-      await prefs.setInt(kCoreDataImportAttemptsKey, 0);
-      await prefs.setBool(kLegacyPrefsImportCompletedKey, true);
-
-      // 上一位帳號殘留的 legacy 個資 + 匯入統計 prefs 一併清除(顯式清單,
-      // 不做前綴掃描)。
-      for (final key in kLegacyPrefsPersonalDataKeys) {
-        await prefs.remove(key);
-      }
-      for (final key in kCoreDataImportStatsKeys) {
-        await prefs.remove(key);
-      }
-
       await prefs.setString(kLocalDataOwnerUserIdKey, pending.pendingUserId);
 
       await _ensureCloudUserRowIfOnboarded(
@@ -480,6 +455,61 @@ class SessionController extends Notifier<SessionState> {
       );
       return const LoginFailure();
     }
+  }
+
+  /// 清空 Drift 全表 + onboarding 個資與完成旗標 + 血緣 key,並**退休裝置層
+  /// 匯入**(標成已匯入,`importIfNeeded` 之後直接 skip,舊 iOS SQLite 的歷史
+  /// 不會再被匯回),連同 legacy 個資與匯入統計 prefs。換帳號清除與刪除帳號
+  /// 共用;不動 owner key(由呼叫端決定認領或移除)。
+  Future<void> _wipeLocalDataAndRetireImports() async {
+    final db = ref.read(appDatabaseProvider);
+    await db.resetForNewOwner();
+
+    final prefs = ref.read(sharedPreferencesProvider);
+    for (final key in kOnboardingPersonalDataKeys) {
+      await prefs.remove(key);
+    }
+    await prefs.remove(kHasCompletedOnboardingKey);
+    ref.invalidate(onboardingStatusProvider);
+    await prefs.remove(kCoreDataImportedUserIdKey);
+
+    await prefs.setBool(kCoreDataImportCompletedKey, true);
+    await prefs.setBool(kCoreDataImportFailedPermanentlyKey, false);
+    await prefs.setInt(kCoreDataImportAttemptsKey, 0);
+    await prefs.setBool(kLegacyPrefsImportCompletedKey, true);
+
+    // 顯式清單,不做前綴掃描。
+    for (final key in kLegacyPrefsPersonalDataKeys) {
+      await prefs.remove(key);
+    }
+    for (final key in kCoreDataImportStatsKeys) {
+      await prefs.remove(key);
+    }
+  }
+
+  /// 刪除帳號(只在雲端模式且已登入時有效)。
+  ///
+  /// 先呼叫雲端刪除;失敗回 false,本機什麼都不動(使用者可重試)。
+  /// 成功後雲端帳號與資料已不可回復,本機接著:清空 Drift 並退休舊 iOS 匯入
+  /// (否則同裝置再登入會把舊資料重新上傳)、移除 owner key、登出。本機清除
+  /// 失敗不改變結果(雲端已刪),仍照常登出並回 true。
+  Future<bool> deleteAccount() async {
+    final cloud = ref.read(cloudAuthServiceProvider);
+    if (cloud == null || !state.isLoggedIn) return false;
+    try {
+      await cloud.deleteAccount();
+    } catch (_) {
+      return false;
+    }
+    try {
+      await _wipeLocalDataAndRetireImports();
+      await ref.read(sharedPreferencesProvider).remove(kLocalDataOwnerUserIdKey);
+    } catch (_) {
+      // 雲端已刪,本機清除盡力而為;下一步登出照做。
+    }
+    await _cloudSignOutQuietly();
+    await _clearLocalSession();
+    return true;
   }
 
   /// 警告對話框「取消」後呼叫:不清除任何東西、不認領、不建立 session,
