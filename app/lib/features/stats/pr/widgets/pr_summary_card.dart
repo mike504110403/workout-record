@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/personal_record.dart';
+import '../../../settings/preferences/one_rm_formula_preference.dart';
 import '../../../settings/preferences/weight_unit.dart';
+import '../pr_detail_calculations.dart';
 import '../pr_detail_page.dart';
 import '../pr_format.dart';
 
@@ -16,7 +18,14 @@ class PrSummaryCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    final pr = summary.currentPR;
+    final formula = ref.watch(oneRmFormulaProvider);
+    // 與詳情頁同一套口徑:依偏好公式對 prHistory 重算 1RM 挑當前 PR,
+    // 不用儲存值(寫入當下的公式結果),否則換公式後卡片與詳情頁數字不一致。
+    final current = buildPrDetailData(
+      summary.prHistory.isEmpty && summary.currentPR != null ? [summary.currentPR!] : summary.prHistory,
+      formula,
+    ).current;
+    final pr = current?.record;
     return Card(
       key: Key('prSummaryCard-${summary.exerciseId}'),
       margin: const EdgeInsets.only(bottom: 12),
@@ -47,7 +56,7 @@ class PrSummaryCard extends ConsumerWidget {
                     const SizedBox(width: 24),
                     _StatItem(label: '次數', value: '${pr.reps} 次'),
                     const SizedBox(width: 24),
-                    _StatItem(label: '1RM 估算', value: '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}'),
+                    _StatItem(label: '1RM 估算', value: '${formatWeight(current!.oneRepMax, unit)} ${unitSuffix(unit)}'),
                   ],
                 ),
                 const SizedBox(height: 8),

@@ -14,6 +14,7 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/personal_record_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/one_rm_formula_preference.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/pr/pr_list_page.dart';
 
@@ -33,6 +34,7 @@ class _Harness {
 Future<_Harness> _setUpHarness({
   Map<String, Object> extraPrefs = const {},
   WeightUnit? weightUnit,
+  OneRmFormula? formula,
 }) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
@@ -48,6 +50,7 @@ Future<_Harness> _setUpHarness({
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
       if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
+      if (formula != null) oneRmFormulaProvider.overrideWithValue(formula),
     ],
   );
   addTearDown(container.dispose);
@@ -122,6 +125,37 @@ void main() {
       // PR 重量與 1RM 估算在此 fixture 同值(reps=1),兩處都應是 lb 字串。
       expect(find.descendant(of: squatCard, matching: find.text(expected)), findsNWidgets(2));
       expect(find.descendant(of: squatCard, matching: find.text('140.0 kg')), findsNothing);
+    });
+  });
+
+  group('1RM 口徑與詳情頁一致', () {
+    testWidgets('卡片 1RM 依偏好公式重算,不顯示儲存值;當前 PR 也依重算值挑', (tester) async {
+      final harness = await _setUpHarness(formula: OneRmFormula.brzycki);
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final squat = systemExercises.firstWhere((e) => e.name == '深蹲');
+      final now = DateTime.now();
+      PersonalRecord pr(String id, double w, int reps, double stored) => PersonalRecord(
+            id: id,
+            userId: testUserId,
+            exerciseId: squat.id,
+            weight: w,
+            reps: reps,
+            oneRepMax: stored,
+            achievedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          );
+      // 儲存值(Epley):100x5 → 116.7;112x1 → 112。Brzycki 重算:100x5 → 112.5;112x1 → 112。
+      // 儲存值最高的是 100x5,重算後最高仍是 100x5(112.5),但卡片 1RM 應是 112.5 不是 116.7。
+      await harness.personalRecordRepo.create(pr('a', 100, 5, 116.7));
+      await harness.personalRecordRepo.create(pr('b', 112, 1, 112));
+
+      await _pump(tester, harness);
+
+      final card = find.byKey(Key('prSummaryCard-${squat.id}'));
+      expect(find.descendant(of: card, matching: find.text('112.5 kg')), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.text('116.7 kg')), findsNothing);
+      expect(find.descendant(of: card, matching: find.text('100.0 kg')), findsOneWidget);
     });
   });
 
