@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/weight_format.dart' as weight_format;
 import '../../core/theme/app_semantic_colors.dart';
-import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/metric_tile.dart';
@@ -22,7 +21,7 @@ import 'rest_timer_controller.dart';
 import 'workout_controller.dart';
 import 'workout_metric_row.dart';
 import 'workout_summary_sheet.dart';
-import 'workout_ui_shared.dart';
+import 'widgets/set_row.dart';
 
 class WorkoutInProgressView extends ConsumerWidget {
   const WorkoutInProgressView({super.key});
@@ -447,7 +446,7 @@ class _ExerciseCard extends ConsumerWidget {
             ],
           ),
           for (final set in exercise.sets)
-            _SetRow(
+            SetRow(
               key: Key('setRow_${set.id}'),
               set: set,
               unit: unit,
@@ -477,102 +476,6 @@ class _ExerciseCard extends ConsumerWidget {
                 ),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 單組列:序號 · 重量 × 次數(RPE 次要灰字)· 暖身 chip · 編輯/刪除。
-class _SetRow extends StatelessWidget {
-  const _SetRow({
-    super.key,
-    required this.set,
-    required this.unit,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final WorkoutSet set;
-  final WeightUnit unit;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: colors.surfaceContainerHighest,
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              '${set.setNumber}',
-              style: theme.textTheme.labelMedium?.tabular.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text:
-                        '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次',
-                    style: AppNumberStyles.body(
-                      context,
-                    ).copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  if (set.rpe != null)
-                    TextSpan(
-                      text: '  RPE ${trimZeros(set.rpe!)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          if (set.isWarmup) ...[
-            const SizedBox(width: AppSpacing.sm),
-            Chip(
-              label: const Text('暖身'),
-              labelStyle: theme.textTheme.labelSmall,
-              visualDensity: VisualDensity.compact,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              backgroundColor: colors.tertiaryContainer,
-              labelPadding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.xs,
-              ),
-            ),
-          ],
-          IconButton(
-            key: Key('editSetButton_${set.id}'),
-            tooltip: '編輯這組',
-            visualDensity: VisualDensity.compact,
-            color: colors.onSurfaceVariant,
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: onEdit,
-          ),
-          IconButton(
-            key: Key('deleteSetButton_${set.id}'),
-            tooltip: '刪除這組',
-            visualDensity: VisualDensity.compact,
-            color: colors.onSurfaceVariant,
-            icon: const Icon(Icons.close),
-            onPressed: onDelete,
           ),
         ],
       ),

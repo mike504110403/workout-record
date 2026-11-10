@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format/weight_format.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_tokens.dart';
 import '../settings/preferences/weight_unit.dart';
@@ -274,7 +275,9 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
             if (_calculatedVolume > 0) ...[
               const SizedBox(height: AppSpacing.sm),
               Text(
-                '容量:${_calculatedVolume.toStringAsFixed(0)}',
+                // _calculatedVolume 是「當前顯示單位」的值;formatWeight 吃 kg,
+                // 先換回 kg 再依單位格式化(保留 1 位小數,例如 562.5 kg)。
+                '容量 ${formatWeight(displayToKg(_calculatedVolume, unit), unit)}',
                 key: const Key('addSetVolumePreview'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -307,39 +310,45 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
                   onChanged: (value) => setState(() => _isWarmup = value),
                 ),
                 if (!_isWarmup)
-                  Row(
-                    children: [
-                      const Text('休息時間'),
-                      const Spacer(),
-                      IconButton(
-                        key: const Key('addSetRestMinusButton'),
-                        icon: const Icon(Icons.remove),
-                        onPressed: _restSeconds <= 0
-                            ? null
-                            : () => setState(
-                                () => _restSeconds = (_restSeconds - 15).clamp(
-                                  0,
-                                  300,
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('休息時間'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton.filledTonal(
+                          key: const Key('addSetRestMinusButton'),
+                          tooltip: '減少休息時間',
+                          icon: const Icon(Icons.remove),
+                          onPressed: _restSeconds <= 0
+                              ? null
+                              : () => setState(
+                                  () => _restSeconds = (_restSeconds - 15)
+                                      .clamp(0, 300),
                                 ),
-                              ),
-                      ),
-                      Text(
-                        '$_restSeconds 秒',
-                        key: const Key('addSetRestSecondsValue'),
-                      ),
-                      IconButton(
-                        key: const Key('addSetRestPlusButton'),
-                        icon: const Icon(Icons.add),
-                        onPressed: _restSeconds >= 300
-                            ? null
-                            : () => setState(
-                                () => _restSeconds = (_restSeconds + 15).clamp(
-                                  0,
-                                  300,
+                        ),
+                        SizedBox(
+                          width: 64,
+                          child: Text(
+                            '$_restSeconds 秒',
+                            key: const Key('addSetRestSecondsValue'),
+                            textAlign: TextAlign.center,
+                            style: AppNumberStyles.body(context),
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          key: const Key('addSetRestPlusButton'),
+                          tooltip: '增加休息時間',
+                          icon: const Icon(Icons.add),
+                          onPressed: _restSeconds >= 300
+                              ? null
+                              : () => setState(
+                                  () => _restSeconds = (_restSeconds + 15)
+                                      .clamp(0, 300),
                                 ),
-                              ),
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
                 if (!_isWarmup && widget.showAutoStartRestTimer)
                   SwitchListTile(

@@ -41,9 +41,7 @@ class RestTimerBar extends ConsumerWidget {
 
     final minutes = timer.remainingSeconds ~/ 60;
     final seconds = timer.remainingSeconds % 60;
-    final timeText = minutes > 0
-        ? '$minutes:${seconds.toString().padLeft(2, '0')}'
-        : '${seconds}s';
+    final timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
 
     final theme = Theme.of(context);
     final colors = theme.colorScheme;

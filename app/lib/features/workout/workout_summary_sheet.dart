@@ -54,11 +54,8 @@ class _WorkoutSummarySheet extends ConsumerWidget {
     return FractionallySizedBox(
       heightFactor: 0.85,
       child: Scaffold(
-        // 關閉入口只留底部主按鈕(頂部不再放「完成」)。
-        appBar: AppBar(
-          title: const Text('訓練完成'),
-          automaticallyImplyLeading: false,
-        ),
+        // 關閉入口只留底部主按鈕(頂部不再放「完成」);標題只留內文那一個
+        // 「訓練完成！」,不再另設 AppBar 重複一次。
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -241,6 +238,6 @@ String _setLabel(List<WorkoutSet> group, WeightUnit unit) {
 String _formatMinutes(int minutes) {
   final hours = minutes ~/ 60;
   final mins = minutes % 60;
-  if (hours > 0) return '$hours小時$mins分鐘';
-  return '$mins分鐘';
+  if (hours > 0) return '$hours 小時 $mins 分鐘';
+  return '$mins 分鐘';
 }

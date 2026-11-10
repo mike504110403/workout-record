@@ -311,26 +311,38 @@ class _CategoryTabs extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(exercisePickerControllerProvider.notifier);
 
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        children: [
-          _CategoryChip(
-            key: const Key('category_chip_all'),
-            label: '全部',
-            isSelected: selectedCategoryId == null,
-            onTap: () => controller.selectCategory(null),
+    // 右緣漸層淡出:提示列還能水平捲動;右側多留 padding,捲到底時最後一顆
+    // chip 會完整落在淡出區之外。
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) => const LinearGradient(
+        colors: [Colors.black, Colors.black, Colors.transparent],
+        stops: [0, 0.88, 1],
+      ).createShader(bounds),
+      child: SizedBox(
+        height: 44,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(
+            left: AppSpacing.md,
+            right: AppSpacing.xl,
           ),
-          for (final category in kExercisePickerCategories)
+          children: [
             _CategoryChip(
-              key: Key('category_chip_${category.id}'),
-              label: category.name,
-              isSelected: selectedCategoryId == category.id,
-              onTap: () => controller.selectCategory(category.id),
+              key: const Key('category_chip_all'),
+              label: '全部',
+              isSelected: selectedCategoryId == null,
+              onTap: () => controller.selectCategory(null),
             ),
-        ],
+            for (final category in kExercisePickerCategories)
+              _CategoryChip(
+                key: Key('category_chip_${category.id}'),
+                label: category.name,
+                isSelected: selectedCategoryId == category.id,
+                onTap: () => controller.selectCategory(category.id),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -105,7 +105,7 @@ class _TemplatesListPageState extends ConsumerState<TemplatesListPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('訓練模板'),
+        title: const Text('我的模板'),
         actions: [
           IconButton(
             key: const Key('templateListAddButton'),
@@ -315,10 +315,10 @@ class _TemplateCard extends StatelessWidget {
                   style: secondary,
                 ),
               ),
-            const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.tonalIcon(
                 key: Key('templateUseButton_${template.id}'),
                 onPressed: onUse,
                 icon: const Icon(Icons.play_arrow),

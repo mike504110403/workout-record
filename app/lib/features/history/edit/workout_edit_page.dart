@@ -22,7 +22,7 @@ import '../../../data/models/workout.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../../workout/add_set_sheet.dart';
 import '../../workout/exercise_picker/exercise_picker_sheet.dart';
-import '../../workout/workout_ui_shared.dart';
+import '../../workout/widgets/set_row.dart';
 import 'workout_edit_controller.dart';
 
 class WorkoutEditPage extends ConsumerWidget {
@@ -469,33 +469,14 @@ class _ExerciseEditCard extends ConsumerWidget {
               ],
             ),
             for (final set in exercise.sets)
-              ListTile(
+              SetRow(
                 key: Key('workoutEditSetRow_${set.id}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: Text('#${set.setNumber}${set.isWarmup ? ' 暖身' : ''}'),
-                title: Text(
-                  '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
-                  '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
-                ),
-                subtitle: Text(
-                  '容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}',
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      key: Key('workoutEditEditSetButton_${set.id}'),
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: () => _editSet(context, ref, set),
-                    ),
-                    IconButton(
-                      key: Key('workoutEditDeleteSetButton_${set.id}'),
-                      icon: const Icon(Icons.close),
-                      onPressed: () => _confirmDeleteSet(context, ref, set),
-                    ),
-                  ],
-                ),
+                set: set,
+                unit: unit,
+                editButtonKey: Key('workoutEditEditSetButton_${set.id}'),
+                deleteButtonKey: Key('workoutEditDeleteSetButton_${set.id}'),
+                onEdit: () => _editSet(context, ref, set),
+                onDelete: () => _confirmDeleteSet(context, ref, set),
               ),
             Align(
               alignment: Alignment.centerLeft,

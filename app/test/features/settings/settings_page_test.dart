@@ -154,7 +154,7 @@ void main() {
 
     await _tapEntry(tester, const Key('settingsTemplatesEntry'));
 
-    expect(find.widgetWithText(AppBar, '訓練模板'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '我的模板'), findsOneWidget);
   });
 
   testWidgets('點「偏好設定」→ 導到 PreferencesPage(契約 stub)', (tester) async {
