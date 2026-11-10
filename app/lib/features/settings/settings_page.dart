@@ -4,6 +4,8 @@
 // 七項入口:個人資料/目標設定/我的模板/偏好設定/關於/登出/ImportRetryTile,
 // 依 iOS Section 精神分四組(個人/訓練/應用程式/帳號),組間以小標題區隔
 // ——iOS 的 Section 有「動作庫管理」「通知」等本波不做的項,故只取子集分組。
+// 後續補上「自定義動作」入口(訓練組,iOS 在「動作庫管理」組):管理自建動作的
+// 列表/新增/編輯/刪除,見 custom_exercises/。
 //
 // 目標設定(GoalSettingsPage)、我的模板(TemplatesListPage)、偏好設定
 // (PreferencesPage,另一工人換真身的契約 stub)皆為 zero-arg const 頁面,
@@ -17,6 +19,7 @@ import '../auth/session_controller.dart';
 import '../goals/goal_settings_page.dart';
 import '../workout/templates/templates_list_page.dart';
 import 'about/about_page.dart';
+import 'custom_exercises/custom_exercise_list_page.dart';
 import 'preferences/preferences_page.dart';
 import 'profile/profile_page.dart';
 import 'widgets/cloud_upload_status_tile.dart';
@@ -148,6 +151,15 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const _SectionHeader('訓練'),
+          ListTile(
+            key: const Key('settingsCustomExercisesEntry'),
+            leading: const Icon(Icons.add_circle_outline, color: Colors.green),
+            title: const Text('自定義動作'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CustomExerciseListPage()),
+            ),
+          ),
           ListTile(
             key: const Key('settingsTemplatesEntry'),
             leading: const Icon(Icons.description, color: Colors.teal),

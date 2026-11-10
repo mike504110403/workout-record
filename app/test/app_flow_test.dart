@@ -171,6 +171,8 @@ void main() {
       await tester.tap(find.widgetWithText(NavigationDestination, '設定'));
       await tester.pumpAndSettle();
 
+      // 設定頁入口變多後登出鈕落在 800x600 預設視窗的可視範圍外(ListView 懶建),先捲到。
+      await tester.scrollUntilVisible(find.byKey(const Key('signOutButton')), 200);
       await tester.tap(find.byKey(const Key('signOutButton')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('登出').last);
