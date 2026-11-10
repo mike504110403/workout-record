@@ -24,9 +24,15 @@
 - 刪除帳號 6dced61:RPC `delete_my_account`(security definer,刪 auth.users,資料全 cascade;本機 rollback 實測 A 刪光、B 與 66 系統動作完好、anon/無 uid 被拒)+ 設定頁兩段確認 + 成功後清本機 Drift 並退休舊 iOS 匯入。**migration 0500 尚未推遠端 workout-dev(需 Mike 同意)**。
 - **待做**:Apple 授權撤銷(App Store 要求刪帳號時 revoke Apple token;需 Mike 提供 Sign in with Apple 的 .p8 key、Key ID、Team ID,走 Edge Function 呼叫 appleid.apple.com/auth/revoke);隱私頁/關於頁補「設定 > 刪除帳號」管道說明(併 privacy.html 改寫)。
 - 進行中:訓練中離線草稿(雲端模式草稿存本機、完成時 create_workout 一次上傳、失敗保留可重試)。
-- 其後候選:動作清單離線快取(離線開始訓練時選動作)、資料匯出 CSV/JSON。
+- 已完成:動作/模板清單離線快取(1218ab7、04451b8)、_resolveUserId 抽共用 df47a41、graft 接線 f200911。資料匯出 Mike 裁示不做。
+- iOS 對等缺口(2026-11-10 盤點,孤兒死碼不移植:成就、日曆規劃、Progress、圓餅圖等):(1) 自定義動作管理(編輯/刪除,中);(2) PR 詳情頁(趨勢圖+歷史,中);(3) 強制更新(中,需定版本設定放 Supabase 哪);(4) 使用教學頁(小~中);(5) 服務條款+關於頁 mailto(小);休息結束震動(小);通知設定 iOS 是空殼(只有測試通知),要不要做真提醒待裁。
 
 - 不再適用:原「同步波前置決策」(updatedAt 增量拉推/LWW/墓碑)因改直連作廢,見 git 歷史。
+
+## 待 Mike 裁示(紅)
+
+- **上架中 iOS 版會刪 30 天前的訓練**:`ios/.../Services/DataRetentionService.swift:11`(保留 30 天)、`:55-74`(刪 startedAt < cutoff 的 WorkoutEntity,級聯刪動作與組),由 `WorkoutRecordApp.swift:80` init → `:183` 每週執行一次。2025-10-22 2b4afff 引入。影響:真實用戶的 iOS 歷史只剩近 30 天(PR 保留),Flutter 首次匯入也只拿得到 30 天。建議:iOS 出一版只拿掉 `:183` 這行(維護模式允許修 bug),越早越好;已刪的資料無法救回。
+- 同檔 `WorkoutRecordApp.swift:86-126`:CoreData 模型版本字串不符就整個刪庫重建(目前 "2.3")。未來若改模型版本字串會清空用戶資料;維護模式不改模型即無影響,記錄備查。
 
 ## Mike 待辦
 
