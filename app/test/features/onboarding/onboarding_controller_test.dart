@@ -67,6 +67,25 @@ Future<ProviderContainer> _container({
 
 void main() {
   group('complete() 有有效體重', () {
+    test('每週目標與目標體重寫進 UserGoal(首頁/目標設定頁讀這裡);已有目標不覆蓋', () async {
+      final container = await _container();
+      final notifier = container.read(onboardingControllerProvider.notifier);
+      notifier.setWeightText('70');
+      notifier.setTargetWeightText('65');
+      notifier.setWeeklyGoal(4);
+      await notifier.complete();
+
+      final goalRepo = container.read(userGoalRepositoryProvider);
+      final goal = await goalRepo.fetchByUser(_loggedInUserId);
+      expect(goal?.weeklyWorkoutGoal, 4);
+      expect(goal?.targetWeight, 65);
+
+      // 再跑一次 onboarding(例如重設後)不覆蓋已存在的目標。
+      notifier.setWeeklyGoal(2);
+      await notifier.complete();
+      expect((await goalRepo.fetchByUser(_loggedInUserId))?.weeklyWorkoutGoal, 4);
+    });
+
     test('寫入所有 prefs 欄位、建 Users row、建初始 BodyWeight、標記完成', () async {
       final container = await _container();
       final notifier = container.read(onboardingControllerProvider.notifier);

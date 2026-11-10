@@ -20,6 +20,7 @@ import '../../core/utils/uuid.dart';
 import '../../data/migration/coredata_importer_result.dart'
     show kCoreDataImportedUserIdKey;
 import '../../data/models/body_weight.dart';
+import '../../data/models/user_goal.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import '../auth/shared_preferences_provider.dart';
@@ -203,6 +204,26 @@ class OnboardingController extends Notifier<OnboardingDraft> {
               updatedAt: now,
             ),
           );
+    }
+
+    // 每週目標/目標體重寫進 UserGoal——首頁進度與目標設定頁讀的是
+    // userGoalRepository,不是上面的 prefs(prefs 只留給舊程式相容)。
+    // 已有目標(升級用戶或重跑 onboarding)不覆蓋。
+    final goalRepo = ref.read(userGoalRepositoryProvider);
+    if (await goalRepo.fetchByUser(id) == null) {
+      final now = DateTime.now();
+      await goalRepo.createOrUpdate(
+        UserGoal(
+          id: generateUuidV4(),
+          userId: id,
+          weeklyWorkoutGoal: draft.weeklyGoal,
+          targetWeight: targetWeightKg,
+          volumeGoals: const VolumeGoals(),
+          restDayReminder: false,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
     }
 
     await ref.read(onboardingStatusProvider.notifier).markCompleted();
