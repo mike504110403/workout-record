@@ -40,6 +40,9 @@ void main() {
   testWidgets('按登出 → 彈確認對話框 → 按取消不登出', (tester) async {
     final container = await _pumpSettingsPage(tester);
 
+    await tester.scrollUntilVisible(find.byKey(const Key('signOutButton')), 200);
+    await tester.ensureVisible(find.byKey(const Key('signOutButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('signOutButton')));
     await tester.pumpAndSettle();
     expect(find.text('確定要登出嗎?'), findsOneWidget);
@@ -53,6 +56,9 @@ void main() {
   testWidgets('按登出 → 彈確認對話框 → 按登出才真的清 session', (tester) async {
     final container = await _pumpSettingsPage(tester);
 
+    await tester.scrollUntilVisible(find.byKey(const Key('signOutButton')), 200);
+    await tester.ensureVisible(find.byKey(const Key('signOutButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('signOutButton')));
     await tester.pumpAndSettle();
 

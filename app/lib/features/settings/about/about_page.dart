@@ -19,6 +19,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../tutorial/tutorial_page.dart';
+
 /// 聯絡信箱(與 iOS AboutView 相同)。
 const kContactEmail = 'mike504110403@gmail.com';
 
@@ -148,6 +150,16 @@ class _AboutPageState extends State<AboutPage> {
                 const SnackBar(content: Text('已複製聯絡信箱')),
               );
             },
+          ),
+          ListTile(
+            key: const Key('aboutTutorialTile'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('新手教學'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
+            ),
           ),
           ListTile(
             key: const Key('aboutTermsTile'),

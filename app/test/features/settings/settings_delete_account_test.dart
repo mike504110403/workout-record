@@ -61,6 +61,7 @@ Future<ProviderContainer> _pump(WidgetTester tester, {CloudAuthService? cloud}) 
 
 Future<void> _tapDelete(WidgetTester tester) async {
   final tile = find.byKey(const Key('deleteAccountButton'));
+  await tester.scrollUntilVisible(tile, 200);
   await tester.ensureVisible(tile);
   await tester.pumpAndSettle();
   await tester.tap(tile);

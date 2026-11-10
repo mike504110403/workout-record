@@ -22,6 +22,7 @@ import 'about/about_page.dart';
 import 'custom_exercises/custom_exercise_list_page.dart';
 import 'preferences/preferences_page.dart';
 import 'profile/profile_page.dart';
+import 'tutorial/tutorial_page.dart';
 import 'widgets/cloud_upload_status_tile.dart';
 import 'widgets/import_retry_tile.dart';
 
@@ -177,6 +178,15 @@ class SettingsPage extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const PreferencesPage()),
+            ),
+          ),
+          ListTile(
+            key: const Key('settingsTutorialEntry'),
+            leading: const Icon(Icons.menu_book_outlined, color: Colors.indigo),
+            title: const Text('使用教學'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
             ),
           ),
           ListTile(
