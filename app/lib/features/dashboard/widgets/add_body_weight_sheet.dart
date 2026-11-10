@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_controller.dart';
 
@@ -74,17 +75,17 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
     final unit = ref.watch(weightUnitProvider);
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppSpacing.lg,
+        right: AppSpacing.lg,
+        top: AppSpacing.lg,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('記錄體重', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           TextField(
             key: const Key('bodyWeightInputField'),
             controller: _controller,
@@ -95,7 +96,7 @@ class _AddBodyWeightSheetState extends ConsumerState<AddBodyWeightSheet> {
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _save(),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           SizedBox(
             width: double.infinity,
             child: FilledButton(

@@ -59,14 +59,15 @@ void main() {
       expect(find.text(label), findsWidgets);
     }
 
-    // Starts on the dashboard tab.
-    expect(find.widgetWithText(AppBar, '首頁'), findsOneWidget);
+    // Starts on the dashboard tab. 首頁/設定改成 M3 large title(SliverAppBar.large),
+    // 標題在展開與收合兩處各有一份 Text,所以用 findsWidgets。
+    expect(find.widgetWithText(AppBar, '首頁'), findsWidgets);
 
     // Switch to each remaining tab and verify its page becomes visible.
     for (final label in tabLabels.skip(1)) {
       await tester.tap(find.widgetWithText(NavigationDestination, label));
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, label), findsOneWidget);
+      expect(find.widgetWithText(AppBar, label), findsWidgets);
     }
   });
 }

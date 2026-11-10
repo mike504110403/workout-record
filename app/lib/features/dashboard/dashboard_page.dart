@@ -7,15 +7,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/theme/app_tokens.dart';
 import '../goals/goal_settings_page.dart';
 import 'dashboard_controller.dart';
 import 'widgets/add_body_weight_sheet.dart';
-import 'widgets/goal_progress_section.dart';
-import 'widgets/quick_actions_section.dart';
+import 'widgets/body_weight_card.dart';
 import 'widgets/recent_workouts_section.dart';
-import 'widgets/today_overview_section.dart';
-import 'widgets/week_stats_section.dart';
+import 'widgets/start_workout_cta.dart';
+import 'widgets/week_summary_card.dart';
 
+/// 首頁。由上而下:唯一主 CTA(開始/繼續訓練)→ 本週卡(次數、容量、目標進度、
+/// 今日狀態)→ 體重卡 → 最近訓練。頂部用 M3 large title(`SliverAppBar.large`),
+/// 不佔一條只重複分頁名稱的 AppBar。
 class DashboardPage extends ConsumerWidget {
   const DashboardPage({super.key});
 
@@ -24,80 +27,108 @@ class DashboardPage extends ConsumerWidget {
     final dashboardAsync = ref.watch(dashboardControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('首頁')),
       body: dashboardAsync.when(
         data: (state) => RefreshIndicator(
           onRefresh: () => ref.read(dashboardControllerProvider.notifier).refresh(),
-          child: SingleChildScrollView(
-            // 內容固定五個區塊、不會無限增長,刻意不用 ListView/ListView.builder
-            // 的 lazy 虛擬化——虛擬化會讓捲動範圍外的區塊不進 Element tree,
-            // widget test 用 find.byKey 之類的 finder 會找不到還沒被建置的
-            // 下方區塊(這裡吃過虧,見開發過程的除錯記錄)。
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TodayOverviewSection(
-                  todayWorkout: state.todayWorkout,
-                  currentWeight: state.currentWeight,
-                ),
-                const SizedBox(height: 20),
-                QuickActionsSection(
-                  onRecordWeight: () => _showBodyWeightSheet(context),
-                  onStartWorkout: () => context.go('/workout'),
-                  onViewProgress: () => context.go('/stats'),
-                ),
-                const SizedBox(height: 20),
-                GoalProgressSection(
-                  userGoal: state.userGoal,
-                  weekWorkoutCount: state.weekWorkoutCount,
-                  goalPercentage: state.goalPercentage,
-                  motivationalMessage: state.motivationalMessage,
-                  // 波 5:目標設定頁是 zero-arg const StatelessWidget、自帶
-                  // Scaffold(同 pr_list_page.dart 慣例),直接 push 即可,不
-                  // 需要外層再包殼、也不掛 route。存檔成功後 Dashboard/
-                  // 體重頁的 controller 由 GoalSettingsController.save()
-                  // 內部負責 invalidate(見該檔案開頭注解),這裡不需要在
-                  // push 返回後額外處理刷新。
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                WeekStatsSection(
-                  weekWorkoutCount: state.weekWorkoutCount,
-                  weekTotalVolume: state.weekTotalVolume,
-                ),
-                const SizedBox(height: 20),
-                RecentWorkoutsSection(
-                  recentWorkouts: state.recentWorkouts,
-                  onViewAll: () => context.go('/history'),
-                ),
-              ],
-            ),
+          child: _scrollView(
+            // 內容區塊數量固定、不會無限增長,刻意包在單一 SliverToBoxAdapter
+            // (整段一次建置),不用 SliverList 的 lazy 虛擬化——虛擬化會讓
+            // 捲動範圍外的區塊不進 Element tree,widget test 用 find.byKey
+            // 之類的 finder 會找不到還沒被建置的下方區塊(這裡吃過虧,見
+            // 開發過程的除錯記錄)。
+            SliverToBoxAdapter(child: _content(context, state)),
           ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => _scrollView(
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ),
         // 查詢失敗(例如暫時性的 DB/IO 錯誤)不能讓使用者卡在死路——補一顆
         // 重試按鈕,invalidate provider 重新跑一次 build()/_load(),失敗若是
         // 暫時性的就能自行恢復,不必整個 app 重開。
-        error: (error, stackTrace) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 固定文案,不把 exception 內容塞進 UI(對齊 session_controller
-              // 的慣例);細節開發時看 console/log。
-              const Text('載入失敗，請稍後再試'),
-              const SizedBox(height: 12),
-              FilledButton(
-                key: const Key('dashboardErrorRetryButton'),
-                onPressed: () => ref.invalidate(dashboardControllerProvider),
-                child: const Text('重試'),
+        error: (error, stackTrace) => _scrollView(
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 固定文案,不把 exception 內容塞進 UI(對齊 session_controller
+                  // 的慣例);細節開發時看 console/log。
+                  const Text('載入失敗，請稍後再試'),
+                  const SizedBox(height: AppSpacing.md),
+                  FilledButton(
+                    key: const Key('dashboardErrorRetryButton'),
+                    onPressed: () => ref.invalidate(dashboardControllerProvider),
+                    child: const Text('重試'),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _scrollView(Widget bodySliver) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        const SliverAppBar.large(title: Text('首頁')),
+        bodySliver,
+      ],
+    );
+  }
+
+  Widget _content(BuildContext context, DashboardState state) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageHorizontal,
+        AppSpacing.sm,
+        AppSpacing.pageHorizontal,
+        AppSpacing.xl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          StartWorkoutCta(
+            hasDraftWorkout: state.hasDraftWorkout,
+            onPressed: () => context.go('/workout'),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          WeekSummaryCard(
+            weekWorkoutCount: state.weekWorkoutCount,
+            weekTotalVolume: state.weekTotalVolume,
+            userGoal: state.userGoal,
+            goalPercentage: state.goalPercentage,
+            motivationalMessage: state.motivationalMessage,
+            todayWorkout: state.todayWorkout,
+            onViewProgress: () => context.go('/stats'),
+            // 波 5:目標設定頁是 zero-arg const StatelessWidget、自帶
+            // Scaffold(同 pr_list_page.dart 慣例),直接 push 即可,不
+            // 需要外層再包殼、也不掛 route。存檔成功後 Dashboard/
+            // 體重頁的 controller 由 GoalSettingsController.save()
+            // 內部負責 invalidate(見該檔案開頭注解),這裡不需要在
+            // push 返回後額外處理刷新。
+            onOpenGoal: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          BodyWeightCard(
+            currentWeight: state.currentWeight,
+            weekChange: state.weightWeekChange,
+            onRecord: () => _showBodyWeightSheet(context),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          RecentWorkoutsSection(
+            recentWorkouts: state.recentWorkouts,
+            onViewAll: () => context.go('/history'),
+          ),
+        ],
       ),
     );
   }
@@ -108,6 +139,9 @@ class DashboardPage extends ConsumerWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      // 首頁在 StatefulShellRoute 的分頁 Navigator 內:彈窗掛在 root navigator,
+      // 才能蓋住底部導覽列、不被分頁 Navigator 裁切。
+      useRootNavigator: true,
       builder: (context) => const AddBodyWeightSheet(),
     );
   }

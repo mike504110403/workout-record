@@ -4,7 +4,12 @@
 // 寫入失敗時的 UI 收斂(浮錯 + 解除 loading + provider 值不變,紀律
 // 【UI】寫入失敗解除 loading＋浮錯＋失敗測試)。
 //
-// 失敗測試用的四個 _Throwing*Controller 是刻意讓 setXxx() 拋例外的真
+// 第 3 波:「重量單位」「主題」兩項搬到設定主列表(行內 SegmentedButton),它們的
+// 互動/寫入失敗/legacy 預填 UI 斷言隨之搬到 settings_page_test.dart;本檔保留休息
+// 秒數、1RM 公式與重置,並確認這兩項已不在本頁。重置仍涵蓋四項,以 provider/prefs
+// 驗證。
+//
+// 失敗測試用的 _Throwing*Controller 是刻意讓 setXxx() 拋例外的真
 // Controller 子類——跟 dashboard_page_test.dart 的
 // `_ThrowingBodyWeightRepository extends DriftBodyWeightRepository` 是同一套「用
 // override 換掉單一方法」慣例,不需要額外的 mock 套件。
@@ -28,13 +33,6 @@ class _ThrowingWeightUnitController extends WeightUnitController {
   }
 }
 
-class _ThrowingThemeModeController extends ThemeModeController {
-  @override
-  Future<void> setThemeMode(ThemeMode mode) async {
-    throw Exception('模擬寫入失敗(theme)');
-  }
-}
-
 class _ThrowingDefaultRestSecondsController extends DefaultRestSecondsController {
   @override
   Future<void> setSeconds(int seconds) async {
@@ -52,7 +50,6 @@ class _ThrowingOneRmFormulaController extends OneRmFormulaController {
 Future<ProviderContainer> _container({
   Map<String, Object> prefsValues = const {},
   bool throwingWeightUnit = false,
-  bool throwingTheme = false,
   bool throwingRestSeconds = false,
   bool throwingFormula = false,
 }) async {
@@ -63,8 +60,6 @@ Future<ProviderContainer> _container({
       sharedPreferencesProvider.overrideWithValue(prefs),
       if (throwingWeightUnit)
         weightUnitControllerProvider.overrideWith(() => _ThrowingWeightUnitController()),
-      if (throwingTheme)
-        themeModeControllerProvider.overrideWith(() => _ThrowingThemeModeController()),
       if (throwingRestSeconds)
         defaultRestSecondsControllerProvider
             .overrideWith(() => _ThrowingDefaultRestSecondsController()),
@@ -96,23 +91,10 @@ Finder _restSecondsShown(String text) => find.descendant(
 
 void main() {
   group('PreferencesPage(頂層真組裝)', () {
-    testWidgets('無任何 prefs 值:四項全部顯示各自預設值', (tester) async {
+    testWidgets('無任何 prefs 值:休息秒數/1RM 公式顯示預設值,單位與主題 provider 為預設', (tester) async {
       final container = await _container();
       await _pump(tester, container);
 
-      expect(
-        tester
-            .widget<SegmentedButton<WeightUnit>>(
-                find.byKey(const Key('weightUnitSegmentedButton')))
-            .selected,
-        {WeightUnit.kg},
-      );
-      expect(
-        tester
-            .widget<SegmentedButton<ThemeMode>>(find.byKey(const Key('themeModeSegmentedButton')))
-            .selected,
-        {ThemeMode.system},
-      );
       expect(
         tester
             .widget<SegmentedButton<OneRmFormula>>(
@@ -121,6 +103,11 @@ void main() {
         {OneRmFormula.epley},
       );
       expect(_restSecondsShown('90 秒'), findsOneWidget);
+      // 單位與主題的控制項已搬到設定主列表,本頁不再出現;預設值仍由 provider 驗證。
+      expect(find.byKey(const Key('weightUnitSegmentedButton')), findsNothing);
+      expect(find.byKey(const Key('themeModeSegmentedButton')), findsNothing);
+      expect(container.read(weightUnitProvider), WeightUnit.kg);
+      expect(container.read(themeModeProvider), ThemeMode.system);
     });
 
     testWidgets('legacy 值全數種好時(四項各自的 legacy key):頁面顯示預填後的值', (tester) async {
@@ -136,54 +123,15 @@ void main() {
 
       expect(
         tester
-            .widget<SegmentedButton<WeightUnit>>(
-                find.byKey(const Key('weightUnitSegmentedButton')))
-            .selected,
-        {WeightUnit.lb},
-      );
-      expect(
-        tester
-            .widget<SegmentedButton<ThemeMode>>(find.byKey(const Key('themeModeSegmentedButton')))
-            .selected,
-        {ThemeMode.dark},
-      );
-      expect(
-        tester
             .widget<SegmentedButton<OneRmFormula>>(
                 find.byKey(const Key('oneRmFormulaSegmentedButton')))
             .selected,
         {OneRmFormula.brzycki},
       );
       expect(_restSecondsShown('120 秒'), findsOneWidget);
-    });
-
-    testWidgets('點選重量單位「磅 (lb)」→ provider 值即時反映 + prefs 寫入', (tester) async {
-      final container = await _container();
-      await _pump(tester, container);
-
-      await tester.tap(find.text('磅 (lb)'));
-      await tester.pumpAndSettle();
-
+      // 單位與主題的預填 UI 斷言在 settings_page_test.dart;這裡仍驗 provider 預填。
       expect(container.read(weightUnitProvider), WeightUnit.lb);
-      expect(container.read(sharedPreferencesProvider).getString(kWeightUnitPrefsKey), 'lb');
-      expect(
-        tester
-            .widget<SegmentedButton<WeightUnit>>(
-                find.byKey(const Key('weightUnitSegmentedButton')))
-            .selected,
-        {WeightUnit.lb},
-      );
-    });
-
-    testWidgets('點選主題「深色」→ provider 值即時反映 + prefs 寫入', (tester) async {
-      final container = await _container();
-      await _pump(tester, container);
-
-      await tester.tap(find.text('深色'));
-      await tester.pumpAndSettle();
-
       expect(container.read(themeModeProvider), ThemeMode.dark);
-      expect(container.read(sharedPreferencesProvider).getString(kThemeModePrefsKey), 'dark');
     });
 
     testWidgets('選擇休息秒數「180 秒」→ provider 值即時反映 + prefs 寫入', (tester) async {
@@ -222,30 +170,6 @@ void main() {
         container.read(sharedPreferencesProvider).getString(kOneRmFormulaPrefsKey),
         'lander',
       );
-    });
-
-    testWidgets('重量單位寫入失敗 → 浮錯 + 解除 loading + provider 值不變', (tester) async {
-      final container = await _container(throwingWeightUnit: true);
-      await _pump(tester, container);
-
-      await tester.tap(find.text('磅 (lb)'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
-      expect(container.read(weightUnitProvider), WeightUnit.kg);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-    });
-
-    testWidgets('主題寫入失敗 → 浮錯 + 解除 loading + provider 值不變', (tester) async {
-      final container = await _container(throwingTheme: true);
-      await _pump(tester, container);
-
-      await tester.tap(find.text('深色'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
-      expect(container.read(themeModeProvider), ThemeMode.system);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
     testWidgets('休息秒數寫入失敗 → 浮錯 + 解除 loading + provider 值不變', (tester) async {

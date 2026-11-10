@@ -13,9 +13,25 @@ import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/settings/preferences/theme_preference.dart';
+import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/settings/settings_page.dart';
 
 import '../../data/test_helpers.dart';
+
+class _ThrowingWeightUnitController extends WeightUnitController {
+  @override
+  Future<void> setUnit(WeightUnit unit) async {
+    throw Exception('模擬寫入失敗(weight unit)');
+  }
+}
+
+class _ThrowingThemeModeController extends ThemeModeController {
+  @override
+  Future<void> setThemeMode(ThemeMode mode) async {
+    throw Exception('模擬寫入失敗(theme)');
+  }
+}
 
 class _Harness {
   _Harness(this.db, this.container);
@@ -27,8 +43,12 @@ class _Harness {
 /// 五個真實目的頁裡有兩個(目標設定/我的模板)會碰資料層——比照
 /// dashboard_page_test.dart / goal_settings_page_test.dart 的既有慣例,一律
 /// 換成 in-memory DB + mock prefs,不連真實 sqlite。
-Future<_Harness> _setUpHarness() async {
-  SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
+Future<_Harness> _setUpHarness({
+  Map<String, Object> extraPrefs = const {},
+  bool throwingWeightUnit = false,
+  bool throwingTheme = false,
+}) async {
+  SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId, ...extraPrefs});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
   addTearDown(db.close);
@@ -38,6 +58,10 @@ Future<_Harness> _setUpHarness() async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
+      if (throwingWeightUnit)
+        weightUnitControllerProvider.overrideWith(() => _ThrowingWeightUnitController()),
+      if (throwingTheme)
+        themeModeControllerProvider.overrideWith(() => _ThrowingThemeModeController()),
     ],
   );
   addTearDown(container.dispose);
@@ -51,6 +75,16 @@ Future<void> _pumpSettingsPage(WidgetTester tester, _Harness harness) async {
       child: const MaterialApp(home: SettingsPage()),
     ),
   );
+  await tester.pumpAndSettle();
+}
+
+/// 第 3 波起設定頁是 large title + 群組卡片,入口多半落在 800x600 預設視窗外,
+/// 先捲到可見再點。
+Future<void> _tapEntry(WidgetTester tester, Key key) async {
+  final finder = find.byKey(key);
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
   await tester.pumpAndSettle();
 }
 
@@ -100,8 +134,7 @@ void main() {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    await tester.tap(find.byKey(const Key('settingsProfileEntry')));
-    await tester.pumpAndSettle();
+    await _tapEntry(tester, const Key('settingsProfileEntry'));
 
     expect(find.widgetWithText(AppBar, '個人資料'), findsOneWidget);
   });
@@ -110,8 +143,7 @@ void main() {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    await tester.tap(find.byKey(const Key('settingsGoalEntry')));
-    await tester.pumpAndSettle();
+    await _tapEntry(tester, const Key('settingsGoalEntry'));
 
     expect(find.widgetWithText(AppBar, '目標設定'), findsOneWidget);
   });
@@ -120,8 +152,7 @@ void main() {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    await tester.tap(find.byKey(const Key('settingsTemplatesEntry')));
-    await tester.pumpAndSettle();
+    await _tapEntry(tester, const Key('settingsTemplatesEntry'));
 
     expect(find.widgetWithText(AppBar, '訓練模板'), findsOneWidget);
   });
@@ -130,8 +161,7 @@ void main() {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    await tester.tap(find.byKey(const Key('settingsPreferencesEntry')));
-    await tester.pumpAndSettle();
+    await _tapEntry(tester, const Key('settingsPreferencesEntry'));
 
     expect(find.widgetWithText(AppBar, '偏好設定'), findsOneWidget);
   });
@@ -140,8 +170,7 @@ void main() {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    await tester.tap(find.byKey(const Key('settingsAboutEntry')));
-    await tester.pumpAndSettle();
+    await _tapEntry(tester, const Key('settingsAboutEntry'));
 
     expect(find.widgetWithText(AppBar, '關於'), findsOneWidget);
   });
@@ -159,5 +188,149 @@ void main() {
     expect(find.byKey(const Key('settingsTemplatesEntry')), findsOneWidget);
     expect(find.byKey(const Key('settingsPreferencesEntry')), findsOneWidget);
     expect(find.byKey(const Key('settingsAboutEntry')), findsOneWidget);
+  });
+
+  testWidgets('頂部是 M3 large title(SliverAppBar.large),不是一條只重複分頁名稱的 AppBar',
+      (tester) async {
+    final harness = await _setUpHarness();
+    await _pumpSettingsPage(tester, harness);
+
+    expect(find.byType(SliverAppBar), findsOneWidget);
+    expect(find.descendant(of: find.byType(SliverAppBar), matching: find.text('設定')), findsWidgets);
+    // Scaffold 本身沒有掛傳統 appBar。
+    expect(tester.widget<Scaffold>(find.byType(Scaffold).first).appBar, isNull);
+  });
+
+  testWidgets('每個入口的圖示一律單色 onSurfaceVariant(登出也是;只有刪除帳號才用 error)',
+      (tester) async {
+    final harness = await _setUpHarness();
+    await _pumpSettingsPage(tester, harness);
+
+    final muted = Theme.of(tester.element(find.byType(SettingsPage))).colorScheme.onSurfaceVariant;
+    for (final key in const [
+      'settingsProfileEntry',
+      'settingsGoalEntry',
+      'settingsCustomExercisesEntry',
+      'settingsTemplatesEntry',
+      'settingsPreferencesEntry',
+      'settingsTutorialEntry',
+      'settingsAboutEntry',
+      'signOutButton',
+    ]) {
+      final leading = find.descendant(
+        of: find.byKey(Key(key)),
+        matching: find.byType(Icon),
+      );
+      expect(leading, findsWidgets, reason: key);
+      // 第一個 Icon 是 leading 圖示。
+      expect(tester.widget<Icon>(leading.first).color, muted, reason: key);
+    }
+  });
+
+  group('行內偏好:重量單位 / 主題直接在設定主列表切換', () {
+    SegmentedButton<T> segmented<T>(WidgetTester tester, String key) =>
+        tester.widget<SegmentedButton<T>>(find.byKey(Key(key)));
+
+    testWidgets('預設:kg、跟隨系統;legacy 值預填時顯示 lb、深色', (tester) async {
+      var harness = await _setUpHarness();
+      await _pumpSettingsPage(tester, harness);
+      expect(segmented<WeightUnit>(tester, 'weightUnitSegmentedButton').selected, {WeightUnit.kg});
+      expect(segmented<ThemeMode>(tester, 'themeModeSegmentedButton').selected, {ThemeMode.system});
+
+      harness = await _setUpHarness(
+        extraPrefs: {kLegacyWeightUnitPrefsKey: 'lb', kLegacyThemePrefsKey: 'dark'},
+      );
+      await _pumpSettingsPage(tester, harness);
+      expect(segmented<WeightUnit>(tester, 'weightUnitSegmentedButton').selected, {WeightUnit.lb});
+      expect(segmented<ThemeMode>(tester, 'themeModeSegmentedButton').selected, {ThemeMode.dark});
+    });
+
+    testWidgets('點「磅 (lb)」→ provider 值即時反映 + prefs 寫入', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpSettingsPage(tester, harness);
+
+      await tester.ensureVisible(find.text('磅 (lb)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('磅 (lb)'));
+      await tester.pumpAndSettle();
+
+      expect(harness.container.read(weightUnitProvider), WeightUnit.lb);
+      expect(
+        harness.container.read(sharedPreferencesProvider).getString(kWeightUnitPrefsKey),
+        'lb',
+      );
+      expect(segmented<WeightUnit>(tester, 'weightUnitSegmentedButton').selected, {WeightUnit.lb});
+    });
+
+    testWidgets('點主題「深色」→ provider 值即時反映 + prefs 寫入', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpSettingsPage(tester, harness);
+
+      await tester.ensureVisible(find.text('深色'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('深色'));
+      await tester.pumpAndSettle();
+
+      expect(harness.container.read(themeModeProvider), ThemeMode.dark);
+      expect(
+        harness.container.read(sharedPreferencesProvider).getString(kThemeModePrefsKey),
+        'dark',
+      );
+    });
+
+    testWidgets('重量單位寫入失敗 → 浮錯 + 解除 loading + provider 值不變、畫面回舊選項', (tester) async {
+      final harness = await _setUpHarness(throwingWeightUnit: true);
+      await _pumpSettingsPage(tester, harness);
+
+      await tester.ensureVisible(find.text('磅 (lb)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('磅 (lb)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
+      expect(harness.container.read(weightUnitProvider), WeightUnit.kg);
+      expect(segmented<WeightUnit>(tester, 'weightUnitSegmentedButton').selected, {WeightUnit.kg});
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('主題寫入失敗 → 浮錯 + 解除 loading + provider 值不變', (tester) async {
+      final harness = await _setUpHarness(throwingTheme: true);
+      await _pumpSettingsPage(tester, harness);
+
+      await tester.ensureVisible(find.text('深色'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('深色'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
+      expect(harness.container.read(themeModeProvider), ThemeMode.system);
+      expect(segmented<ThemeMode>(tester, 'themeModeSegmentedButton').selected, {ThemeMode.system});
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+  });
+
+  testWidgets('360 寬、字體 1.5 倍:行內 SegmentedButton 與各群組不溢位', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final harness = await _setUpHarness();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: harness.container,
+        child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('themeModeSegmentedButton')), findsOneWidget);
   });
 }

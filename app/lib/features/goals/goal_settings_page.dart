@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/weight_format.dart';
+import '../../core/theme/app_tokens.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'goal_settings_controller.dart';
 
@@ -158,7 +159,7 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('載入失敗，請稍後再試'),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               FilledButton(
                 key: const Key('goalSettingsErrorRetryButton'),
                 onPressed: () => ref.invalidate(goalSettingsControllerProvider),
@@ -181,12 +182,12 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
     final maxShown = _shownBound(_kMaxTargetWeight, unit, up: false);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('週訓練次數目標', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           TextField(
             key: const Key('weeklyWorkoutGoalField'),
             controller: _weeklyGoalController,
@@ -198,9 +199,9 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpacing.xl),
           Text('目標體重', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           TextField(
             key: const Key('targetWeightField'),
             controller: _targetWeightController,
@@ -212,7 +213,7 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: AppSpacing.xxl),
           SizedBox(
             width: double.infinity,
             child: FilledButton(

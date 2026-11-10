@@ -5,6 +5,11 @@
 // 重量單位四項,含 legacy 預填)。**類名與 zero-arg const 建構子是契約,
 // 不得改。**
 //
+// UI 改版(第 3 波):「重量單位」「主題」已搬到設定主列表(settings_page.dart 的
+// 行內 SegmentedButton,同一組 controller、同一套寫入失敗處理);本頁保留休息秒數、
+// 1RM 公式與「重置所有設定」(重置仍涵蓋四項,含已搬走的單位與主題)。
+// 以下為原註解,「四項」指休息秒數/1RM 公式與搬走前的單位/主題:
+//
 // 四項全部「選了就立刻寫入生效」(不像 goal_settings_page.dart 那種表單+
 // 「儲存」按鈕——這裡是設定語意的即時切換,對齊 iOS 版
 // `Views/Settings/GlobalSettingsView.swift` 選了就 `updateSetting` 立即存檔
@@ -27,6 +32,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../workout/workout_ui_shared.dart' show kDefaultRestSeconds;
 import 'default_rest_seconds_preference.dart';
 import 'formula_explanation_page.dart';
@@ -46,8 +52,6 @@ class PreferencesPage extends ConsumerStatefulWidget {
 }
 
 class _PreferencesPageState extends ConsumerState<PreferencesPage> {
-  bool _savingWeightUnit = false;
-  bool _savingTheme = false;
   bool _savingRestSeconds = false;
   bool _savingFormula = false;
   bool _resetting = false;
@@ -114,57 +118,16 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final weightUnit = ref.watch(weightUnitProvider);
-    final themeMode = ref.watch(themeModeProvider);
     final restSeconds = ref.watch(defaultRestSecondsProvider);
     final formula = ref.watch(oneRmFormulaProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('偏好設定')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          _buildSectionTitle(context, '重量單位', _savingWeightUnit),
-          const SizedBox(height: 8),
-          SegmentedButton<WeightUnit>(
-            key: const Key('weightUnitSegmentedButton'),
-            segments: const [
-              ButtonSegment(value: WeightUnit.kg, label: Text('公斤 (kg)')),
-              ButtonSegment(value: WeightUnit.lb, label: Text('磅 (lb)')),
-            ],
-            selected: {weightUnit},
-            onSelectionChanged: _savingWeightUnit
-                ? null
-                : (selection) => _guardedWrite(
-                      write: () => ref
-                          .read(weightUnitControllerProvider.notifier)
-                          .setUnit(selection.first),
-                      setSaving: (saving) => setState(() => _savingWeightUnit = saving),
-                    ),
-          ),
-          const SizedBox(height: 24),
-          _buildSectionTitle(context, '主題', _savingTheme),
-          const SizedBox(height: 8),
-          SegmentedButton<ThemeMode>(
-            key: const Key('themeModeSegmentedButton'),
-            segments: const [
-              ButtonSegment(value: ThemeMode.system, label: Text('跟隨系統')),
-              ButtonSegment(value: ThemeMode.light, label: Text('淺色')),
-              ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
-            ],
-            selected: {themeMode},
-            onSelectionChanged: _savingTheme
-                ? null
-                : (selection) => _guardedWrite(
-                      write: () => ref
-                          .read(themeModeControllerProvider.notifier)
-                          .setThemeMode(selection.first),
-                      setSaving: (saving) => setState(() => _savingTheme = saving),
-                    ),
-          ),
-          const SizedBox(height: 24),
           _buildSectionTitle(context, '預設休息秒數', _savingRestSeconds),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           DropdownButton<int>(
             key: const Key('defaultRestSecondsDropdown'),
             isExpanded: true,
@@ -190,9 +153,9 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
                     );
                   },
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpacing.xl),
           _buildSectionTitle(context, '1RM 估算公式', _savingFormula),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           SegmentedButton<OneRmFormula>(
             key: const Key('oneRmFormulaSegmentedButton'),
             segments: [
@@ -219,7 +182,7 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
               child: const Text('查看公式說明'),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           const Divider(),
           TextButton(
             key: const Key('resetPreferencesButton'),
@@ -237,7 +200,7 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
       children: [
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         if (saving) ...[
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           const SizedBox(
             width: 14,
             height: 14,

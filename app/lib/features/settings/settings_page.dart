@@ -7,6 +7,10 @@
 // 後續補上「自定義動作」入口(訓練組,iOS 在「動作庫管理」組):管理自建動作的
 // 列表/新增/編輯/刪除,見 custom_exercises/。
 //
+// UI 改版(第 3 波):M3 large title 取代只重複分頁名稱的 AppBar;每組一張群組卡片
+// (SectionHeader + AppCard + ListTile),圖示一律單色;「重量單位」「主題」從偏好
+// 子頁拉到「應用程式」組的行內 SegmentedButton,偏好子頁保留其餘項目。
+//
 // 目標設定(GoalSettingsPage)、我的模板(TemplatesListPage)、偏好設定
 // (PreferencesPage,另一工人換真身的契約 stub)皆為 zero-arg const 頁面,
 // push 慣例照 dashboard_page.dart:64 附近(GoalSettingsPage)與
@@ -14,6 +18,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/section_header.dart';
 import '../auth/cloud_auth.dart';
 import '../auth/session_controller.dart';
 import '../goals/goal_settings_page.dart';
@@ -21,25 +28,203 @@ import '../workout/templates/templates_list_page.dart';
 import 'about/about_page.dart';
 import 'custom_exercises/custom_exercise_list_page.dart';
 import 'preferences/preferences_page.dart';
+import 'preferences/theme_preference.dart';
+import 'preferences/weight_unit.dart';
 import 'profile/profile_page.dart';
 import 'tutorial/tutorial_page.dart';
 import 'widgets/cloud_upload_status_tile.dart';
 import 'widgets/import_retry_tile.dart';
 
-/// 分組小標題:列表內的輕量 section header(不用 Card,維持 ListTile 在
-/// 一屏內可見——既有登出測試未捲動就點 signOutButton)。
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title);
+/// 一組設定:小標題 + 一張群組卡片(內含 ListTile)。圖示一律單色
+/// (onSurfaceVariant),層次由分組標題與卡片區隔,不靠每項各自的顏色。
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.title, required this.children});
 
   final String title;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          title: title,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xs,
+            AppSpacing.lg,
+            AppSpacing.xs,
+            AppSpacing.sm,
+          ),
+        ),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(children: children),
+        ),
+      ],
+    );
+  }
+}
+
+/// 帶 chevron 的導頁項目。
+class _NavTile extends StatelessWidget {
+  const _NavTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return ListTile(
+      leading: Icon(icon, color: muted),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+      trailing: Icon(Icons.chevron_right, color: muted),
+      onTap: onTap,
+    );
+  }
+}
+
+/// 最常用的兩項偏好(重量單位、主題)直接放在設定主列表,行內 SegmentedButton
+/// 選了就寫入。其餘偏好(休息秒數、1RM 公式、重置)在偏好設定子頁。
+///
+/// 寫入失敗處理同偏好設定子頁:各 controller 的 setXxx() 是「先寫 prefs 成功才更新
+/// state」,失敗時 provider 值不變、SegmentedButton(完全受控,selected 每次 build
+/// 從 provider 重算)自然顯示回舊選項;這裡只負責解除該項的 saving 並跳浮錯。
+class _QuickPreferences extends ConsumerStatefulWidget {
+  const _QuickPreferences();
+
+  @override
+  ConsumerState<_QuickPreferences> createState() => _QuickPreferencesState();
+}
+
+class _QuickPreferencesState extends ConsumerState<_QuickPreferences> {
+  bool _savingWeightUnit = false;
+  bool _savingTheme = false;
+
+  static const _kWriteErrorMessage = '儲存失敗，請稍後再試';
+
+  Future<void> _guardedWrite({
+    required Future<void> Function() write,
+    required void Function(bool saving) setSaving,
+  }) async {
+    setSaving(true);
+    try {
+      await write();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(_kWriteErrorMessage)),
+      );
+    } finally {
+      if (mounted) setSaving(false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final weightUnit = ref.watch(weightUnitProvider);
+    final themeMode = ref.watch(themeModeProvider);
+    return Column(
+      children: [
+        _SegmentRow(
+          icon: Icons.straighten,
+          title: '重量單位',
+          saving: _savingWeightUnit,
+          child: SegmentedButton<WeightUnit>(
+            key: const Key('weightUnitSegmentedButton'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: WeightUnit.kg, label: Text('公斤 (kg)')),
+              ButtonSegment(value: WeightUnit.lb, label: Text('磅 (lb)')),
+            ],
+            selected: {weightUnit},
+            onSelectionChanged: _savingWeightUnit
+                ? null
+                : (selection) => _guardedWrite(
+                      write: () =>
+                          ref.read(weightUnitControllerProvider.notifier).setUnit(selection.first),
+                      setSaving: (saving) => setState(() => _savingWeightUnit = saving),
+                    ),
+          ),
+        ),
+        _SegmentRow(
+          icon: Icons.brightness_6_outlined,
+          title: '主題',
+          saving: _savingTheme,
+          child: SegmentedButton<ThemeMode>(
+            key: const Key('themeModeSegmentedButton'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: ThemeMode.system, label: Text('跟隨系統')),
+              ButtonSegment(value: ThemeMode.light, label: Text('淺色')),
+              ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+            ],
+            selected: {themeMode},
+            onSelectionChanged: _savingTheme
+                ? null
+                : (selection) => _guardedWrite(
+                      write: () => ref
+                          .read(themeModeControllerProvider.notifier)
+                          .setThemeMode(selection.first),
+                      setSaving: (saving) => setState(() => _savingTheme = saving),
+                    ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 標題(單色圖示 + 文字,寫入中顯示小轉圈)在上、控制項全寬在下的一列。
+class _SegmentRow extends StatelessWidget {
+  const _SegmentRow({
+    required this.icon,
+    required this.title,
+    required this.saving,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final bool saving;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Colors.grey),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: AppSpacing.lg),
+              Text(title, style: theme.textTheme.bodyLarge),
+              if (saving) ...[
+                const SizedBox(width: AppSpacing.sm),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          child,
+        ],
       ),
     );
   }
@@ -85,8 +270,9 @@ class SettingsPage extends ConsumerWidget {
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
           TextButton(
             key: const Key('deleteAccountContinue'),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('繼續', style: TextStyle(color: Colors.red)),
+            child: const Text('繼續'),
           ),
         ],
       ),
@@ -102,8 +288,9 @@ class SettingsPage extends ConsumerWidget {
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
           TextButton(
             key: const Key('deleteAccountConfirm'),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('永久刪除', style: TextStyle(color: Colors.red)),
+            child: const Text('永久刪除'),
           ),
         ],
       ),
@@ -128,95 +315,129 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('設定')),
-      body: ListView(
-        children: [
-          const _SectionHeader('個人'),
-          ListTile(
-            key: const Key('settingsProfileEntry'),
-            leading: const Icon(Icons.person, color: Colors.blue),
-            title: const Text('個人資料'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
+      // M3 large title:不佔一條只重複分頁名稱的 AppBar。
+      body: CustomScrollView(
+        slivers: [
+          const SliverAppBar.large(title: Text('設定')),
+          // 單一 SliverToBoxAdapter(整段一次建置):項目數固定,且測試用
+          // find.byKey 需要下方項目都在 Element tree 內。
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageHorizontal,
+                0,
+                AppSpacing.pageHorizontal,
+                AppSpacing.xl,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SettingsGroup(
+                    title: '個人',
+                    children: [
+                      _NavTile(
+                        key: const Key('settingsProfileEntry'),
+                        icon: Icons.person_outline,
+                        title: '個人資料',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
+                        ),
+                      ),
+                      _NavTile(
+                        key: const Key('settingsGoalEntry'),
+                        icon: Icons.track_changes,
+                        title: '目標設定',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: '訓練',
+                    children: [
+                      _NavTile(
+                        key: const Key('settingsCustomExercisesEntry'),
+                        icon: Icons.add_circle_outline,
+                        title: '自定義動作',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const CustomExerciseListPage(),
+                          ),
+                        ),
+                      ),
+                      // 「我的模板」:設定入口保留於此(訓練開始頁另有入口,不在本頁範圍)。
+                      _NavTile(
+                        key: const Key('settingsTemplatesEntry'),
+                        icon: Icons.description_outlined,
+                        title: '我的模板',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const TemplatesListPage()),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: '應用程式',
+                    children: [
+                      const _QuickPreferences(),
+                      _NavTile(
+                        key: const Key('settingsPreferencesEntry'),
+                        icon: Icons.tune,
+                        title: '偏好設定',
+                        subtitle: '休息秒數、1RM 公式、重置',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const PreferencesPage()),
+                        ),
+                      ),
+                      _NavTile(
+                        key: const Key('settingsTutorialEntry'),
+                        icon: Icons.menu_book_outlined,
+                        title: '使用教學',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
+                        ),
+                      ),
+                      _NavTile(
+                        key: const Key('settingsAboutEntry'),
+                        icon: Icons.info_outline,
+                        title: '關於',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const AboutPage()),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _SettingsGroup(
+                    title: '帳號',
+                    children: [
+                      ListTile(
+                        key: const Key('signOutButton'),
+                        leading: Icon(Icons.logout, color: colors.onSurfaceVariant),
+                        title: const Text('登出'),
+                        onTap: () => _confirmSignOut(context, ref),
+                      ),
+                      // 只有雲端帳號才有「帳號」可刪;本機模式不顯示。破壞性動作
+                      // 才用 error 色(圖示與文字)。
+                      if (ref.watch(cloudAuthServiceProvider) != null)
+                        ListTile(
+                          key: const Key('deleteAccountButton'),
+                          leading: Icon(Icons.delete_forever_outlined, color: colors.error),
+                          title: Text('刪除帳號', style: TextStyle(color: colors.error)),
+                          onTap: () => _confirmDeleteAccount(context, ref),
+                        ),
+                      // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染,放群組尾。
+                      const ImportRetryTile(),
+                      // 雲端模式登入後本機舊資料上傳的狀態(idle 不渲染)。
+                      const CloudUploadStatusTile(),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-          ListTile(
-            key: const Key('settingsGoalEntry'),
-            leading: const Icon(Icons.track_changes, color: Colors.orange),
-            title: const Text('目標設定'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
-            ),
-          ),
-          const _SectionHeader('訓練'),
-          ListTile(
-            key: const Key('settingsCustomExercisesEntry'),
-            leading: const Icon(Icons.add_circle_outline, color: Colors.green),
-            title: const Text('自定義動作'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CustomExerciseListPage()),
-            ),
-          ),
-          ListTile(
-            key: const Key('settingsTemplatesEntry'),
-            leading: const Icon(Icons.description, color: Colors.teal),
-            title: const Text('我的模板'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TemplatesListPage()),
-            ),
-          ),
-          const _SectionHeader('應用程式'),
-          ListTile(
-            key: const Key('settingsPreferencesEntry'),
-            leading: const Icon(Icons.settings, color: Colors.grey),
-            title: const Text('偏好設定'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PreferencesPage()),
-            ),
-          ),
-          ListTile(
-            key: const Key('settingsTutorialEntry'),
-            leading: const Icon(Icons.menu_book_outlined, color: Colors.indigo),
-            title: const Text('使用教學'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
-            ),
-          ),
-          ListTile(
-            key: const Key('settingsAboutEntry'),
-            leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
-            title: const Text('關於'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const AboutPage()),
-            ),
-          ),
-          const _SectionHeader('帳號'),
-          ListTile(
-            key: const Key('signOutButton'),
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('登出', style: TextStyle(color: Colors.red)),
-            onTap: () => _confirmSignOut(context, ref),
-          ),
-          // 只有雲端帳號才有「帳號」可刪;本機模式不顯示。
-          if (ref.watch(cloudAuthServiceProvider) != null)
-            ListTile(
-              key: const Key('deleteAccountButton'),
-              leading: const Icon(Icons.delete_forever, color: Colors.red),
-              title: const Text('刪除帳號', style: TextStyle(color: Colors.red)),
-              onTap: () => _confirmDeleteAccount(context, ref),
-            ),
-          // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染,放列表尾。
-          const ImportRetryTile(),
-          // 雲端模式登入後本機舊資料上傳的狀態(idle 不渲染)。
-          const CloudUploadStatusTile(),
         ],
       ),
     );

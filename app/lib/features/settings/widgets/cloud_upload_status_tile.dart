@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_semantic_colors.dart';
 import '../../cloud_upload/cloud_upload_controller.dart';
 
 class CloudUploadStatusTile extends ConsumerWidget {
@@ -31,14 +32,14 @@ class CloudUploadStatusTile extends ConsumerWidget {
       case CloudUploadPhase.succeeded:
         return ListTile(
           key: const Key('cloudUploadSucceeded'),
-          leading: const Icon(Icons.cloud_done_outlined, color: Colors.green),
+          leading: Icon(Icons.cloud_done_outlined, color: context.semanticColors.success),
           title: const Text('舊資料已上傳到雲端'),
           subtitle: Text('共 ${status.uploadedRows} 筆'),
         );
       case CloudUploadPhase.failed:
         return ListTile(
           key: const Key('cloudUploadFailed'),
-          leading: const Icon(Icons.cloud_off_outlined, color: Colors.orange),
+          leading: Icon(Icons.cloud_off_outlined, color: context.semanticColors.warning),
           title: const Text('舊資料上傳雲端失敗'),
           subtitle: Text(
             status.errorMessage ?? '未知錯誤',

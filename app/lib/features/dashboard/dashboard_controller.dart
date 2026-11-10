@@ -36,6 +36,8 @@ class DashboardState {
     this.userGoal,
     this.goalPercentage,
     this.motivationalMessage = kNoGoalMessage,
+    this.hasDraftWorkout = false,
+    this.weightWeekChange,
   });
 
   final Workout? todayWorkout;
@@ -51,6 +53,15 @@ class DashboardState {
   /// 畫面本身夾在 0~100%,文字不夾)。
   final double? goalPercentage;
   final String motivationalMessage;
+
+  /// 目前使用者是否有進行中(`endedAt IS NULL`)的訓練草稿——首頁主 CTA 據此
+  /// 顯示「繼續訓練」而非「開始訓練」。
+  final bool hasDraftWorkout;
+
+  /// 近 7 天(含今天)體重變化,單位 kg(儲存單位),顯示層再依目前單位換算。
+  /// 算法:區間內「最早一筆」到「最新一筆」的差;區間內不足兩筆記錄(算不出
+  /// 變化)時為 null,UI 顯示 —。
+  final double? weightWeekChange;
 }
 
 class DashboardController extends AsyncNotifier<DashboardState> {
@@ -136,8 +147,14 @@ class DashboardController extends AsyncNotifier<DashboardState> {
     final todayWorkouts = await workoutRepo.fetchByDateRange(startOfToday, endOfToday);
     final recentWorkouts = await workoutRepo.fetchRecent(5);
 
+    // 近 7 天 = 今天與前 6 天(日曆算術,理由同 endOfToday)。
+    final weightWindowStart = DateTime(now.year, now.month, now.day - 6);
+    final weekWeights = await bodyWeightRepo.fetchByDateRange(weightWindowStart, endOfToday);
+    final weightWeekChange = _weightChange(weekWeights);
+
     final userId = await _resolveUserId();
     final userGoal = userId == null ? null : await goalRepo.fetchByUser(userId);
+    final hasDraftWorkout = userId != null && await workoutRepo.fetchDraft(userId) != null;
 
     double? goalPercentage;
     String motivationalMessage = kNoGoalMessage;
@@ -161,7 +178,17 @@ class DashboardController extends AsyncNotifier<DashboardState> {
       userGoal: userGoal,
       goalPercentage: goalPercentage,
       motivationalMessage: motivationalMessage,
+      hasDraftWorkout: hasDraftWorkout,
+      weightWeekChange: weightWeekChange,
     );
+  }
+
+  /// 區間內最新一筆減最早一筆(kg);不足兩筆回 null。不依賴 repository 的
+  /// 排序保證,自行依 measuredAt 排序。
+  double? _weightChange(List<BodyWeight> weights) {
+    if (weights.length < 2) return null;
+    final sorted = [...weights]..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+    return sorted.last.weight - sorted.first.weight;
   }
 
   Future<String?> _resolveUserId() => resolveSessionUserId(ref);

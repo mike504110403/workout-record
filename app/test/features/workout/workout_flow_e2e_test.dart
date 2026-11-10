@@ -188,7 +188,11 @@ void main() {
 
       expect(find.byKey(const Key('todayWorkoutCard')), findsOneWidget);
       expect(
-        find.descendant(of: find.byKey(const Key('todayWorkoutCard')), matching: find.text('500 kg')),
+        // 第 3 波:今日狀態併入本週卡,總容量在「N 分鐘 · 500 kg · N 組 · N 個動作」同一串文字內。
+        find.descendant(
+          of: find.byKey(const Key('todayWorkoutCard')),
+          matching: find.textContaining('· 500 kg ·'),
+        ),
         findsOneWidget,
       );
     },

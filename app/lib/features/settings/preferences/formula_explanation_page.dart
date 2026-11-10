@@ -2,6 +2,9 @@
 // `FormulaExplanationView`(Epley / Brzycki / Lander 三條公式 + 適用情境)。
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+
 class FormulaExplanationPage extends StatelessWidget {
   const FormulaExplanationPage({super.key});
 
@@ -17,13 +20,12 @@ class FormulaExplanationPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('1RM 公式說明')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           for (final f in _formulas)
-            Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: AppCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -33,7 +35,7 @@ class FormulaExplanationPage extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.sm),
                     Text(
                       f.$2,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -41,7 +43,7 @@ class FormulaExplanationPage extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.sm),
                     Text(f.$3, style: theme.textTheme.bodySmall),
                   ],
                 ),

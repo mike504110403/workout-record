@@ -20,8 +20,9 @@ Future<bool> confirmDeleteExercise(BuildContext context, Exercise exercise) asyn
         ),
         TextButton(
           key: const Key('customExerciseDeleteConfirmButton'),
+          style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('刪除', style: TextStyle(color: Colors.red)),
+          child: const Text('刪除'),
         ),
       ],
     ),

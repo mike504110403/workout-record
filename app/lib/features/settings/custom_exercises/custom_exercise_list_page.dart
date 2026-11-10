@@ -7,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/exercise.dart';
 import 'custom_exercise_form_page.dart';
 import 'custom_exercises_controller.dart';
@@ -57,10 +59,10 @@ class CustomExerciseListPage extends ConsumerWidget {
                   key: ValueKey('customExerciseDismiss_${exercise.id}'),
                   direction: DismissDirection.endToStart,
                   background: Container(
-                    color: Colors.red,
+                    color: Theme.of(context).colorScheme.error,
                     alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    child: const Icon(Icons.delete, color: Colors.white),
+                    padding: const EdgeInsets.only(right: AppSpacing.xl),
+                    child: Icon(Icons.delete, color: Theme.of(context).colorScheme.onError),
                   ),
                   confirmDismiss: (_) => confirmDeleteExercise(context, exercise),
                   onDismissed: (_) => _deleteAfterSwipe(context, ref, exercise),
@@ -78,7 +80,7 @@ class CustomExerciseListPage extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('載入自定義動作失敗'),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               TextButton(
                 key: const Key('customExerciseRetryButton'),
                 onPressed: () => ref.invalidate(customExercisesControllerProvider),
@@ -100,18 +102,25 @@ class _EmptyState extends StatelessWidget {
     return Center(
       key: const Key('customExerciseEmptyState'),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.fitness_center, size: 60, color: Colors.grey),
-            const SizedBox(height: 16),
+            Icon(
+              Icons.fitness_center,
+              size: 60,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.lg),
             Text('還沒有自定義動作', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               '點擊右上角的 + 來創建你的第一個自定義動作',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -126,25 +135,29 @@ class _ExerciseTile extends StatelessWidget {
   final Exercise exercise;
   final VoidCallback onEdit;
 
-  static Color _muscleColor(PrimaryMuscleGroup? group) {
+  /// 肌群色用語意色票(六個展示肌群);臀肌/全身/未設定沒有專屬語意色,
+  /// 退回 colorScheme 的中性色(臀肌用 tertiary、其餘 onSurfaceVariant)。
+  static Color _muscleColor(BuildContext context, PrimaryMuscleGroup? group) {
+    final semantic = context.semanticColors;
+    final scheme = Theme.of(context).colorScheme;
     switch (group) {
       case PrimaryMuscleGroup.chest:
-        return Colors.red;
+        return semantic.muscleChest;
       case PrimaryMuscleGroup.back:
-        return Colors.blue;
+        return semantic.muscleBack;
       case PrimaryMuscleGroup.legs:
-        return Colors.green;
+        return semantic.muscleLegs;
       case PrimaryMuscleGroup.shoulders:
-        return Colors.orange;
+        return semantic.muscleShoulders;
       case PrimaryMuscleGroup.arms:
-        return Colors.purple;
+        return semantic.muscleArms;
       case PrimaryMuscleGroup.core:
-        return Colors.amber;
+        return semantic.muscleCore;
       case PrimaryMuscleGroup.glutes:
-        return Colors.pink;
+        return scheme.tertiary;
       case PrimaryMuscleGroup.fullBody:
       case null:
-        return Colors.grey;
+        return scheme.onSurfaceVariant;
     }
   }
 
@@ -161,10 +174,11 @@ class _ExerciseTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _muscleColor(exercise.primaryMuscleGroup);
+    final scheme = Theme.of(context).colorScheme;
+    final color = _muscleColor(context, exercise.primaryMuscleGroup);
     return ListTile(
       key: Key('customExerciseTile_${exercise.id}'),
-      // Dismissible 的背景是紅色;tile 自己要有不透明底色,滑動時才不會透出紅色。
+      // Dismissible 的背景是 error 色;tile 自己要有不透明底色,滑動時才不會透出紅色。
       tileColor: Theme.of(context).scaffoldBackgroundColor,
       leading: CircleAvatar(
         backgroundColor: color.withValues(alpha: 0.2),
@@ -172,19 +186,19 @@ class _ExerciseTile extends StatelessWidget {
       ),
       title: Text(exercise.name),
       subtitle: Wrap(
-        spacing: 6,
-        runSpacing: 4,
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.xs,
         children: [
           if (exercise.primaryMuscleGroup != null)
             _Tag(exercise.primaryMuscleGroup!.displayName, color),
           if (exercise.movementPattern != null)
-            _Tag(exercise.movementPattern!.displayName, Colors.blue),
-          _Tag(exercise.type.displayName, Colors.grey),
+            _Tag(exercise.movementPattern!.displayName, scheme.primary),
+          _Tag(exercise.type.displayName, scheme.onSurfaceVariant),
         ],
       ),
       trailing: IconButton(
         key: Key('customExerciseEditButton_${exercise.id}'),
-        icon: const Icon(Icons.edit, color: Colors.blue),
+        icon: Icon(Icons.edit, color: scheme.onSurfaceVariant),
         onPressed: onEdit,
       ),
     );
@@ -200,10 +214,10 @@ class _Tag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: AppRadius.chipRadius,
       ),
       child: Text(text, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color)),
     );

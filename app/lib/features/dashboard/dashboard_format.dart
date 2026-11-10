@@ -19,11 +19,21 @@ String formatWorkoutDateTime(DateTime dateTime) {
 String formatVolumeKg(double volume, WeightUnit unit) =>
     weight_format.formatWeight(volume, unit, decimals: 0);
 
-/// 對照 iOS `String(format: "%.0f", volume)`(StatCard 不帶單位——這個
-/// 慣例兩種單位都維持,不額外補字尾,避免打破既有窄版面設計)。
+/// 對照 iOS `String(format: "%.0f", volume)`(不帶單位——單位由
+/// `MetricTile.unit` 另外顯示,這個慣例兩種單位都維持)。
 String formatVolumeBare(double volume, WeightUnit unit) =>
     weight_format.formatWeightValue(volume, unit, decimals: 0);
 
 /// 對照 iOS `String(format: "%.1f kg", weight)`(lb 模式換算顯示值 + 字尾)。
 String formatWeightKg(double weight, WeightUnit unit) =>
     weight_format.formatWeight(weight, unit, decimals: 1);
+
+/// 體重變化(帶正負號)。輸入 kg 差值,依 [unit] 換算顯示;四捨五入到 0.1
+/// 後為 0 時不帶正負號。負號用真正的減號 U+2212,與等寬數字對齊。
+String formatWeightChange(double deltaKg, WeightUnit unit) {
+  final shown = kgToDisplay(deltaKg, unit);
+  final rounded = double.parse(shown.abs().toStringAsFixed(1));
+  final text = weight_format.formatWeight(rounded == 0 ? 0 : deltaKg.abs(), unit, decimals: 1);
+  if (rounded == 0) return text;
+  return '${shown < 0 ? '\u2212' : '+'}$text';
+}

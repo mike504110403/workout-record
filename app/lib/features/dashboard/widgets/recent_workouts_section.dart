@@ -3,6 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_text_styles.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../../data/models/workout.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_format.dart';
@@ -19,20 +23,31 @@ class RecentWorkoutsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('最近訓練', style: Theme.of(context).textTheme.titleMedium),
-            TextButton(
-              key: const Key('viewAllWorkoutsButton'),
-              onPressed: onViewAll,
-              child: const Text('查看全部'),
-            ),
-          ],
+        SectionHeader(
+          title: '最近訓練',
+          padding: EdgeInsets.zero,
+          trailing: TextButton(
+            key: const Key('viewAllWorkoutsButton'),
+            onPressed: onViewAll,
+            child: const Text('查看全部'),
+          ),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        if (recentWorkouts.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            child: Text(
+              '完成第一次訓練後會顯示在這裡',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+          ),
         for (final workout in recentWorkouts) _RecentWorkoutRow(workout: workout),
       ],
     );
@@ -47,12 +62,16 @@ class _RecentWorkoutRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final secondary = AppNumberStyles.body(context).copyWith(
+      fontSize: theme.textTheme.bodySmall?.fontSize,
+      color: colors.onSurfaceVariant,
+    );
+    return Padding(
       key: Key('recentWorkoutRow-${workout.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
         child: Row(
           children: [
             Expanded(
@@ -61,19 +80,10 @@ class _RecentWorkoutRow extends ConsumerWidget {
                 children: [
                   Text(
                     formatWorkoutDateTime(workout.startedAt),
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w500),
+                    style: AppNumberStyles.body(context).copyWith(fontWeight: FontWeight.w500),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${workout.totalExercises} 個動作 • ${workout.totalSets} 組',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: colorScheme.onSurfaceVariant),
-                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text('${workout.totalExercises} 個動作 • ${workout.totalSets} 組', style: secondary),
                 ],
               ),
             ),
@@ -82,19 +92,10 @@ class _RecentWorkoutRow extends ConsumerWidget {
               children: [
                 Text(
                   formatVolumeKg(workout.totalVolume, unit),
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: AppNumberStyles.body(context).copyWith(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${workout.duration ?? 0} 分鐘',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: colorScheme.onSurfaceVariant),
-                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text('${workout.duration ?? 0} 分鐘', style: secondary),
               ],
             ),
           ],

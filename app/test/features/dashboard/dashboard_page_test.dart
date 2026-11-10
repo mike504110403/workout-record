@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:workout_record/core/theme/app_semantic_colors.dart';
 import 'package:workout_record/data/db/app_database.dart'
     hide Workout, WorkoutExercise, WorkoutSet, BodyWeight, UserGoal;
 import 'package:workout_record/data/models/body_weight.dart';
@@ -236,13 +237,17 @@ void main() {
       final todayCard = find.byKey(const Key('todayWorkoutCard'));
       expect(todayCard, findsOneWidget);
       expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
-      // 這筆今日訓練同時也會出現在「最近訓練」列表,時長/組數等文字可能重複
-      // 出現在畫面兩處,所以這裡的斷言一律限定在 todayWorkoutCard 子樹內。
+      // 這筆今日訓練同時也會出現在「最近訓練」列表,文字可能重複出現在畫面兩處,
+      // 所以這裡的斷言一律限定在 todayWorkoutCard 子樹內。
       expect(find.descendant(of: todayCard, matching: find.text('今日已完成訓練')), findsOneWidget);
-      expect(find.descendant(of: todayCard, matching: find.text('75 分鐘')), findsOneWidget);
-      expect(find.descendant(of: todayCard, matching: find.text('5230 kg')), findsOneWidget);
-      expect(find.descendant(of: todayCard, matching: find.text('24')), findsOneWidget);
-      expect(find.descendant(of: todayCard, matching: find.text('6')), findsOneWidget);
+      // 第 3 波:今日狀態併入本週卡的一行摘要,時長/總容量/組數/動作數同一串文字。
+      expect(
+        find.descendant(
+          of: todayCard,
+          matching: find.text('75 分鐘 · 5230 kg · 24 組 · 6 個動作'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('今日無訓練時顯示 NoWorkoutTodayCard', (tester) async {
@@ -491,12 +496,13 @@ void main() {
 
       final weekCountCard = find.byKey(const Key('weekWorkoutCountCard'));
       final weekVolumeCard = find.byKey(const Key('weekTotalVolumeCard'));
+      // 第 3 波:本週卡的 MetricTile 把單位併在同一個 Text.rich(「1 次」「100 kg」)。
       expect(
-        find.descendant(of: weekCountCard, matching: find.text('1')),
+        find.descendant(of: weekCountCard, matching: find.text('1 次')),
         findsOneWidget,
       );
       expect(
-        find.descendant(of: weekVolumeCard, matching: find.text('100')),
+        find.descendant(of: weekVolumeCard, matching: find.text('100 kg')),
         findsOneWidget,
       );
       // 修復 m7:先前這兩條反向斷言用 find.text 對全頁搜尋——「1099」/「2」
@@ -504,11 +510,11 @@ void main() {
       // 之類的無關文字),真正該限定的是「這兩個數字不該出現在本週統計卡片
       // 裡」。比照檔內其他處,改用 find.descendant 限定卡片子樹。
       expect(
-        find.descendant(of: weekVolumeCard, matching: find.text('1099')),
+        find.descendant(of: weekVolumeCard, matching: find.text('1099 kg')),
         findsNothing,
       );
       expect(
-        find.descendant(of: weekCountCard, matching: find.text('2')),
+        find.descendant(of: weekCountCard, matching: find.text('2 次')),
         findsNothing,
       );
     });
@@ -546,14 +552,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('weekWorkoutCountCard')),
-          matching: find.text('1'),
+          matching: find.text('1 次'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
           of: find.byKey(const Key('weekTotalVolumeCard')),
-          matching: find.text('50'),
+          matching: find.text('50 kg'),
         ),
         findsOneWidget,
       );
@@ -683,19 +689,22 @@ void main() {
       // 今日概覽。
       final todayCard = find.byKey(const Key('todayWorkoutCard'));
       expect(todayCard, findsOneWidget);
-      // 這筆今日訓練同時也是「最近訓練」列表的一員,「50 分鐘」文字會重複
-      // 出現兩處,斷言限定在 todayWorkoutCard 子樹內。
-      expect(find.descendant(of: todayCard, matching: find.text('50 分鐘')), findsOneWidget);
+      // 這筆今日訓練同時也是「最近訓練」列表的一員,時長文字會重複出現兩處,
+      // 斷言限定在 todayWorkoutCard 子樹內。
+      expect(
+        find.descendant(of: todayCard, matching: find.text('50 分鐘 · 300 kg · 12 組 · 4 個動作')),
+        findsOneWidget,
+      );
       // 最新體重。
       expect(find.text('68.4 kg'), findsOneWidget);
       // 目標進度:1/2 次 = 50%。
       expect(find.text('1 / 2 次'), findsOneWidget);
       expect(find.text('50%'), findsOneWidget);
-      // 本週統計:只計今天那筆,不計上週那筆。
+      // 本週卡:只計今天那筆,不計上週那筆;有目標(2 次)時次數格併顯示「1 / 2 次」。
       expect(
         find.descendant(
           of: find.byKey(const Key('weekWorkoutCountCard')),
-          matching: find.text('1'),
+          matching: find.text('1 / 2 次'),
         ),
         findsOneWidget,
       );
@@ -850,9 +859,15 @@ void main() {
       final expectedVolume = '${kgToDisplay(5230, WeightUnit.lb).toStringAsFixed(0)} lb';
       final expectedWeight = '${kgToDisplay(71.2, WeightUnit.lb).toStringAsFixed(1)} lb';
       // 這筆今日訓練同時也出現在「最近訓練」列表(同 iOS 對照的既有行為),
-      // 總容量字串會在畫面上出現兩次——限定在 todayWorkoutCard 子樹內斷言。
+      // 總容量字串會在畫面上出現多次——限定在 todayWorkoutCard 子樹內斷言。
       final todayCard = find.byKey(const Key('todayWorkoutCard'));
-      expect(find.descendant(of: todayCard, matching: find.text(expectedVolume)), findsOneWidget);
+      expect(
+        find.descendant(
+          of: todayCard,
+          matching: find.text('75 分鐘 · $expectedVolume · 24 組 · 6 個動作'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text(expectedWeight), findsOneWidget);
       // kg 版字串不該殘留(排除漏接 provider、恆用 kg 的變異)。
       expect(find.text('5230 kg'), findsNothing);
@@ -872,7 +887,14 @@ void main() {
       await _pumpDashboard(tester, harness);
 
       final expectedVolume = '${kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0)} lb';
-      expect(find.text(expectedVolume), findsOneWidget);
+      // 第 3 波:本週卡的總容量格(「2205 lb」)可能與列表同字串,限定在最近訓練列。
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('recentWorkoutRow-recent-lb')),
+          matching: find.text(expectedVolume),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('1000 kg'), findsNothing);
     });
 
@@ -901,6 +923,284 @@ void main() {
       // 較寬鬆的「大約 100kg」語意斷言(brief 範例的驗收語意),誤差界對齊
       // 220.5lb 與 100kg 之間的實際換算差(約 0.017kg)。
       expect(latest.weight, closeTo(100.0, 0.02));
+    });
+  });
+
+  // 第 3 波 A:首頁改版。
+  group('主 CTA', () {
+    testWidgets('沒有進行中訓練:全寬主 CTA 顯示「開始訓練」,點了導到 /workout', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpDashboardWithRouter(tester, harness);
+
+      final cta = find.byKey(const Key('quickActionStartWorkout'));
+      expect(cta, findsOneWidget);
+      expect(find.descendant(of: cta, matching: find.text('開始訓練')), findsOneWidget);
+      expect(find.text('繼續訓練'), findsNothing);
+      // 全寬:CTA 寬度等於頁面內容寬(視窗寬 800 扣左右各 16)。
+      expect(tester.getSize(cta).width, 800 - 32);
+      // 降級後的次要入口是 OutlinedButton / 文字按鈕,不是 FilledButton。
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('quickActionRecordWeight')),
+          matching: find.text('記錄體重'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.widget(find.byKey(const Key('quickActionRecordWeight'))), isA<OutlinedButton>());
+      expect(tester.widget(find.byKey(const Key('quickActionViewProgress'))), isA<TextButton>());
+    });
+
+    testWidgets('有進行中訓練草稿:主 CTA 變成「繼續訓練」,仍導到 /workout', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      // endedAt 為 null = 進行中草稿。
+      await harness.workoutRepo.create(
+        Workout(
+          id: 'draft-1',
+          userId: testUserId,
+          startedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await _pumpDashboardWithRouter(tester, harness);
+
+      final cta = find.byKey(const Key('quickActionStartWorkout'));
+      expect(find.descendant(of: cta, matching: find.text('繼續訓練')), findsOneWidget);
+      expect(find.text('開始訓練'), findsNothing);
+
+      await tester.tap(cta);
+      await tester.pumpAndSettle();
+      expect(find.text('workout-route-marker'), findsOneWidget);
+    });
+  });
+
+  group('本週卡(今日概覽與本週統計合併)', () {
+    testWidgets('舊的「今日概覽」「本週統計」標題消失,只有一張本週卡', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('今日概覽'), findsNothing);
+      expect(find.text('本週統計'), findsNothing);
+      expect(find.byKey(const Key('weekSummaryCard')), findsOneWidget);
+      expect(find.text('本週'), findsOneWidget);
+      // 週次數、容量格與今日狀態都在同一張卡裡。
+      final card = find.byKey(const Key('weekSummaryCard'));
+      expect(find.descendant(of: card, matching: find.byKey(const Key('weekWorkoutCountCard'))), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.byKey(const Key('weekTotalVolumeCard'))), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.byKey(const Key('noWorkoutTodayCard'))), findsOneWidget);
+    });
+
+    testWidgets('數字正確:本週 2 次、容量 700、目標 4 次 → 次數格「2 / 4 次」、容量「700 kg」、50%', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(
+          id: 'goal-1',
+          userId: testUserId,
+          weeklyWorkoutGoal: 4,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-a', startedAt: now, totalVolume: 300));
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-b', startedAt: now, totalVolume: 400));
+      // 本週之外(10 天前)不計。
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-old',
+          startedAt: now.subtract(const Duration(days: 10)),
+          totalVolume: 9000,
+        ),
+      );
+
+      await _pumpDashboard(tester, harness);
+
+      final card = find.byKey(const Key('weekSummaryCard'));
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekWorkoutCountCard')),
+          matching: find.text('2 / 4 次'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekTotalVolumeCard')),
+          matching: find.text('700 kg'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.descendant(of: card, matching: find.text('50%')), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.byKey(const Key('goalProgressCard'))), findsOneWidget);
+    });
+
+    testWidgets('目標進度條:未達標用 primary,達標(>=100%)用 success 語意色', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(
+          id: 'goal-1',
+          userId: testUserId,
+          weeklyWorkoutGoal: 2,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-1', startedAt: now));
+      await _pumpDashboard(tester, harness);
+
+      final context = tester.element(find.byType(DashboardPage));
+      final scheme = Theme.of(context).colorScheme;
+      LinearProgressIndicator bar() => tester.widget<LinearProgressIndicator>(
+            find.descendant(
+              of: find.byKey(const Key('goalProgressCard')),
+              matching: find.byType(LinearProgressIndicator),
+            ),
+          );
+      expect(bar().color, scheme.primary);
+
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-2', startedAt: now));
+      harness.container.invalidate(dashboardControllerProvider);
+      await tester.pumpAndSettle();
+
+      final success = AppSemanticColors.light.success;
+      expect(bar().color, success);
+    });
+  });
+
+  group('體重卡近 7 天變化', () {
+    BodyWeight weightAt(String id, double kg, DateTime at) => BodyWeight(
+          id: id,
+          userId: testUserId,
+          weight: kg,
+          measuredAt: at,
+          createdAt: at,
+          updatedAt: at,
+        );
+
+    testWidgets('7 天內有兩筆以上:顯示最新減最早(+1.2 kg)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 3))));
+      await harness.bodyWeightRepo.create(weightAt('bw-b', 71.2, now.subtract(const Duration(seconds: 30))));
+      // 8 天前的紀錄在區間外,不參與變化計算。
+      await harness.bodyWeightRepo.create(weightAt('bw-old', 60.0, now.subtract(const Duration(days: 8))));
+
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('71.2 kg'), findsOneWidget);
+      expect(find.text('近 7 天 +1.2 kg'), findsOneWidget);
+    });
+
+    testWidgets('體重下降:顯示減號(−0.8 kg)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 5))));
+      await harness.bodyWeightRepo.create(weightAt('bw-b', 69.2, now.subtract(const Duration(seconds: 30))));
+
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('近 7 天 \u22120.8 kg'), findsOneWidget);
+    });
+
+    testWidgets('區間內只有一筆、或完全沒有紀錄:算不出變化,顯示 —', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpDashboard(tester, harness);
+      expect(find.text('近 7 天 —'), findsOneWidget);
+      expect(find.text('尚未記錄'), findsOneWidget);
+
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(seconds: 30))));
+      // 區間外的舊紀錄不補足第二筆。
+      await harness.bodyWeightRepo.create(weightAt('bw-old', 65.0, now.subtract(const Duration(days: 20))));
+      harness.container.invalidate(dashboardControllerProvider);
+      await tester.pumpAndSettle();
+
+      expect(find.text('70.0 kg'), findsOneWidget);
+      expect(find.text('近 7 天 —'), findsOneWidget);
+    });
+
+    testWidgets('lb 模式:變化量依單位換算(+1.2 kg → +2.6 lb)', (tester) async {
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 2))));
+      await harness.bodyWeightRepo.create(weightAt('bw-b', 71.2, now.subtract(const Duration(seconds: 30))));
+
+      await _pumpDashboard(tester, harness);
+
+      final expected = '+${kgToDisplay(1.2, WeightUnit.lb).toStringAsFixed(1)} lb';
+      expect(find.text('近 7 天 $expected'), findsOneWidget);
+    });
+  });
+
+  group('窄螢幕不溢位', () {
+    testWidgets('360 寬、字體 1.5 倍、5 位數容量與 lb 單位:各卡不拋 overflow', (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      final now = DateTime.now();
+      await harness.userGoalRepo.createOrUpdate(
+        UserGoal(
+          id: 'goal-1',
+          userId: testUserId,
+          weeklyWorkoutGoal: 14,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.bodyWeightRepo.create(
+        BodyWeight(
+          id: 'bw-1',
+          userId: testUserId,
+          weight: 120.5,
+          measuredAt: now.subtract(const Duration(days: 2)),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.bodyWeightRepo.create(
+        BodyWeight(
+          id: 'bw-2',
+          userId: testUserId,
+          weight: 118.0,
+          measuredAt: now.subtract(const Duration(seconds: 30)),
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'big',
+          startedAt: now,
+          duration: 125,
+          totalVolume: 98765,
+          totalSets: 120,
+          totalExercises: 15,
+        ),
+      );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: harness.container,
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: const DashboardPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // RenderFlex overflow 會被 flutter_test 當成例外攔下;走到這裡且沒有例外即通過。
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('weekSummaryCard')), findsOneWidget);
+      expect(find.byKey(const Key('bodyWeightMiniCard')), findsOneWidget);
     });
   });
 }

@@ -12,6 +12,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/db/seed_data.dart';
 import '../../../data/models/exercise.dart';
 import '../../workout/exercise_picker/exercise_picker_categories.dart';
@@ -167,7 +168,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
             TextFormField(
               key: const Key('customExerciseNameField'),
@@ -178,7 +179,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
                   .read(customExercisesControllerProvider.notifier)
                   .validateName(value ?? '', excludeId: widget.existing?.id),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             DropdownButtonFormField<ExerciseType>(
               key: const Key('customExerciseTypeField'),
               initialValue: _type,
@@ -191,7 +192,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
                 if (value != null) setState(() => _type = value);
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             DropdownButtonFormField<String>(
               key: const Key('customExerciseCategoryField'),
               initialValue: _categoryId,
@@ -210,7 +211,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
                 });
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             // 主要肌群會被分類連動改值,所以用 ValueKey 綁當前值強制重建
             // (DropdownButtonFormField 的 initialValue 只在建立時讀一次)。
             DropdownButtonFormField<PrimaryMuscleGroup?>(
@@ -224,7 +225,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
               ],
               onChanged: (value) => setState(() => _primaryMuscleGroup = value),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             DropdownButtonFormField<MovementPattern?>(
               key: const Key('customExercisePatternField'),
               initialValue: _movementPattern,
@@ -236,7 +237,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
               ],
               onChanged: (value) => setState(() => _movementPattern = value),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextFormField(
               key: const Key('customExerciseDescriptionField'),
               controller: _descriptionController,
@@ -245,7 +246,7 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
               maxLines: 6,
             ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               Text(
                 _error!,
                 key: const Key('customExerciseFormError'),
@@ -253,12 +254,15 @@ class _CustomExerciseFormPageState extends ConsumerState<CustomExerciseFormPage>
               ),
             ],
             if (_isEdit) ...[
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.xl),
               OutlinedButton.icon(
                 key: const Key('customExerciseDeleteButton'),
                 onPressed: _busy ? null : _delete,
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                label: const Text('刪除動作', style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('刪除動作'),
               ),
             ],
           ],
