@@ -127,4 +127,27 @@ void main() {
     expect(state.isRunning, isFalse);
     expect(state.isVisible, isFalse);
   });
+
+  testWidgets('自然倒數結束才震動一次;跳過與手動調到 0 不震動', (tester) async {
+    var feedbacks = 0;
+    final container = ProviderContainer(
+      overrides: [restTimerFinishedFeedbackProvider.overrideWithValue(() => feedbacks++)],
+    );
+    addTearDown(container.dispose);
+    final notifier = container.read(restTimerControllerProvider.notifier);
+
+    notifier.start(seconds: 2);
+    await tester.pump(const Duration(seconds: 3));
+    expect(feedbacks, 1);
+
+    notifier.start(seconds: 30);
+    notifier.skip();
+    await tester.pump(const Duration(seconds: 31));
+    expect(feedbacks, 1);
+
+    notifier.start(seconds: 15);
+    notifier.adjust(-15);
+    await tester.pump(const Duration(seconds: 16));
+    expect(feedbacks, 1);
+  });
 }

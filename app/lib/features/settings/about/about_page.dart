@@ -7,8 +7,8 @@
 // `AboutPrivacyPolicyView` 內文精神(資訊收集/使用/安全/聯絡我們的段落
 // 結構),但**不照抄**——那份文案本身跟 iOS 實作已經不一致(探路已證),照抄
 // 會把同樣的病灶搬進 Flutter 版。事實陳述與 `privacy_consent_page.dart`、
-// 登入頁隱私卡片同源(2026-11 改為雲端現況);不新增匯出/刪除帳號等本 App
-// 目前沒有 UI 路徑的功能宣稱。
+// 登入頁隱私卡片同源(2026-11 改為雲端現況);只宣稱 App 內真的有 UI 路徑的
+// 功能(刪除帳號在設定頁;沒有匯出)。
 //
 // 版本號來源:`PackageInfo.fromPlatform()`,測試環境用
 // `PackageInfo.setMockInitialValues` 提供固定值(package_info_plus 官方
@@ -16,7 +16,11 @@
 // 一次性平台查詢,沒有跨頁共用狀態或需要 invalidate 的快取,加一層
 // controller 沒有實質好處。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:package_info_plus/package_info_plus.dart';
+
+/// 聯絡信箱(與 iOS AboutView 相同)。
+const kContactEmail = 'mike504110403@gmail.com';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -106,6 +110,7 @@ class _AboutPageState extends State<AboutPage> {
               '登入後,您的訓練記錄、體重與個人資料儲存於雲端伺服器(Supabase),並與您的 Apple 帳號綁定,用於跨裝置存取',
               '只有您本人登入後可以存取這些資料',
               '登出時會清除本機的個人資料,雲端帳號內的資料仍會保留',
+              '可於「設定 > 刪除帳號」永久刪除帳號與雲端上的所有資料',
             ],
           ),
           const SizedBox(height: 20),
@@ -126,7 +131,34 @@ class _AboutPageState extends State<AboutPage> {
             ],
           ),
           const SizedBox(height: 20),
-          Text('如有任何隱私相關問題,請聯絡:mike504110403@gmail.com', style: Theme.of(context).textTheme.bodySmall),
+          Text('如有任何隱私相關問題,請聯絡:$kContactEmail', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 24),
+          const Divider(),
+          ListTile(
+            key: const Key('aboutContactTile'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.email_outlined),
+            title: const Text('聯絡我們'),
+            subtitle: const Text(kContactEmail),
+            trailing: const Icon(Icons.copy, size: 18),
+            onTap: () async {
+              await Clipboard.setData(const ClipboardData(text: kContactEmail));
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('已複製聯絡信箱')),
+              );
+            },
+          ),
+          ListTile(
+            key: const Key('aboutTermsTile'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('服務條款'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TermsOfServicePage()),
+            ),
+          ),
         ],
       ),
     );
@@ -152,6 +184,40 @@ class _PrivacySection extends StatelessWidget {
             child: Text('• $item'),
           ),
       ],
+    );
+  }
+}
+
+/// 服務條款(內容沿用 iOS `AboutView.swift` 的 TermsOfServiceView,「定期備份」
+/// 一句改成雲端現況)。
+class TermsOfServicePage extends StatelessWidget {
+  const TermsOfServicePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget heading(String text) => Padding(
+          padding: const EdgeInsets.only(top: 20, bottom: 8),
+          child: Text(text, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        );
+    return Scaffold(
+      appBar: AppBar(title: const Text('服務條款')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('最後更新:2026 年 11 月 10 日', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
+          heading('使用條款'),
+          const Text('歡迎使用 WorkItOut。使用本應用程式即表示您同意以下條款。'),
+          heading('服務說明'),
+          const Text('WorkItOut 是一個健身記錄應用程式,幫助您追蹤訓練進度、記錄體重變化並分析健身數據。'),
+          heading('用戶責任'),
+          const Text('• 提供準確的健身數據\n• 妥善保管您的登入帳號\n• 合理使用應用程式功能'),
+          heading('免責聲明'),
+          const Text('本應用程式僅供參考,不應替代專業醫療建議。請在開始任何健身計劃前諮詢醫療專業人員。'),
+          heading('聯絡我們'),
+          const Text('如有任何問題,請聯絡:$kContactEmail'),
+        ],
+      ),
     );
   }
 }

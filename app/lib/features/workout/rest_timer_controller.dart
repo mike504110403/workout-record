@@ -10,7 +10,15 @@
 // `pump()` 推進,不需要額外的假時鐘依賴)。
 import 'dart:async';
 
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// 休息自然倒數結束時的震動(對照 iOS `RestTimerView.swift` 結束時的
+/// `UINotificationFeedbackGenerator`)。抽成 provider 讓測試可觀察;使用者
+/// 手動 ±15 秒調到 0 或跳過不震動。Web/桌面平台 HapticFeedback 為 no-op。
+final restTimerFinishedFeedbackProvider = Provider<void Function()>(
+  (ref) => () => unawaited(HapticFeedback.heavyImpact()),
+);
 
 class RestTimerState {
   const RestTimerState({
@@ -89,6 +97,7 @@ class RestTimerController extends Notifier<RestTimerState> {
       _timer?.cancel();
       _timer = null;
       state = state.copyWith(remainingSeconds: 0, isRunning: false);
+      ref.read(restTimerFinishedFeedbackProvider)();
       return;
     }
     state = state.copyWith(remainingSeconds: state.remainingSeconds - 1);

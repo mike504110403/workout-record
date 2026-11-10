@@ -1,6 +1,7 @@
 // AboutPage widget seam:版本號顯示(package_info_plus 在測試環境用
 // `PackageInfo.setMockInitialValues` mock,不打真的平台 channel)。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -25,12 +26,12 @@ void main() {
     expect(find.text('版本 2.0.0 (6)'), findsOneWidget);
   });
 
-  testWidgets('隱私內文不宣稱匯出/刪除帳號功能(與現況不符,brief 明定要刪掉)', (tester) async {
+  testWidgets('隱私內文不宣稱匯出;刪除帳號指向設定頁', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: AboutPage()));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('匯出'), findsNothing);
-    expect(find.textContaining('刪除帳'), findsNothing);
+    expect(find.textContaining('設定 > 刪除帳號'), findsOneWidget);
     // 現況陳述必須在:登入後資料存雲端(Supabase)、僅本人可存取(隱私文案紀律)。
     expect(find.textContaining('雲端伺服器(Supabase)'), findsOneWidget);
     expect(find.textContaining('只有您本人'), findsOneWidget);
@@ -63,5 +64,38 @@ void main() {
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.text('版本 2.0.0 (6)'), findsOneWidget);
+  });
+
+  testWidgets('點聯絡我們 → 複製信箱並提示', (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+
+    await tester.pumpWidget(const MaterialApp(home: AboutPage()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('aboutContactTile')), 200);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('aboutContactTile')));
+    await tester.pumpAndSettle();
+
+    expect(copied, kContactEmail);
+    expect(find.text('已複製聯絡信箱'), findsOneWidget);
+  });
+
+  testWidgets('點服務條款 → 進入條款頁', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: AboutPage()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('aboutTermsTile')), 200);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('aboutTermsTile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TermsOfServicePage), findsOneWidget);
+    expect(find.text('免責聲明'), findsOneWidget);
   });
 }
