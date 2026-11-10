@@ -13,6 +13,7 @@ import '../../../../core/theme/app_semantic_colors.dart';
 import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/body_weight.dart';
 import '../../../settings/preferences/weight_unit.dart';
+import '../../chart_axis_format.dart';
 import '../body_weight_stats.dart';
 
 /// 一天的毫秒數，X 軸標籤的最小刻度間隔——見 `_bottomTitleInterval`。
@@ -39,7 +40,9 @@ class BodyWeightChart extends ConsumerWidget {
     // 既有順序），若這裡漏掉這一步、直接拿原始順序畫圖，折線的左右方向會
     // 完全反過來（widget test 的「排序反轉必紅」變異案例就是在驗證這個
     // 轉換確實發生）。
-    final ascending = sortBodyWeightsAscending(entriesDesc);
+    // 同一天多筆只畫當天最後一筆(只影響畫圖;列表/統計仍用完整資料)——
+    // 否則同日多點 x 值極近,曲線在右緣出現垂直斷崖。
+    final ascending = collapseBodyWeightsToDailyLast(sortBodyWeightsAscending(entriesDesc));
     // x 值用 `measuredAt` 的毫秒時間戳，不是陣列索引——對齊 iOS
     // `BodyWeightChartView` 用 `Chart { LineMark(x: .value("日期",
     // point.date), ...) }` 讓 X 軸真的是時間軸：兩筆紀錄間隔一天跟間隔一個
@@ -87,6 +90,7 @@ class BodyWeightChart extends ConsumerWidget {
               LineChartBarData(
                 spots: spots,
                 isCurved: true,
+                preventCurveOverShooting: true,
                 color: lineColor,
                 barWidth: 2.5,
                 dotData: const FlDotData(),
@@ -149,7 +153,13 @@ class BodyWeightChart extends ConsumerWidget {
                   },
                 ),
               ),
-              leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: kYAxisReservedSize,
+                  getTitlesWidget: (value, meta) => yAxisTitle(value, meta, style: axisStyle),
+                ),
+              ),
             ),
             gridData: const FlGridData(drawVerticalLine: false),
             borderData: FlBorderData(show: false),

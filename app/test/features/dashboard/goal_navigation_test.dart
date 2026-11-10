@@ -137,7 +137,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(GoalSettingsPage), findsOneWidget);
-    await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '2');
+    // 週次數改 −/+ stepper(原為 enterText '2'):4 次 → 按兩下 − 得 2。
+    await tester.tap(find.byKey(const Key('weeklyWorkoutGoalDecrement')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('weeklyWorkoutGoalDecrement')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
     await tester.pumpAndSettle();

@@ -155,20 +155,31 @@ Future<void> _pushGoalSettingsPage(WidgetTester tester, _Harness harness) async 
   await tester.pumpAndSettle();
 }
 
+/// 週訓練次數改為 −/+ stepper 後的操作 helper(原本是 enterText)。
+Future<void> _tapWeekly(WidgetTester tester, String key, int times) async {
+  for (var i = 0; i < times; i++) {
+    await tester.tap(find.byKey(Key(key)));
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
+}
+
+String _weeklyText(WidgetTester tester) =>
+    tester.widget<Text>(find.byKey(const Key('weeklyWorkoutGoalField'))).data!;
+
 void main() {
   group('首次進頁(無既有 goal)', () {
     testWidgets('欄位空/預設 → 存檔 → DB 出現一筆,兩欄正確', (tester) async {
       final harness = await _setUpHarness();
       await _pushGoalSettingsPage(tester, harness);
 
-      final weeklyFieldBefore =
-          tester.widget<TextField>(find.byKey(const Key('weeklyWorkoutGoalField')));
-      expect(weeklyFieldBefore.controller?.text, '');
+      // 週次數改 stepper:0=未設定,顯示「未設定」(原本斷言輸入框為空字串)。
+      expect(_weeklyText(tester), '未設定');
       final weightFieldBefore =
           tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
       expect(weightFieldBefore.controller?.text, '');
 
-      await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '5');
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 5);
       await tester.enterText(find.byKey(const Key('targetWeightField')), '72.5');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
@@ -212,13 +223,12 @@ void main() {
 
       await _pushGoalSettingsPage(tester, harness);
 
-      final weeklyField =
-          tester.widget<TextField>(find.byKey(const Key('weeklyWorkoutGoalField')));
-      expect(weeklyField.controller?.text, '3');
+      expect(_weeklyText(tester), '3 次');
       final weightField = tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
       expect(weightField.controller?.text, '68.0');
 
-      await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '6');
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 3);
+      expect(_weeklyText(tester), '6 次');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
       await tester.pumpAndSettle();
@@ -270,16 +280,43 @@ void main() {
   });
 
   group('值域擋下', () {
-    testWidgets('週次數超過 14 時顯示錯誤、存檔按鈕 disable', (tester) async {
+    // 原「輸入 15 顯示錯誤、存檔 disable」:stepper 在界限 disable 按鈕,不可能產生
+    // 非法值;意圖(值域 0-14 守住)改成斷言界限按鈕 disable 且存檔仍可按。
+    testWidgets('週次數 stepper 值域 0-14:到界限對應按鈕 disable', (tester) async {
       final harness = await _setUpHarness();
       await _pushGoalSettingsPage(tester, harness);
 
-      await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '15');
-      await tester.pumpAndSettle();
+      IconButton btn(String key) => tester.widget<IconButton>(find.byKey(Key(key)));
+      expect(btn('weeklyWorkoutGoalDecrement').onPressed, isNull); // 0 起始
+      expect(btn('weeklyWorkoutGoalIncrement').onPressed, isNotNull);
 
-      expect(find.text('請輸入 0-14 的整數'), findsOneWidget);
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 20); // 超點不會超過 14
+      expect(_weeklyText(tester), '14 次');
+      expect(btn('weeklyWorkoutGoalIncrement').onPressed, isNull);
+      expect(btn('weeklyWorkoutGoalDecrement').onPressed, isNotNull);
       final button = tester.widget<FilledButton>(find.byKey(const Key('saveGoalSettingsButton')));
-      expect(button.onPressed, isNull);
+      expect(button.onPressed, isNotNull);
+    });
+
+    testWidgets('stepper 加減寫入:+3 −1 存檔 → DB 為 2;減回 0 → 存 0(未設定)', (tester) async {
+      final harness = await _setUpHarness();
+      await _pushGoalSettingsPage(tester, harness);
+
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 3);
+      await _tapWeekly(tester, 'weeklyWorkoutGoalDecrement', 1);
+      expect(_weeklyText(tester), '2 次');
+      await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
+      await tester.pumpAndSettle();
+      expect((await harness.userGoalRepo.fetchByUser(testUserId))!.weeklyWorkoutGoal, 2);
+
+      await tester.tap(find.byKey(const Key('openGoalSettingsButton')));
+      await tester.pumpAndSettle();
+      expect(_weeklyText(tester), '2 次');
+      await _tapWeekly(tester, 'weeklyWorkoutGoalDecrement', 5); // 超減停在 0
+      expect(_weeklyText(tester), '未設定');
+      await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
+      await tester.pumpAndSettle();
+      expect((await harness.userGoalRepo.fetchByUser(testUserId))!.weeklyWorkoutGoal, 0);
     });
 
     testWidgets('目標體重超過 300 時顯示錯誤、存檔按鈕 disable', (tester) async {
@@ -325,8 +362,10 @@ void main() {
       );
       await _pushGoalSettingsPage(tester, harness);
 
-      expect(find.text('目標體重 (lb),留空代表未設定'), findsOneWidget);
-      expect(find.text('目標體重 (kg),留空代表未設定'), findsNothing);
+      // 浮動 label 已移除:單位改為輸入框 suffixText,留空說明改 helperText。
+      expect(find.text('lb'), findsOneWidget);
+      expect(find.text('kg'), findsNothing);
+      expect(find.text('留空代表未設定'), findsOneWidget);
       final weightField = tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
       expect(weightField.controller?.text, formatWeightValue(68.0, WeightUnit.lb));
 
@@ -393,8 +432,7 @@ void main() {
           await _setUpHarness(userGoalRepoBuilder: _ThrowingUserGoalRepository.new);
       await _pushGoalSettingsPage(tester, harness);
 
-      await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '4');
-      await tester.pumpAndSettle();
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 4);
       await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
       await tester.pumpAndSettle();
 
@@ -403,8 +441,8 @@ void main() {
       expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
 
       // _isSaving 已重置為 false:欄位可編輯、按鈕恢復可按。
-      final field = tester.widget<TextField>(find.byKey(const Key('weeklyWorkoutGoalField')));
-      expect(field.enabled, isTrue);
+      final inc = tester.widget<IconButton>(find.byKey(const Key('weeklyWorkoutGoalIncrement')));
+      expect(inc.onPressed, isNotNull);
       final button = tester.widget<FilledButton>(find.byKey(const Key('saveGoalSettingsButton')));
       expect(button.onPressed, isNotNull);
     });
@@ -449,7 +487,7 @@ void main() {
       final harness = await _setUpHarness();
       await _pushGoalSettingsPage(tester, harness);
 
-      await tester.enterText(find.byKey(const Key('weeklyWorkoutGoalField')), '5');
+      await _tapWeekly(tester, 'weeklyWorkoutGoalIncrement', 5);
       await tester.enterText(find.byKey(const Key('targetWeightField')), '70.0');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('saveGoalSettingsButton')));
@@ -464,9 +502,7 @@ void main() {
       await tester.tap(find.byKey(const Key('openGoalSettingsButton')));
       await tester.pumpAndSettle();
 
-      final weeklyField =
-          tester.widget<TextField>(find.byKey(const Key('weeklyWorkoutGoalField')));
-      expect(weeklyField.controller?.text, '5');
+      expect(_weeklyText(tester), '5 次');
       final weightField = tester.widget<TextField>(find.byKey(const Key('targetWeightField')));
       expect(weightField.controller?.text, '70.0');
     });

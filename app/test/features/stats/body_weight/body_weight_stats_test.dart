@@ -1,4 +1,4 @@
-// 純函式測試：computeBodyWeightSummary / sortBodyWeightsAscending。參照值
+// 純函式測試：computeBodyWeightSummary / sortBodyWeightsAscending / collapseBodyWeightsToDailyLast。參照值
 // 全部手算（不是重複被測程式的算法），依 /tdd 的紀律——這兩個函式是
 // widget test 沒辦法窮舉覆蓋的邊界（空清單、一筆、多筆）的唯一防線。
 import 'package:flutter_test/flutter_test.dart';
@@ -161,6 +161,44 @@ void main() {
 
     test('空清單回傳空清單', () {
       expect(sortBodyWeightsAscending(const []), isEmpty);
+    });
+  });
+
+  group('collapseBodyWeightsToDailyLast', () {
+    test('空清單回空', () {
+      expect(collapseBodyWeightsToDailyLast(const []), isEmpty);
+    });
+
+    test('同一天多筆只留當天最後一筆;跨天各保留;維持升序', () {
+      final entries = [
+        _entry(id: 'a', weight: 70.0, measuredAt: DateTime(2026, 3, 1, 8)),
+        _entry(id: 'b', weight: 71.0, measuredAt: DateTime(2026, 3, 2, 7)),
+        _entry(id: 'c', weight: 72.0, measuredAt: DateTime(2026, 3, 2, 12)),
+        _entry(id: 'd', weight: 73.0, measuredAt: DateTime(2026, 3, 2, 21)),
+        _entry(id: 'e', weight: 74.0, measuredAt: DateTime(2026, 3, 3, 6)),
+      ];
+
+      final result = collapseBodyWeightsToDailyLast(entries);
+
+      expect(result.map((e) => e.id), ['a', 'd', 'e']);
+      expect(result.map((e) => e.weight), [70.0, 73.0, 74.0]);
+    });
+
+    test('跨午夜相鄰兩筆算不同天(23:59 與 00:01)', () {
+      final result = collapseBodyWeightsToDailyLast([
+        _entry(id: 'a', weight: 70.0, measuredAt: DateTime(2026, 3, 1, 23, 59)),
+        _entry(id: 'b', weight: 71.0, measuredAt: DateTime(2026, 3, 2, 0, 1)),
+      ]);
+      expect(result.length, 2);
+    });
+
+    test('不改動傳入的 list', () {
+      final entries = [
+        _entry(id: 'a', weight: 70.0, measuredAt: DateTime(2026, 3, 1, 8)),
+        _entry(id: 'b', weight: 71.0, measuredAt: DateTime(2026, 3, 1, 9)),
+      ];
+      collapseBodyWeightsToDailyLast(entries);
+      expect(entries.length, 2);
     });
   });
 }

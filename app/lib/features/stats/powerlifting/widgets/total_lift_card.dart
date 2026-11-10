@@ -35,7 +35,7 @@ class TotalLiftCard extends ConsumerWidget {
           key: Key('totalLiftEmptyState'),
           icon: Icons.fitness_center,
           title: '還沒有三項紀錄',
-          message: '記錄深蹲、臥推、硬舉後,這裡會顯示三項總和',
+          message: '記錄三項後,這裡會顯示總和',
         ),
       );
     }

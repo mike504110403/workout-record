@@ -116,3 +116,24 @@ List<BodyWeight> sortBodyWeightsAscending(List<BodyWeight> entries) {
   sorted.sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
   return sorted;
 }
+
+/// 畫圖用:同一個日曆日(本地時區)有多筆時只留當天 measuredAt 最晚的一筆。
+///
+/// [ascending] 必須已依 measuredAt 由舊到新排序(見 [sortBodyWeightsAscending]),
+/// 回傳值維持升序。只供圖表使用——列表與統計卡片仍用完整資料,不動資料層。
+/// 理由:同日多點 x 值極近,曲線在右緣會出現垂直斷崖。
+List<BodyWeight> collapseBodyWeightsToDailyLast(List<BodyWeight> ascending) {
+  final result = <BodyWeight>[];
+  for (final entry in ascending) {
+    final day = entry.measuredAt.toLocal();
+    if (result.isNotEmpty) {
+      final last = result.last.measuredAt.toLocal();
+      if (last.year == day.year && last.month == day.month && last.day == day.day) {
+        result[result.length - 1] = entry;
+        continue;
+      }
+    }
+    result.add(entry);
+  }
+  return result;
+}

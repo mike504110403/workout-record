@@ -29,10 +29,17 @@
 // 但沒寫入成功的值,畫面顯示與實際偏好不符。`DropdownButton` 每次 rebuild
 // 都直接用 `value:` 這個 prop 重算顯示,沒有這層獨立內部狀態,失敗後自然
 // 跟著 provider 顯示回舊值。
+//
+// 外觀(2026-11 視覺驗收修正):底線式 DropdownButton 外包 `InputDecorator`,吃全域
+// `inputDecorationTheme` 的 filled 樣式,與其他輸入框一致;仍是受控的
+// `DropdownButton`(未改用 FormField),上述受控保證不變。整頁以
+// SectionHeader + AppCard 分組。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../workout/workout_ui_shared.dart' show kDefaultRestSeconds;
 import 'default_rest_seconds_preference.dart';
 import 'formula_explanation_page.dart';
@@ -126,88 +133,97 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          _buildSectionTitle(context, '預設休息秒數', _savingRestSeconds),
-          const SizedBox(height: AppSpacing.sm),
-          DropdownButton<int>(
-            key: const Key('defaultRestSecondsDropdown'),
-            isExpanded: true,
-            // 完全受控:value 每次 build 都從 provider 值重算,不留內部狀態
-            // ——寫入失敗時 provider 不變,畫面自然跟著顯示回舊值(見檔頭
-            // 說明)。用 DropdownButton 而非 DropdownButtonFormField 正是
-            // 為了這個受控保證。
-            value: _kRestSecondsOptions.contains(restSeconds) ? restSeconds : null,
-            hint: Text('$restSeconds 秒'),
-            items: [
-              for (final seconds in _kRestSecondsOptions)
-                DropdownMenuItem(value: seconds, child: Text('$seconds 秒')),
-            ],
-            onChanged: _savingRestSeconds
-                ? null
-                : (seconds) {
-                    if (seconds == null) return;
-                    _guardedWrite(
-                      write: () => ref
-                          .read(defaultRestSecondsControllerProvider.notifier)
-                          .setSeconds(seconds),
-                      setSaving: (saving) => setState(() => _savingRestSeconds = saving),
-                    );
-                  },
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          _buildSectionTitle(context, '1RM 估算公式', _savingFormula),
-          const SizedBox(height: AppSpacing.sm),
-          SegmentedButton<OneRmFormula>(
-            key: const Key('oneRmFormulaSegmentedButton'),
-            segments: [
-              for (final f in OneRmFormula.values)
-                ButtonSegment(value: f, label: Text(f.displayName)),
-            ],
-            selected: {formula},
-            onSelectionChanged: _savingFormula
-                ? null
-                : (selection) => _guardedWrite(
-                      write: () => ref
-                          .read(oneRmFormulaControllerProvider.notifier)
-                          .setFormula(selection.first),
-                      setSaving: (saving) => setState(() => _savingFormula = saving),
-                    ),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              key: const Key('formulaExplanationButton'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const FormulaExplanationPage()),
+          SectionHeader(title: '預設休息秒數', trailing: _savingIndicator(_savingRestSeconds)),
+          AppCard(
+            child: InputDecorator(
+              // 吃全域 inputDecorationTheme(filled);isEmpty:false 避免 hint 與
+              // 下拉內容的 label 浮動邏輯互相干擾(本欄沒有 label)。
+              decoration: const InputDecoration(),
+              isEmpty: false,
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  key: const Key('defaultRestSecondsDropdown'),
+                  isExpanded: true,
+                  isDense: true,
+                  // 完全受控:value 每次 build 都從 provider 值重算,不留內部狀態
+                  // ——寫入失敗時 provider 不變,畫面自然跟著顯示回舊值(見檔頭
+                  // 說明)。用 DropdownButton 而非 DropdownButtonFormField 正是
+                  // 為了這個受控保證。
+                  value: _kRestSecondsOptions.contains(restSeconds) ? restSeconds : null,
+                  hint: Text('$restSeconds 秒'),
+                  items: [
+                    for (final seconds in _kRestSecondsOptions)
+                      DropdownMenuItem(value: seconds, child: Text('$seconds 秒')),
+                  ],
+                  onChanged: _savingRestSeconds
+                      ? null
+                      : (seconds) {
+                          if (seconds == null) return;
+                          _guardedWrite(
+                            write: () => ref
+                                .read(defaultRestSecondsControllerProvider.notifier)
+                                .setSeconds(seconds),
+                            setSaving: (saving) => setState(() => _savingRestSeconds = saving),
+                          );
+                        },
+                ),
               ),
-              child: const Text('查看公式說明'),
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-          const Divider(),
-          TextButton(
-            key: const Key('resetPreferencesButton'),
-            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-            onPressed: _resetting ? null : _confirmAndReset,
-            child: const Text('重置所有設定'),
+          SectionHeader(title: '1RM 估算公式', trailing: _savingIndicator(_savingFormula)),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<OneRmFormula>(
+                    key: const Key('oneRmFormulaSegmentedButton'),
+                    segments: [
+                      for (final f in OneRmFormula.values)
+                        ButtonSegment(value: f, label: Text(f.displayName)),
+                    ],
+                    selected: {formula},
+                    onSelectionChanged: _savingFormula
+                        ? null
+                        : (selection) => _guardedWrite(
+                              write: () => ref
+                                  .read(oneRmFormulaControllerProvider.notifier)
+                                  .setFormula(selection.first),
+                              setSaving: (saving) => setState(() => _savingFormula = saving),
+                            ),
+                  ),
+                ),
+                TextButton(
+                  key: const Key('formulaExplanationButton'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const FormulaExplanationPage()),
+                  ),
+                  child: const Text('查看公式說明'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppCard(
+            child: SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                key: const Key('resetPreferencesButton'),
+                style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                onPressed: _resetting ? null : _confirmAndReset,
+                child: const Text('重置所有設定'),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSectionTitle(BuildContext context, String title, bool saving) {
-    return Row(
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        if (saving) ...[
-          const SizedBox(width: AppSpacing.sm),
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ],
-      ],
-    );
-  }
+  /// 標題列右側的「寫入中」小轉圈;未寫入時回 null(SectionHeader 不顯示 trailing)。
+  Widget? _savingIndicator(bool saving) => saving
+      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+      : null;
 }

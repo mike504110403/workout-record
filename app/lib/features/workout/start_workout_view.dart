@@ -86,7 +86,7 @@ class _StartWorkoutViewState extends ConsumerState<StartWorkoutView> {
             key: const Key('manageTemplatesButton'),
             onPressed: _openTemplateManagement,
             icon: const Icon(Icons.list_alt),
-            label: const Text('模板管理'),
+            label: const Text('我的模板'),
           ),
         ),
         templatesAsync.when(
@@ -95,7 +95,7 @@ class _StartWorkoutViewState extends ConsumerState<StartWorkoutView> {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
                 child: Text(
-                  '還沒有模板,可以到「模板管理」建立。',
+                  '還沒有模板,可以到「我的模板」建立。',
                   key: const Key('startTemplatesEmptyText'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,

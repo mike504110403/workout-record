@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/section_header.dart';
 import 'profile_controller.dart';
 
 class ProfilePage extends ConsumerStatefulWidget {
@@ -94,49 +96,48 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('姓名', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.sm),
-            TextField(
-              key: const Key('profileNameField'),
-              controller: _nameController,
-              enabled: !_isSaving,
-              decoration: const InputDecoration(hintText: '請輸入姓名(選填)'),
+            const SectionHeader(title: '姓名'),
+            AppCard(
+              child: TextField(
+                key: const Key('profileNameField'),
+                controller: _nameController,
+                enabled: !_isSaving,
+                decoration: const InputDecoration(hintText: '請輸入姓名(選填)'),
+              ),
             ),
-            const SizedBox(height: AppSpacing.xl),
-            Text('性別', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.sm),
-            SegmentedButton<String>(
-              key: const Key('profileGenderToggle'),
-              segments: [
-                for (final option in kProfileGenderOptions)
-                  ButtonSegment(value: option, label: Text(option)),
-              ],
-              selected: {_gender},
-              onSelectionChanged: _isSaving
-                  ? null
-                  : (selection) => setState(() => _gender = selection.first),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Text('身高', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('profileHeightField'),
-                    controller: _heightController,
-                    enabled: !_isSaving,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      hintText: '請輸入身高(選填)',
-                      errorText: heightInvalid ? '請輸入數字,或留空' : null,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
+            const SizedBox(height: AppSpacing.lg),
+            const SectionHeader(title: '性別'),
+            AppCard(
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<String>(
+                  key: const Key('profileGenderToggle'),
+                  segments: [
+                    for (final option in kProfileGenderOptions)
+                      ButtonSegment(value: option, label: Text(option)),
+                  ],
+                  selected: {_gender},
+                  onSelectionChanged: _isSaving
+                      ? null
+                      : (selection) => setState(() => _gender = selection.first),
                 ),
-                const SizedBox(width: AppSpacing.md),
-                const Text('cm'),
-              ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            const SectionHeader(title: '身高'),
+            AppCard(
+              child: TextField(
+                key: const Key('profileHeightField'),
+                controller: _heightController,
+                enabled: !_isSaving,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: '請輸入身高(選填)',
+                  suffixText: 'cm',
+                  errorText: heightInvalid ? '請輸入數字,或留空' : null,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
             ),
             const SizedBox(height: AppSpacing.xxl),
             SizedBox(

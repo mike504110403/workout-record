@@ -14,6 +14,7 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/metric_tile.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../settings/preferences/weight_unit.dart';
+import '../chart_axis_format.dart';
 import '../chart_palette.dart';
 import '../trend_need_more_data.dart';
 import 'chart_time_range.dart';
@@ -140,11 +141,9 @@ class _VolumeLineChart extends ConsumerWidget {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 44,
-              getTitlesWidget: (value, meta) => Text(
-                value >= 1000 ? '${(value / 1000).toStringAsFixed(1)}k' : value.toStringAsFixed(0),
-                style: axisStyle,
-              ),
+              reservedSize: kYAxisReservedSize,
+              getTitlesWidget: (value, meta) =>
+                  yAxisTitle(value, meta, style: axisStyle, compactThousands: true),
             ),
           ),
           bottomTitles: AxisTitles(

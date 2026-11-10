@@ -17,6 +17,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/weight_format.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/section_header.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'goal_settings_controller.dart';
 
@@ -42,7 +44,9 @@ class GoalSettingsPage extends ConsumerStatefulWidget {
 }
 
 class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
-  final _weeklyGoalController = TextEditingController();
+  /// 週訓練次數目標(0-14;0=未設定)。用 −/+ stepper 調整,不會有非法值,
+  /// 所以不需要驗證/錯誤訊息(與 onboarding 第 2 步一致)。
+  int _weeklyGoal = _kUnsetWeeklyGoal;
   final _targetWeightController = TextEditingController();
 
   /// 首次拿到 `GoalSettingsState`(不論有沒有既有目標)就把兩個欄位帶入表單
@@ -59,7 +63,6 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
 
   @override
   void dispose() {
-    _weeklyGoalController.dispose();
     _targetWeightController.dispose();
     super.dispose();
   }
@@ -67,26 +70,13 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
   void _prefillIfNeeded(GoalSettingsState state, WeightUnit unit) {
     if (_prefilled) return;
     _prefilled = true;
-    _weeklyGoalController.text = state.weeklyWorkoutGoal > _kUnsetWeeklyGoal
-        ? state.weeklyWorkoutGoal.toString()
-        : '';
+    _weeklyGoal = state.weeklyWorkoutGoal.clamp(_kMinWeeklyGoal, _kMaxWeeklyGoal);
     // 儲存值恆 kg:帶入輸入框前依當前單位換算(lb 模式編輯既有目標時看到的是
     // lb 值)。kg 模式維持 `double.toString()` 原樣(no-op 回歸基準)。
     final stored = state.targetWeight;
     _targetWeightController.text = stored == null
         ? ''
         : (unit == WeightUnit.kg ? stored.toString() : formatWeightValue(stored, unit));
-  }
-
-  /// 解析週訓練次數目標。空字串代表「未設定」=[_kUnsetWeeklyGoal](對齊
-  /// 規格「0=未設定」的語意,不是輸入錯誤);超出值域或非整數回傳 null
-  /// 代表輸入不合法。
-  int? get _parsedWeeklyGoal {
-    final text = _weeklyGoalController.text.trim();
-    if (text.isEmpty) return _kUnsetWeeklyGoal;
-    final value = int.tryParse(text);
-    if (value == null || value < _kMinWeeklyGoal || value > _kMaxWeeklyGoal) return null;
-    return value;
   }
 
   /// 解析目標體重。空字串代表「未設定」=null(規格明定:留空存 null,不要
@@ -113,13 +103,13 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
   }
 
   bool _canSave(WeightUnit unit) =>
-      !_isSaving && _parsedWeeklyGoal != null && _parsedTargetWeight(unit).isValid;
+      !_isSaving && _parsedTargetWeight(unit).isValid;
 
   Future<void> _save() async {
     final unit = ref.read(weightUnitProvider);
-    final weeklyGoal = _parsedWeeklyGoal;
+    final weeklyGoal = _weeklyGoal;
     final targetWeight = _parsedTargetWeight(unit);
-    if (weeklyGoal == null || !targetWeight.isValid || _isSaving) return;
+    if (!targetWeight.isValid || _isSaving) return;
 
     setState(() => _isSaving = true);
     try {
@@ -173,7 +163,6 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
   }
 
   Widget _buildForm(BuildContext context, WeightUnit unit) {
-    final weeklyGoalInvalid = _parsedWeeklyGoal == null;
     final targetWeightInvalid = !_parsedTargetWeight(unit).isValid;
     // 值域提示的界限值:kg 模式為 20/300(與改造前逐字相同);lb 模式為換算後
     // 並取整的界限(輸入下界以 ceil、上界以 floor 取整,提示顯示的整數界限必
@@ -186,32 +175,30 @@ class _GoalSettingsPageState extends ConsumerState<GoalSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('週訓練次數目標', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: AppSpacing.sm),
-          TextField(
-            key: const Key('weeklyWorkoutGoalField'),
-            controller: _weeklyGoalController,
-            enabled: !_isSaving,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: '每週次數(0-14)',
-              errorText: weeklyGoalInvalid ? '請輸入 0-14 的整數' : null,
+          const SectionHeader(title: '週訓練次數目標'),
+          AppCard(
+            child: _WeeklyGoalStepper(
+              value: _weeklyGoal,
+              enabled: !_isSaving,
+              onChanged: (v) => setState(() => _weeklyGoal = v),
             ),
-            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: AppSpacing.xl),
-          Text('目標體重', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: AppSpacing.sm),
-          TextField(
-            key: const Key('targetWeightField'),
-            controller: _targetWeightController,
-            enabled: !_isSaving,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: '目標體重 (${unitSuffix(unit)}),留空代表未設定',
-              errorText: targetWeightInvalid ? '請輸入 $minShown-$maxShown 的體重,或留空' : null,
+          const SectionHeader(title: '目標體重'),
+          AppCard(
+            child: TextField(
+              key: const Key('targetWeightField'),
+              controller: _targetWeightController,
+              enabled: !_isSaving,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: '例如 ${unit == WeightUnit.kg ? '70' : '154'}',
+                suffixText: unitSuffix(unit),
+                helperText: '留空代表未設定',
+                errorText: targetWeightInvalid ? '請輸入 $minShown-$maxShown 的體重,或留空' : null,
+              ),
+              onChanged: (_) => setState(() {}),
             ),
-            onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: AppSpacing.xxl),
           SizedBox(
@@ -252,4 +239,48 @@ class _TargetWeightParse {
 
   final bool isValid;
   final double? value;
+}
+
+/// 週訓練次數 −/+ stepper(寫法對齊 onboarding 第 2 步)。值域 0-14,0 顯示
+/// 「未設定」。到界限時對應按鈕 disable,因此不會產生非法值。
+class _WeeklyGoalStepper extends StatelessWidget {
+  const _WeeklyGoalStepper({required this.value, required this.enabled, required this.onChanged});
+
+  final int value;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(child: Text('每週訓練次數', style: theme.textTheme.titleSmall)),
+        IconButton(
+          key: const Key('weeklyWorkoutGoalDecrement'),
+          onPressed: enabled && value > _kMinWeeklyGoal ? () => onChanged(value - 1) : null,
+          icon: const Icon(Icons.remove_circle_outline),
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(
+            value == _kUnsetWeeklyGoal ? '未設定' : '$value 次',
+            key: const Key('weeklyWorkoutGoalField'),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            softWrap: false,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        IconButton(
+          key: const Key('weeklyWorkoutGoalIncrement'),
+          onPressed: enabled && value < _kMaxWeeklyGoal ? () => onChanged(value + 1) : null,
+          icon: const Icon(Icons.add_circle_outline),
+        ),
+      ],
+    );
+  }
 }

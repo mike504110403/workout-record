@@ -303,6 +303,27 @@ void main() {
       expect(spots.last.y, 78.0);
     });
 
+    testWidgets('同一天多筆只畫當天最後一筆;曲線開 preventCurveOverShooting', (tester) async {
+      final harness = await _setUpHarness();
+      final base = DateTime.now().subtract(const Duration(days: 2));
+      final day1 = DateTime(base.year, base.month, base.day, 8);
+      final day2 = day1.add(const Duration(days: 1));
+      Future<void> add(String id, double w, DateTime at) =>
+          harness.bodyWeightRepo.create(_entry(id: id, weight: w, measuredAt: at));
+      await add('d1', 75.0, day1);
+      await add('d2a', 76.0, day2);
+      await add('d2b', 77.0, day2.add(const Duration(hours: 5)));
+      await add('d2c', 78.0, day2.add(const Duration(hours: 9)));
+
+      await _pump(tester, harness);
+
+      final bar = _findLineChart(tester).data.lineBarsData.single;
+      expect(bar.spots.map((s) => s.y), [75.0, 78.0]);
+      expect(bar.preventCurveOverShooting, isTrue);
+      // 列表(資料層)不受影響:四筆都還在。
+      expect(await harness.bodyWeightRepo.fetchAll(), hasLength(4));
+    });
+
     testWidgets('有設定目標體重時畫出目標線(目標線在無目標時畫出必紅,正例)', (tester) async {
       final harness = await _setUpHarness();
       await _seedThreeEntries(harness);

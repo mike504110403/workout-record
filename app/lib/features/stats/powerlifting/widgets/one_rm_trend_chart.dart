@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/power_lift_record.dart';
 import '../../../settings/preferences/weight_unit.dart';
+import '../../chart_axis_format.dart';
 import '../powerlifting_format.dart';
 
 class OneRmTrendChart extends ConsumerWidget {
@@ -47,7 +48,14 @@ class OneRmTrendChart extends ConsumerWidget {
             titlesData: FlTitlesData(
               topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
               rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 44)),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: kYAxisReservedSize,
+                  getTitlesWidget: (value, meta) =>
+                      yAxisTitle(value, meta, style: Theme.of(context).textTheme.labelSmall),
+                ),
+              ),
               bottomTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
