@@ -87,3 +87,12 @@ PrDetailData buildPrDetailData(List<PersonalRecord> records, OneRmFormula formul
 
   return PrDetailData(historyDesc: historyDesc, current: current, chartAsc: chartAsc, progress: progress);
 }
+
+/// 一個動作「依目前公式」的當前 PR(重算 1RM 最高者)。PR 清單卡片、經典三項
+/// 的訓練推估都走這裡,與詳情頁同口徑。prHistory 為空時退回 currentPR。
+PrDetailEntry? currentPrEntry(PRSummary summary, OneRmFormula formula) {
+  final records = summary.prHistory.isNotEmpty
+      ? summary.prHistory
+      : [if (summary.currentPR != null) summary.currentPR!];
+  return buildPrDetailData(records, formula).current;
+}

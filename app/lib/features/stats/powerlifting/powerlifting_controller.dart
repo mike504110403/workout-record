@@ -61,9 +61,6 @@ class PowerliftingState {
 
   double get totalLiftsValue => totalLifts(manualRecords);
 
-  PersonalRecord? get currentSystemPR =>
-      bestSystemEstimate(prSummaries, selectedLift);
-
   List<PRSummary> get currentSystemSummaries =>
       systemEstimatedSummaries(prSummaries, selectedLift);
 

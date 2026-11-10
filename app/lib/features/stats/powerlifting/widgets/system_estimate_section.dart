@@ -11,22 +11,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/personal_record.dart';
+import '../../../../data/models/power_lift_record.dart';
+import '../../../settings/preferences/one_rm_formula_preference.dart';
 import '../../../settings/preferences/weight_unit.dart';
+import '../../pr/pr_detail_calculations.dart';
+import '../powerlifting_calculations.dart';
 import '../powerlifting_format.dart';
 
 class SystemEstimateSection extends ConsumerWidget {
-  const SystemEstimateSection({super.key, required this.summaries, required this.best});
+  const SystemEstimateSection({super.key, required this.summaries, required this.lift});
 
   /// 動作名稱匹配目前選取三項動作的 PRSummary 清單(可能對到多個實際動作,
   /// 例如「臥推」同時匹配「槓鈴臥推」與「上斜臥推」)。
   final List<PRSummary> summaries;
 
-  /// 上述清單中 currentPR 1RM 最高者。
-  final PersonalRecord? best;
+  /// 目前選取的三項動作(用來在 [summaries] 中取推估最高者)。
+  final PowerLift lift;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
+    // 1RM 依偏好公式重算,與 PR 清單/詳情頁同口徑(見 currentPrEntry)。
+    final formula = ref.watch(oneRmFormulaProvider);
+    final best = bestSystemEstimate(summaries, lift, formula: formula);
     final orange = Colors.orange;
     return Card(
       key: const Key('systemEstimateSection'),
@@ -50,7 +57,7 @@ class SystemEstimateSection extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '推估: ${formatWeight(best!.oneRepMax, unit)} ${unitSuffix(unit)}',
+                      '推估: ${formatWeight(best.oneRepMax, unit)} ${unitSuffix(unit)}',
                       style: Theme.of(context)
                           .textTheme
                           .labelSmall
@@ -73,7 +80,7 @@ class SystemEstimateSection extends ConsumerWidget {
             else
               for (final summary in summaries)
                 if (summary.currentPR != null)
-                  _SystemRecordRow(summary: summary, orange: orange, unit: unit),
+                  _SystemRecordRow(summary: summary, formula: formula, orange: orange, unit: unit),
           ],
         ),
       ),
@@ -113,15 +120,17 @@ class _EmptySystemEstimateState extends StatelessWidget {
 }
 
 class _SystemRecordRow extends StatelessWidget {
-  const _SystemRecordRow({required this.summary, required this.orange, required this.unit});
+  const _SystemRecordRow({required this.summary, required this.formula, required this.orange, required this.unit});
 
   final PRSummary summary;
+  final OneRmFormula formula;
   final Color orange;
   final WeightUnit unit;
 
   @override
   Widget build(BuildContext context) {
-    final pr = summary.currentPR!;
+    final entry = currentPrEntry(summary, formula)!;
+    final pr = entry.record;
     return Card(
       key: Key('systemRecordRow-${summary.exerciseId}'),
       margin: const EdgeInsets.only(bottom: 8),
@@ -151,7 +160,7 @@ class _SystemRecordRow extends StatelessWidget {
               children: [
                 Text('推估', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: orange)),
                 Text(
-                  '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}',
+                  '${formatWeight(entry.oneRepMax, unit)} ${unitSuffix(unit)}',
                   style: Theme.of(context)
                       .textTheme
                       .titleSmall

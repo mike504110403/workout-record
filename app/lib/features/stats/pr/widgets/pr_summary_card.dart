@@ -21,10 +21,7 @@ class PrSummaryCard extends ConsumerWidget {
     final formula = ref.watch(oneRmFormulaProvider);
     // 與詳情頁同一套口徑:依偏好公式對 prHistory 重算 1RM 挑當前 PR,
     // 不用儲存值(寫入當下的公式結果),否則換公式後卡片與詳情頁數字不一致。
-    final current = buildPrDetailData(
-      summary.prHistory.isEmpty && summary.currentPR != null ? [summary.currentPR!] : summary.prHistory,
-      formula,
-    ).current;
+    final current = currentPrEntry(summary, formula);
     final pr = current?.record;
     return Card(
       key: Key('prSummaryCard-${summary.exerciseId}'),

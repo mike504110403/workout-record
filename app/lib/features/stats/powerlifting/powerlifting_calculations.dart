@@ -5,6 +5,8 @@
 
 import '../../../data/models/personal_record.dart';
 import '../../../data/models/power_lift_record.dart';
+import '../../settings/preferences/one_rm_formula_preference.dart';
+import '../pr/pr_detail_calculations.dart';
 
 /// 判斷動作名稱是否符合三項力量動作之一。對照 iOS
 /// `PowerLift.matches(exerciseName:)`——整串先轉小寫再比對,中文關鍵字轉
@@ -73,15 +75,20 @@ List<PRSummary> systemEstimatedSummaries(List<PRSummary> allSummaries, PowerLift
   return allSummaries.where((s) => powerLiftMatchesExerciseName(lift, s.exerciseName)).toList();
 }
 
-/// 指定動作的系統推估最佳 1RM——在所有匹配動作的 currentPR 中取最高。
+/// 指定動作的系統推估最佳 1RM——在所有匹配動作的當前 PR 中取最高。
 /// 對照 iOS `currentSystemPR`(在攤平後的 systemEstimatedRecords 裡取最高
-/// 1RM;這裡用 `PRSummary.currentPR` 已經是各動作歷史最高,取其中最高等價)。
-PersonalRecord? bestSystemEstimate(List<PRSummary> allSummaries, PowerLift lift) {
-  PersonalRecord? best;
+/// 1RM)。1RM 依偏好公式對 weight/reps 重算(與 PR 清單/詳情頁同口徑,見
+/// `currentPrEntry`),不用儲存值。
+PrDetailEntry? bestSystemEstimate(
+  List<PRSummary> allSummaries,
+  PowerLift lift, {
+  OneRmFormula formula = OneRmFormula.epley,
+}) {
+  PrDetailEntry? best;
   for (final summary in systemEstimatedSummaries(allSummaries, lift)) {
-    final pr = summary.currentPR;
-    if (pr == null) continue;
-    if (best == null || pr.oneRepMax > best.oneRepMax) best = pr;
+    final entry = currentPrEntry(summary, formula);
+    if (entry == null) continue;
+    if (best == null || entry.oneRepMax > best.oneRepMax) best = entry;
   }
   return best;
 }

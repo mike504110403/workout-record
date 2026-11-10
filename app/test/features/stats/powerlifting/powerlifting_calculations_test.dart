@@ -6,6 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:workout_record/data/models/personal_record.dart';
 import 'package:workout_record/data/models/power_lift_record.dart';
+import 'package:workout_record/features/settings/preferences/one_rm_formula_preference.dart';
 import 'package:workout_record/features/stats/powerlifting/powerlifting_calculations.dart';
 
 PowerLiftRecord _record({
@@ -244,7 +245,7 @@ void main() {
       final best = bestSystemEstimate(summaries, PowerLift.benchPress);
 
       // 手算:兩者都匹配「臥推」,80 > 60,取 e1。
-      expect(best?.id, 'p1');
+      expect(best?.record.id, 'p1');
       expect(best?.oneRepMax, 80);
     });
 
@@ -254,7 +255,34 @@ void main() {
         _summary(exerciseId: 'e2', exerciseName: '羅馬尼亞硬舉', currentPR: _pr(id: 'p2', exerciseId: 'e2', oneRepMax: 150)),
       ];
       final best = bestSystemEstimate(summaries, PowerLift.deadlift);
-      expect(best?.id, 'p2');
+      expect(best?.record.id, 'p2');
+    });
+
+    test('1RM 依偏好公式重算、不用儲存值挑最高者', () {
+      PersonalRecord pr(String id, String ex, double w, int reps, double stored) {
+        final now = DateTime(2026, 1, 1);
+        return PersonalRecord(
+          id: id,
+          userId: 'u1',
+          exerciseId: ex,
+          weight: w,
+          reps: reps,
+          oneRepMax: stored,
+          achievedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        );
+      }
+
+      // Brzycki 手算:e1 100x10 → 100*36/27=133.3;e2 120x3 → 120*36/34=127.1。
+      // 儲存值故意反過來(e1=1、e2=999):若誤用儲存值會挑到 e2。
+      final summaries = [
+        _summary(exerciseId: 'e1', exerciseName: '槓鈴臥推', currentPR: pr('p1', 'e1', 100, 10, 1)),
+        _summary(exerciseId: 'e2', exerciseName: '上斜臥推', currentPR: pr('p2', 'e2', 120, 3, 999)),
+      ];
+      final best = bestSystemEstimate(summaries, PowerLift.benchPress, formula: OneRmFormula.brzycki);
+      expect(best?.record.id, 'p1');
+      expect(best?.oneRepMax, closeTo(100 * 36 / 27, 1e-9));
     });
 
     test('完全沒有匹配動作時回傳 null', () {

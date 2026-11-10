@@ -99,7 +99,7 @@ class _PowerliftingContent extends ConsumerWidget {
             const SizedBox(height: 16),
             SystemEstimateSection(
               summaries: state.currentSystemSummaries,
-              best: state.currentSystemPR,
+              lift: state.selectedLift,
             ),
           ],
         ),
