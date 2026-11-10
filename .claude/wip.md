@@ -25,6 +25,8 @@
 - **待做**:Apple 授權撤銷(App Store 要求刪帳號時 revoke Apple token;需 Mike 提供 Sign in with Apple 的 .p8 key、Key ID、Team ID,走 Edge Function 呼叫 appleid.apple.com/auth/revoke);隱私頁/關於頁補「設定 > 刪除帳號」管道說明(併 privacy.html 改寫)。
 - 進行中:訓練中離線草稿(雲端模式草稿存本機、完成時 create_workout 一次上傳、失敗保留可重試)。
 - 已完成:動作/模板清單離線快取(1218ab7、04451b8)、_resolveUserId 抽共用 df47a41、graft 接線 f200911。資料匯出 Mike 裁示不做。
+- 2026-11-10 做完 iOS 對等 1/2/5:自定義動作管理 afc7dee(軟刪除,FK 擋實體刪)、PR 詳情頁 6e40ea9、關於頁聯絡/服務條款/刪帳說明＋休息結束震動 05f12e7。721 綠。
+- TODO:PR 列表卡與 `getPRSummary` 用寫入當下存的 1RM,詳情頁用偏好公式重算——非 Epley 且 reps>1 時兩邊數字/「當前 PR」可能不同;要一致需改列表卡與 repository 挑選邏輯。目標肌群多選(模型無欄位)未做。
 - iOS 對等缺口(2026-11-10 盤點,孤兒死碼不移植:成就、日曆規劃、Progress、圓餅圖等):(1) 自定義動作管理(編輯/刪除,中);(2) PR 詳情頁(趨勢圖+歷史,中);(3) 強制更新(中,需定版本設定放 Supabase 哪);(4) 使用教學頁(小~中);(5) 服務條款+關於頁 mailto(小);休息結束震動(小);通知設定 iOS 是空殼(只有測試通知),要不要做真提醒待裁。
 
 - 不再適用:原「同步波前置決策」(updatedAt 增量拉推/LWW/墓碑)因改直連作廢,見 git 歷史。
