@@ -170,6 +170,8 @@ class SupabasePersonalRecordRepository implements PersonalRecordRepository {
 
   @override
   Future<PersonalRecord?> createIfNewPR(PersonalRecord candidate) async {
+    // 重量或 1RM <= 0(模板帶入未填的 0 kg 組等)不算 PR,不打 RPC。
+    if (candidate.weight <= 0 || candidate.oneRepMax <= 0) return null;
     final created = await _client.rpc<bool>(
       'create_personal_record_if_new',
       params: {'p_record': _toJson(candidate)},

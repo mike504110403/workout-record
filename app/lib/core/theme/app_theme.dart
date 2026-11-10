@@ -34,12 +34,16 @@ class AppTheme {
       colorScheme: scheme,
     );
     final textTheme = _textTheme(base.textTheme);
+    // ThemeData.textTheme 本身不帶字級(字級在 Theme.of 依語系 localize 時才
+    // 併入),所以給元件 theme 的明確 TextStyle 要自己帶 geometry,否則會退成
+    // DefaultTextStyle 的 14px(對話框/按鈕標題過小的根因)。
+    final sized = Typography.material2021().englishLike.merge(textTheme);
 
     const controlShape = RoundedRectangleBorder(
       borderRadius: AppRadius.controlRadius,
     );
     const buttonMinSize = Size(64, AppSizes.buttonHeight);
-    final buttonTextStyle = textTheme.labelLarge?.copyWith(
+    final buttonTextStyle = sized.labelLarge?.copyWith(
       fontWeight: FontWeight.w600,
     );
 
@@ -123,7 +127,7 @@ class AppTheme {
         side: BorderSide.none,
         backgroundColor: scheme.surfaceContainerHigh,
         selectedColor: scheme.secondaryContainer,
-        labelStyle: textTheme.labelLarge,
+        labelStyle: sized.labelLarge,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -134,7 +138,7 @@ class AppTheme {
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return textTheme.labelMedium?.copyWith(
+          return sized.labelMedium?.copyWith(
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
             color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
           );
@@ -147,10 +151,7 @@ class AppTheme {
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
-        titleTextStyle: textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: scheme.onSurface,
-        ),
+        // 不設 titleTextStyle:設了會蓋掉 SliverAppBar.large 展開態的大字級。
       ),
       bottomSheetTheme: BottomSheetThemeData(
         showDragHandle: true,
@@ -169,7 +170,7 @@ class AppTheme {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppRadius.sheet)),
         ),
-        titleTextStyle: textTheme.titleLarge?.copyWith(
+        titleTextStyle: sized.titleLarge?.copyWith(
           fontWeight: FontWeight.w600,
           color: scheme.onSurface,
         ),

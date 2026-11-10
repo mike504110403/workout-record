@@ -20,7 +20,7 @@ class WorkItOutApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ref.watch(themeModeProvider),
+      themeMode: ref.watch(themeModeControllerProvider),
       routerConfig: router,
       // 隱私同意浮層蓋在整個 App 上層(對等 iOS `checkPrivacyConsent()`
       // sheet,不管目前停在 Onboarding 還是主畫面,登入後未同意就強制擋下)。

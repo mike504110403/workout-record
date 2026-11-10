@@ -74,6 +74,16 @@ void main() {
   });
 
   group('AppTheme 元件 theme', () {
+    test('元件 theme 的明確字樣帶字級;AppBar 不設 titleTextStyle(不蓋掉 large title)', () {
+      for (final t in [AppTheme.light, AppTheme.dark]) {
+        expect(t.appBarTheme.titleTextStyle, isNull);
+        expect(t.dialogTheme.titleTextStyle?.fontSize, 22);
+        final btn = t.filledButtonTheme.style?.textStyle?.resolve({});
+        expect(btn?.fontSize, 14);
+        expect(btn?.fontWeight, FontWeight.w600);
+      }
+    });
+
     for (final entry in {
       'light': AppTheme.light,
       'dark': AppTheme.dark,

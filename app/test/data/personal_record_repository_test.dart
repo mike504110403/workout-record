@@ -71,6 +71,14 @@ void main() {
   });
 
   group('createIfNewPR', () {
+    test('0 kg(沒有既有 PR 也一樣)不算 PR,不寫入', () async {
+      final created = await repository.createIfNewPR(
+        buildPR(id: 'pr-zero', exerciseId: exerciseIdA, oneRepMax: 0),
+      );
+      expect(created, isNull);
+      expect(await repository.fetchByExercise(exerciseIdA), isEmpty);
+    });
+
     test('1RM 較高時寫入新紀錄並回傳該紀錄', () async {
       await repository.create(buildPR(id: 'pr-3', exerciseId: exerciseIdA, oneRepMax: 100));
 

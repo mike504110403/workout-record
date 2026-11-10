@@ -190,6 +190,8 @@ class DriftPersonalRecordRepository implements PersonalRecordRepository {
   /// 回傳 `null` 代表不是新 PR、未寫入。
   @override
   Future<PersonalRecord?> createIfNewPR(PersonalRecord candidate) async {
+    // 重量或 1RM <= 0(模板帶入未填的 0 kg 組等)不算 PR。
+    if (candidate.weight <= 0 || candidate.oneRepMax <= 0) return null;
     final isNew = await isNewPR(candidate.exerciseId, candidate.oneRepMax);
     if (!isNew) return null;
     await create(candidate);
