@@ -12,14 +12,13 @@ import '../../settings/preferences/one_rm_formula_preference.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/uuid.dart';
-import '../../../data/migration/coredata_importer_result.dart';
 import '../../../data/models/personal_record.dart';
 import '../../../data/models/power_lift_record.dart';
 import '../../../data/providers.dart';
 import '../../auth/session_controller.dart';
-import '../../auth/shared_preferences_provider.dart';
 import '../../workout/one_rm_calculator.dart';
 import 'powerlifting_calculations.dart';
+import '../../auth/resolve_user_id.dart';
 
 class PowerliftingState {
   const PowerliftingState({
@@ -169,24 +168,7 @@ class PowerliftingController extends AsyncNotifier<PowerliftingState> {
     );
   }
 
-  Future<String?> _resolveUserId() async {
-    final userRepo = ref.read(userRepositoryProvider);
-
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId != null && sessionUserId.isNotEmpty) {
-      final existing = await userRepo.getById(sessionUserId);
-      if (existing != null) return existing.id;
-    }
-
-    final prefs = ref.read(sharedPreferencesProvider);
-    final importedUserId = prefs.getString(kCoreDataImportedUserIdKey);
-    if (importedUserId != null && importedUserId.isNotEmpty) {
-      final imported = await userRepo.getById(importedUserId);
-      if (imported != null) return imported.id;
-    }
-
-    return null;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserIdWithImportFallback(ref);
 }
 
 final powerliftingControllerProvider =

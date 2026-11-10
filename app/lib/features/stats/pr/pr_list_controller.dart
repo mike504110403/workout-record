@@ -7,11 +7,10 @@
 // 該檔案開頭注解。
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/migration/coredata_importer_result.dart';
 import '../../../data/models/personal_record.dart';
 import '../../../data/providers.dart';
 import '../../auth/session_controller.dart';
-import '../../auth/shared_preferences_provider.dart';
+import '../../auth/resolve_user_id.dart';
 
 class PrListState {
   const PrListState({this.summaries = const []});
@@ -39,24 +38,7 @@ class PrListController extends AsyncNotifier<PrListState> {
     return PrListState(summaries: summaries);
   }
 
-  Future<String?> _resolveUserId() async {
-    final userRepo = ref.read(userRepositoryProvider);
-
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId != null && sessionUserId.isNotEmpty) {
-      final existing = await userRepo.getById(sessionUserId);
-      if (existing != null) return existing.id;
-    }
-
-    final prefs = ref.read(sharedPreferencesProvider);
-    final importedUserId = prefs.getString(kCoreDataImportedUserIdKey);
-    if (importedUserId != null && importedUserId.isNotEmpty) {
-      final imported = await userRepo.getById(importedUserId);
-      if (imported != null) return imported.id;
-    }
-
-    return null;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserIdWithImportFallback(ref);
 }
 
 final prListControllerProvider =

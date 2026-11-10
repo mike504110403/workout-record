@@ -19,6 +19,7 @@ import '../../../core/utils/uuid.dart';
 import '../../../data/models/workout_template.dart';
 import '../../../data/providers.dart';
 import '../../auth/session_controller.dart';
+import '../../auth/resolve_user_id.dart';
 
 class TemplatesController extends AsyncNotifier<List<WorkoutTemplate>> {
   @override
@@ -120,13 +121,7 @@ class TemplatesController extends AsyncNotifier<List<WorkoutTemplate>> {
     return [...systemTemplates, ...personalTemplates];
   }
 
-  Future<String?> _resolveUserId() async {
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId == null || sessionUserId.isEmpty) return null;
-    final userRepo = ref.read(userRepositoryProvider);
-    final user = await userRepo.getById(sessionUserId);
-    return user?.id;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserId(ref);
 
   /// minor 改名(先前叫 `_withTemplateId`,名不副實):這裡真正做的事是
   /// 指派一個新的 [id] 與 [orderIndex]——`templateId` 欄位原封不動照抄

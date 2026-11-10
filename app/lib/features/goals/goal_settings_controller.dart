@@ -31,13 +31,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/uuid.dart';
-import '../../data/migration/coredata_importer_result.dart' show kCoreDataImportedUserIdKey;
 import '../../data/models/user_goal.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
-import '../auth/shared_preferences_provider.dart';
 import '../dashboard/dashboard_controller.dart';
 import '../stats/body_weight/body_weight_controller.dart';
+import '../auth/resolve_user_id.dart';
 
 class GoalSettingsState {
   const GoalSettingsState({this.weeklyWorkoutGoal = 0, this.targetWeight});
@@ -107,24 +106,7 @@ class GoalSettingsController extends AsyncNotifier<GoalSettingsState> {
 
   /// 照抄 pr_list_controller.dart 的 `_resolveUserId`(第六份複本,brief 明定
   /// 不抽共用)。
-  Future<String?> _resolveUserId() async {
-    final userRepo = ref.read(userRepositoryProvider);
-
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId != null && sessionUserId.isNotEmpty) {
-      final existing = await userRepo.getById(sessionUserId);
-      if (existing != null) return existing.id;
-    }
-
-    final prefs = ref.read(sharedPreferencesProvider);
-    final importedUserId = prefs.getString(kCoreDataImportedUserIdKey);
-    if (importedUserId != null && importedUserId.isNotEmpty) {
-      final imported = await userRepo.getById(importedUserId);
-      if (imported != null) return imported.id;
-    }
-
-    return null;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserIdWithImportFallback(ref);
 }
 
 final goalSettingsControllerProvider =

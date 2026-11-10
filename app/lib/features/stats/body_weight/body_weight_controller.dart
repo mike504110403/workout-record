@@ -35,6 +35,7 @@ import '../../../core/utils/uuid.dart';
 import '../../../data/models/body_weight.dart';
 import '../../../data/providers.dart';
 import '../../auth/session_controller.dart';
+import '../../auth/resolve_user_id.dart';
 
 class BodyWeightTabState {
   const BodyWeightTabState({
@@ -164,13 +165,7 @@ class BodyWeightTabController extends AsyncNotifier<BodyWeightTabState> {
     return BodyWeightTabState(entriesDesc: entries, targetWeight: goal?.targetWeight);
   }
 
-  Future<String?> _resolveUserId() async {
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId == null || sessionUserId.isEmpty) return null;
-    final userRepo = ref.read(userRepositoryProvider);
-    final user = await userRepo.getById(sessionUserId);
-    return user?.id;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserId(ref);
 }
 
 final bodyWeightTabControllerProvider =

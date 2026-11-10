@@ -31,6 +31,7 @@ import '../auth/session_controller.dart';
 import 'one_rm_calculator.dart';
 import 'templates/applied_template.dart';
 import 'workout_ui_shared.dart';
+import '../auth/resolve_user_id.dart';
 
 /// 訓練核心流的狀態。[draft] 為 null 代表沒有進行中的訓練(顯示開始畫面);
 /// 非 null 時 `draft.endedAt` 必為 null(進行中草稿)。
@@ -112,13 +113,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     return const WorkoutFlowState();
   }
 
-  Future<String?> _resolveUserId() async {
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId == null || sessionUserId.isEmpty) return null;
-    final userRepo = ref.read(userRepositoryProvider);
-    final user = await userRepo.getById(sessionUserId);
-    return user?.id;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserId(ref);
 
   Future<String> _requireUserId() async {
     final userId = await _resolveUserId();

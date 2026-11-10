@@ -21,6 +21,7 @@ import '../../data/models/user_goal.dart';
 import '../../data/models/workout.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
+import '../auth/resolve_user_id.dart';
 
 /// 空狀態 / 尚未設定週目標時的鼓勵文案。
 const kNoGoalMessage = '設定目標，追蹤進步！';
@@ -163,13 +164,7 @@ class DashboardController extends AsyncNotifier<DashboardState> {
     );
   }
 
-  Future<String?> _resolveUserId() async {
-    final sessionUserId = ref.read(sessionControllerProvider).appleUserId;
-    if (sessionUserId == null || sessionUserId.isEmpty) return null;
-    final userRepo = ref.read(userRepositoryProvider);
-    final user = await userRepo.getById(sessionUserId);
-    return user?.id;
-  }
+  Future<String?> _resolveUserId() => resolveSessionUserId(ref);
 
   /// ISO 8601:週一為一週開始。回傳當週週一 00:00:00。
   ///
