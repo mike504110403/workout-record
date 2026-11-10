@@ -1,4 +1,6 @@
-stage: mvp(2026-11-10 Mike 裁示覆寫入選條件:iOS 版已上架,但 Flutter 版未發布即視為 MVP;Flutter 版首次發布＝畢業,畢業總審必含 CoreData 匯入與 schema migration)
+stage: mvp
+
+> 2026-11-10 Mike 裁示覆寫入選條件:iOS 版已上架,但 Flutter 版未發布即視為 MVP;Flutter 版首次發布＝畢業,畢業總審必含 CoreData 匯入與 schema migration
 
 # WorkoutRecord — 健身紀錄 App
 
