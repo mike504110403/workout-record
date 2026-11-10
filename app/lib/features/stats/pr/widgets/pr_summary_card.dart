@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../data/models/personal_record.dart';
 import '../../../settings/preferences/weight_unit.dart';
+import '../pr_detail_page.dart';
 import '../pr_format.dart';
 
 class PrSummaryCard extends ConsumerWidget {
@@ -19,50 +20,62 @@ class PrSummaryCard extends ConsumerWidget {
     return Card(
       key: Key('prSummaryCard-${summary.exerciseId}'),
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(summary.exerciseName, style: Theme.of(context).textTheme.titleMedium),
-            if (pr != null) ...[
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  _StatItem(label: 'PR 重量', value: '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)}'),
-                  const SizedBox(width: 24),
-                  _StatItem(label: '次數', value: '${pr.reps} 次'),
-                  const SizedBox(width: 24),
-                  _StatItem(label: '1RM 估算', value: '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}'),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.calendar_today, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  const SizedBox(width: 4),
-                  Text(
-                    formatDate(pr.achievedAt),
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
-                  const Spacer(),
-                  if (summary.prHistory.length > 1)
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        // 對照 iOS `PRView` 的 NavigationLink -> PRDetailView。
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (context) => PrDetailPage(
+              exerciseId: summary.exerciseId,
+              exerciseName: summary.exerciseName,
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(summary.exerciseName, style: Theme.of(context).textTheme.titleMedium),
+              if (pr != null) ...[
+                const SizedBox(height: 8),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _StatItem(label: 'PR 重量', value: '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)}'),
+                    const SizedBox(width: 24),
+                    _StatItem(label: '次數', value: '${pr.reps} 次'),
+                    const SizedBox(width: 24),
+                    _StatItem(label: '1RM 估算', value: '${formatWeight(pr.oneRepMax, unit)} ${unitSuffix(unit)}'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 4),
                     Text(
-                      '${summary.prHistory.length} 次記錄',
+                      formatDate(pr.achievedAt),
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
                           ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
-                ],
-              ),
+                    const Spacer(),
+                    if (summary.prHistory.length > 1)
+                      Text(
+                        '${summary.prHistory.length} 次記錄',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

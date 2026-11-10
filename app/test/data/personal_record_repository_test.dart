@@ -101,6 +101,31 @@ void main() {
     });
   });
 
+  // PR 詳情頁的資料來源:依動作取全部 PR 歷史。
+  group('fetchByExercise', () {
+    test('只回傳該動作的紀錄,依達成日新到舊排序(與寫入順序無關)', () async {
+      await repository.create(
+          buildPR(id: 'pr-mid', exerciseId: exerciseIdA, oneRepMax: 110, achievedAt: DateTime(2026, 2, 1)));
+      await repository.create(
+          buildPR(id: 'pr-old', exerciseId: exerciseIdA, oneRepMax: 100, achievedAt: DateTime(2026, 1, 1)));
+      await repository.create(
+          buildPR(id: 'pr-new', exerciseId: exerciseIdA, oneRepMax: 120, achievedAt: DateTime(2026, 3, 1)));
+      await repository.create(
+          buildPR(id: 'pr-other', exerciseId: exerciseIdB, oneRepMax: 999, achievedAt: DateTime(2026, 4, 1)));
+
+      final result = await repository.fetchByExercise(exerciseIdA);
+
+      expect(result.map((r) => r.id).toList(), ['pr-new', 'pr-mid', 'pr-old']);
+      expect(result.every((r) => r.exerciseId == exerciseIdA), isTrue);
+    });
+
+    test('該動作沒有任何紀錄時回傳空 list', () async {
+      await repository.create(buildPR(id: 'pr-b', exerciseId: exerciseIdB, oneRepMax: 100));
+
+      expect(await repository.fetchByExercise(exerciseIdA), isEmpty);
+    });
+  });
+
   group('getPRSummary', () {
     test('依動作分組,current PR 是各組最高的一筆,history 依時間新到舊排序', () async {
       await repository.create(buildPR(
