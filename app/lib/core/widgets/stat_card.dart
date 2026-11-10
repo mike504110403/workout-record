@@ -5,6 +5,10 @@
 // (欄位簽名照抄原 `_StatCard`)。
 import 'package:flutter/material.dart';
 
+/// 舊版統計卡片。
+///
+/// 已被 `AppCard` + `MetricTile` 取代;各頁面之後逐步遷移,遷移完成後移除此檔。
+@Deprecated('改用 AppCard + MetricTile(core/widgets)。')
 class StatCard extends StatelessWidget {
   const StatCard({
     super.key,
@@ -31,17 +35,16 @@ class StatCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
               title,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
