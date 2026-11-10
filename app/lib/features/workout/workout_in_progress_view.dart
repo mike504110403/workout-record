@@ -89,6 +89,7 @@ class WorkoutInProgressView extends ConsumerWidget {
         _BottomActions(
           isBusy: flow.isCompleting || flow.isAbandoning,
           isCompleting: flow.isCompleting,
+          hasExercises: draft.exercises.isNotEmpty,
         ),
       ],
     );
@@ -671,10 +672,13 @@ Future<void> _completeWorkout(BuildContext context, WidgetRef ref) async {
 /// 固定在底部的主按鈕:全寬「完成訓練」。隨時可按(不再要求每個動作都先按過
 /// 「完成動作」)——尚有未完成動作時由 [_onCompletePressed] 跳確認。
 class _BottomActions extends ConsumerWidget {
-  const _BottomActions({required this.isBusy, required this.isCompleting});
+  const _BottomActions({required this.isBusy, required this.isCompleting, required this.hasExercises});
 
   final bool isBusy;
   final bool isCompleting;
+
+  /// 一個動作都沒有時停用——避免存出空訓練;要離開走 ⋯ 選單的「放棄訓練」。
+  final bool hasExercises;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -695,7 +699,7 @@ class _BottomActions extends ConsumerWidget {
             width: double.infinity,
             child: FilledButton(
               key: const Key('completeWorkoutButton'),
-              onPressed: isBusy ? null : () => _onCompletePressed(context, ref),
+              onPressed: isBusy || !hasExercises ? null : () => _onCompletePressed(context, ref),
               child: isCompleting
                   ? const SizedBox(
                       height: 16,

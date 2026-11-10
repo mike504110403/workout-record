@@ -217,7 +217,7 @@ void main() {
       expect(button.onPressed, isNotNull);
     });
 
-    testWidgets('草稿還沒有任何動作時按鈕也可按', (tester) async {
+    testWidgets('草稿還沒有任何動作時按鈕停用(不存空訓練)', (tester) async {
       final harness = await _setUpHarness();
       final notifier = harness.container.read(workoutControllerProvider.notifier);
       await harness.container.read(workoutControllerProvider.future);
@@ -225,7 +225,7 @@ void main() {
       await _pumpView(tester, harness);
 
       final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
-      expect(button.onPressed, isNotNull);
+      expect(button.onPressed, isNull);
     });
 
     testWidgets('有 1 個動作未完成 → 跳確認「有 1 個動作尚未完成」→ 取消:不結束,草稿保留', (tester) async {
