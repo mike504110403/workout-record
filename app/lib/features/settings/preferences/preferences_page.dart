@@ -27,7 +27,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../workout/workout_ui_shared.dart' show kDefaultRestSeconds;
 import 'default_rest_seconds_preference.dart';
+import 'formula_explanation_page.dart';
 import 'one_rm_formula_preference.dart';
 import 'theme_preference.dart';
 import 'weight_unit.dart';
@@ -48,6 +50,7 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
   bool _savingTheme = false;
   bool _savingRestSeconds = false;
   bool _savingFormula = false;
+  bool _resetting = false;
 
   static const _kWriteErrorMessage = '儲存失敗，請稍後再試';
 
@@ -68,6 +71,45 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
     } finally {
       if (mounted) setSaving(false);
     }
+  }
+
+  /// 對齊 iOS `GlobalSettingsManager.resetToDefaults()` 中 Flutter 實際有的
+  /// 四項本機偏好(單位 kg、主題跟隨系統、休息 90 秒、公式 Epley)。iOS 另有的
+  /// showVolumeInStats / enableHapticFeedback / autoSaveWorkout 在 Flutter
+  /// 沒有對應偏好,不處理。只動本機偏好,不碰訓練資料/帳號。
+  /// 逐項走各 controller 的 setXxx()(寫 prefs 成功才更新 state),任一項失敗
+  /// 就中止並跳浮錯,已重設的項目維持新值。
+  Future<void> _confirmAndReset() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重置設定'),
+        content: const Text('確定要將所有設定恢復為預設值嗎？'),
+        actions: [
+          TextButton(
+            key: const Key('resetPreferencesCancel'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            key: const Key('resetPreferencesConfirm'),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('重置'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _guardedWrite(
+      write: () async {
+        await ref.read(weightUnitControllerProvider.notifier).setUnit(WeightUnit.kg);
+        await ref.read(themeModeControllerProvider.notifier).setThemeMode(ThemeMode.system);
+        await ref.read(defaultRestSecondsControllerProvider.notifier).setSeconds(kDefaultRestSeconds);
+        await ref.read(oneRmFormulaControllerProvider.notifier).setFormula(OneRmFormula.epley);
+      },
+      setSaving: (saving) => setState(() => _resetting = saving),
+    );
   }
 
   @override
@@ -166,6 +208,24 @@ class _PreferencesPageState extends ConsumerState<PreferencesPage> {
                           .setFormula(selection.first),
                       setSaving: (saving) => setState(() => _savingFormula = saving),
                     ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const Key('formulaExplanationButton'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const FormulaExplanationPage()),
+              ),
+              child: const Text('查看公式說明'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Divider(),
+          TextButton(
+            key: const Key('resetPreferencesButton'),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            onPressed: _resetting ? null : _confirmAndReset,
+            child: const Text('重置所有設定'),
           ),
         ],
       ),

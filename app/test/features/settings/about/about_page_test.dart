@@ -42,6 +42,37 @@ void main() {
     expect(find.textContaining('錯誤報告'), findsNothing);
   });
 
+  testWidgets('功能特色區:只列 Flutter 真有的功能,不含成就', (tester) async {
+    // 拉高視窗,讓整頁(含長頁尾段的功能特色區)都在畫面內。
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(800, 3000);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MaterialApp(home: AboutPage()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('功能特色'), findsOneWidget);
+    for (final title in ['數據分析', 'PR 追蹤', '目標追蹤', '三項力量']) {
+      expect(find.text(title), findsOneWidget);
+    }
+    expect(find.text('詳細的訓練數據分析與趨勢圖表'), findsOneWidget);
+    expect(find.text('設定並追蹤您的健身目標'), findsOneWidget);
+    expect(find.text('專業的深蹲、臥推、硬舉記錄'), findsOneWidget);
+    expect(find.textContaining('成就'), findsNothing);
+  });
+
+  testWidgets('開發者列顯示 Mike Lin', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: AboutPage()));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('aboutDeveloperTile')),
+      200,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('開發者'), findsOneWidget);
+    expect(find.text('Mike Lin'), findsOneWidget);
+  });
+
   testWidgets('父層 rebuild(新的 AboutPage 實例)不重新查詢版本——不閃回轉圈圈(review minor)', (tester) async {
     final tick = ValueNotifier<int>(0);
     addTearDown(tick.dispose);

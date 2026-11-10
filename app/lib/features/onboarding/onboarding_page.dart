@@ -217,9 +217,9 @@ class _WelcomeStep extends StatelessWidget {
           ),
           SizedBox(height: 12),
           _FeatureCard(
-            icon: Icons.emoji_events,
-            title: '成就系統',
-            description: '解鎖各種成就,激勵持續訓練',
+            icon: Icons.track_changes,
+            title: '目標設定',
+            description: '設定健身目標,持續追蹤達成進度',
           ),
         ],
       ),
@@ -449,8 +449,8 @@ class _FeaturesStep extends StatelessWidget {
   static const _features = [
     (Icons.fitness_center, '訓練記錄', '記錄每次訓練'),
     (Icons.bar_chart, '數據分析', '查看訓練統計'),
-    (Icons.calendar_month, '計劃安排', '規劃訓練計劃'),
-    (Icons.emoji_events, '成就系統', '解鎖各種成就'),
+    (Icons.library_books, '訓練範本', '儲存常用範本,快速開始訓練'),
+    (Icons.emoji_events, 'PR 追蹤', '記錄各動作的個人最佳'),
     (Icons.track_changes, '目標設定', '設定健身目標'),
     (Icons.cloud_done, '雲端儲存', '登入後資料與帳號綁定,跨裝置存取'),
   ];
@@ -464,7 +464,7 @@ class _FeaturesStep extends StatelessWidget {
           const _StepHeader(
             icon: Icons.star,
             title: '主要功能',
-            description: '應用程式提供完整的健身記錄功能,包括訓練記錄、進度追蹤和成就系統',
+            description: '應用程式提供完整的健身記錄功能,包括訓練記錄、進度追蹤和目標設定',
           ),
           const SizedBox(height: 24),
           GridView.count(

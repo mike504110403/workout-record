@@ -134,6 +134,29 @@ class _AboutPageState extends State<AboutPage> {
           ),
           const SizedBox(height: 20),
           Text('如有任何隱私相關問題,請聯絡:$kContactEmail', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 32),
+          Text('功能特色', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const _FeatureRow(
+            icon: Icons.bar_chart,
+            title: '數據分析',
+            description: '詳細的訓練數據分析與趨勢圖表',
+          ),
+          const _FeatureRow(
+            icon: Icons.emoji_events_outlined,
+            title: 'PR 追蹤',
+            description: '自動記錄各動作的個人最佳紀錄',
+          ),
+          const _FeatureRow(
+            icon: Icons.track_changes,
+            title: '目標追蹤',
+            description: '設定並追蹤您的健身目標',
+          ),
+          const _FeatureRow(
+            icon: Icons.fitness_center,
+            title: '三項力量',
+            description: '專業的深蹲、臥推、硬舉記錄',
+          ),
           const SizedBox(height: 24),
           const Divider(),
           ListTile(
@@ -171,8 +194,34 @@ class _AboutPageState extends State<AboutPage> {
               MaterialPageRoute<void>(builder: (_) => const TermsOfServicePage()),
             ),
           ),
+          const Divider(),
+          const ListTile(
+            key: Key('aboutDeveloperTile'),
+            contentPadding: EdgeInsets.zero,
+            title: Text('開發者'),
+            trailing: Text('Mike Lin', style: TextStyle(color: Colors.grey)),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _FeatureRow extends StatelessWidget {
+  const _FeatureRow({required this.icon, required this.title, required this.description});
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: theme.colorScheme.primary),
+      title: Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+      subtitle: Text(description),
     );
   }
 }

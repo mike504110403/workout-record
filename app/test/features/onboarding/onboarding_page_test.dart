@@ -33,6 +33,9 @@ void main() {
 
     expect(find.text('歡迎使用健身記錄'), findsOneWidget);
     expect(find.byKey(const Key('skipOnboardingButton')), findsOneWidget);
+    // Flutter 沒有成就系統,歡迎頁不得宣稱。
+    expect(find.textContaining('成就'), findsNothing);
+    expect(find.text('目標設定'), findsOneWidget);
   });
 
   testWidgets('基本資訊頁:體重欄位空白時「下一步」disabled,填有效數值後 enabled', (tester) async {

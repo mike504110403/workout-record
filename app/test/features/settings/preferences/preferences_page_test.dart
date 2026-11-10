@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/settings/preferences/default_rest_seconds_preference.dart';
+import 'package:workout_record/features/settings/preferences/formula_explanation_page.dart';
 import 'package:workout_record/features/settings/preferences/one_rm_formula_preference.dart';
 import 'package:workout_record/features/settings/preferences/preferences_page.dart';
 import 'package:workout_record/features/settings/preferences/theme_preference.dart';
@@ -279,6 +280,101 @@ void main() {
       expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
       expect(container.read(oneRmFormulaProvider), OneRmFormula.epley);
       expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+  });
+
+  group('公式說明入口', () {
+    testWidgets('點「查看公式說明」→ 進入說明頁且列出三條公式與適用情境', (tester) async {
+      final container = await _container();
+      await _pump(tester, container);
+
+      await tester.tap(find.byKey(const Key('formulaExplanationButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FormulaExplanationPage), findsOneWidget);
+      expect(find.text('Epley 公式'), findsOneWidget);
+      expect(find.text('1RM = 重量 × (1 + 次數 / 30)'), findsOneWidget);
+      expect(find.text('最常用的公式，適合大多數情況。'), findsOneWidget);
+      expect(find.text('Brzycki 公式'), findsOneWidget);
+      expect(find.text('1RM = 重量 × (36 / (37 - 次數))'), findsOneWidget);
+      expect(find.text('較保守的估算，適合次數較少的情況。'), findsOneWidget);
+      expect(find.text('Lander 公式'), findsOneWidget);
+      expect(
+        find.text('1RM = 重量 × (100 / (101.3 - 2.67123 × 次數))'),
+        findsOneWidget,
+      );
+      expect(find.text('適合高次數的訓練估算。'), findsOneWidget);
+    });
+  });
+
+  group('重置所有設定', () {
+    const nonDefaults = <String, Object>{
+      kWeightUnitPrefsKey: 'lb',
+      kThemeModePrefsKey: 'dark',
+      kDefaultRestSecondsPrefsKey: 150,
+      kOneRmFormulaPrefsKey: 'lander',
+      'unrelated_training_key': 'keep-me',
+    };
+
+    testWidgets('確認重置 → 四項偏好回預設並寫入 prefs,其他 key 不動', (tester) async {
+      final container = await _container(prefsValues: nonDefaults);
+      await _pump(tester, container);
+      expect(container.read(weightUnitProvider), WeightUnit.lb);
+
+      await tester.tap(find.byKey(const Key('resetPreferencesButton')));
+      await tester.pumpAndSettle();
+      expect(find.text('確定要將所有設定恢復為預設值嗎？'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('resetPreferencesConfirm')));
+      await tester.pumpAndSettle();
+
+      expect(container.read(weightUnitProvider), WeightUnit.kg);
+      expect(container.read(themeModeProvider), ThemeMode.system);
+      expect(container.read(defaultRestSecondsProvider), 90);
+      expect(container.read(oneRmFormulaProvider), OneRmFormula.epley);
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kWeightUnitPrefsKey), 'kg');
+      expect(prefs.getString(kThemeModePrefsKey), 'system');
+      expect(prefs.getInt(kDefaultRestSecondsPrefsKey), 90);
+      expect(prefs.getString(kOneRmFormulaPrefsKey), 'epley');
+      expect(prefs.getString('unrelated_training_key'), 'keep-me');
+    });
+
+    testWidgets('取消 → 偏好維持不變', (tester) async {
+      final container = await _container(prefsValues: nonDefaults);
+      await _pump(tester, container);
+
+      await tester.tap(find.byKey(const Key('resetPreferencesButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('resetPreferencesCancel')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('重置設定'), findsNothing);
+      expect(container.read(weightUnitProvider), WeightUnit.lb);
+      expect(container.read(themeModeProvider), ThemeMode.dark);
+      expect(container.read(defaultRestSecondsProvider), 150);
+      expect(container.read(oneRmFormulaProvider), OneRmFormula.lander);
+    });
+
+    testWidgets('寫入失敗 → 浮錯、解除 reset 鎖定、值不變', (tester) async {
+      final container = await _container(
+        prefsValues: nonDefaults,
+        throwingWeightUnit: true,
+      );
+      await _pump(tester, container);
+
+      await tester.tap(find.byKey(const Key('resetPreferencesButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('resetPreferencesConfirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('儲存失敗，請稍後再試'), findsOneWidget);
+      expect(container.read(weightUnitProvider), WeightUnit.lb);
+      expect(
+        tester
+            .widget<TextButton>(find.byKey(const Key('resetPreferencesButton')))
+            .onPressed,
+        isNotNull,
+      );
     });
   });
 }
