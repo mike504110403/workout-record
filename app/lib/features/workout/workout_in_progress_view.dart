@@ -520,7 +520,11 @@ class _BottomActions extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('完成訓練失敗:$e')));
+      ).showSnackBar(
+        const SnackBar(
+          content: Text('完成訓練失敗,訓練已保留在這台裝置,恢復網路後再按一次「完成訓練」'),
+        ),
+      );
     }
   }
 

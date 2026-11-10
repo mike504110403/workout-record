@@ -27,6 +27,7 @@ import '../../data/migration/coredata_importer_result.dart'
 import '../../data/migration/legacy_prefs_importer.dart'
     show kLegacyPrefsImportCompletedKey, kLegacyPrefsPersonalDataKeys;
 import '../../data/providers.dart' show appDatabaseProvider, userRepositoryProvider;
+import '../../data/repositories/offline/offline_prefs_keys.dart';
 import '../onboarding/onboarding_controller.dart' show kOnboardingPersonalDataKeys;
 import '../onboarding/onboarding_status.dart'
     show kHasCompletedOnboardingKey, onboardingStatusProvider;
@@ -484,6 +485,10 @@ class SessionController extends Notifier<SessionState> {
     }
     for (final key in kCoreDataImportStatsKeys) {
       await prefs.remove(key);
+    }
+    // 雲端模式的離線草稿與快取(offline/ 三個裝飾器,key 皆帶命名空間前綴)。
+    for (final key in prefs.getKeys().toList()) {
+      if (kOfflinePrefsKeyPrefixes.any(key.startsWith)) await prefs.remove(key);
     }
   }
 

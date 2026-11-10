@@ -481,6 +481,9 @@ void main() {
           kAppleUserIdKey: 'auth-uid-1',
           kHasCompletedOnboardingKey: true,
           kLocalDataOwnerUserIdKey: 'auth-uid-1',
+          'offline_workout_draft.v1.w1': '{}',
+          'offline_cache.user.v1.auth-uid-1': '{}',
+          'offline_cache.exercises.v1.auth-uid-1.false': '[]',
         },
         cloud: cloud,
       );
@@ -499,6 +502,8 @@ void main() {
       expect(prefs.containsKey(kHasCompletedOnboardingKey), isFalse);
       expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue,
           reason: '舊 iOS 資料不可在下次登入時被重新匯入/上傳');
+      expect(prefs.getKeys().where((k) => k.startsWith('offline_')), isEmpty,
+          reason: '離線草稿與快取一併清除');
     });
 
     test('雲端刪除失敗:回 false,本機登入態與資料都不動', () async {
