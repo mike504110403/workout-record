@@ -44,10 +44,28 @@ void main() {
     expect(find.byType(WorkoutStatsTab), findsOneWidget);
   });
 
+  testWidgets('預設選取的就是第一個分段(訓練排第一,選取不落在中間)', (tester) async {
+    await _pump(tester);
+
+    final control = tester.widget<SegmentedButton<int>>(
+      find.byKey(const Key('statsSegmentedControl')),
+    );
+    expect(control.selected, {0});
+    expect(control.segments.first.value, 0);
+    // 分段順序:訓練 / 體重 / 三項。
+    expect(
+      [
+        for (final i in [0, 1, 2])
+          tester.widget<Text>(find.byKey(Key('statsSegment-$i'))).data,
+      ],
+      ['訓練', '體重', '三項'],
+    );
+  });
+
   testWidgets('切到「體重」分頁,顯示 BodyWeightTab', (tester) async {
     await _pump(tester);
 
-    await tester.tap(find.byKey(const Key('statsSegment-0')));
+    await tester.tap(find.byKey(const Key('statsSegment-1')));
     await tester.pumpAndSettle();
 
     expect(find.byType(BodyWeightTab), findsOneWidget);
@@ -74,7 +92,7 @@ void main() {
     // 找不到被蓋住的子頁,即使它其實還活在 element tree、狀態沒被清掉。
     expect(find.byType(WorkoutStatsTab), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('statsSegment-0')));
+    await tester.tap(find.byKey(const Key('statsSegment-1')));
     await tester.pumpAndSettle();
 
     expect(find.byType(BodyWeightTab), findsOneWidget);

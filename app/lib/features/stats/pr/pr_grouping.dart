@@ -11,11 +11,7 @@ import '../../../data/models/personal_record.dart';
 /// (對照 iOS `PRCard` 在 `summary.primaryMuscleGroup == nil` 時不顯示肌群
 /// 標籤;這裡用 [label] 顯示「未分類」)。
 class PrGroupSection {
-  const PrGroupSection({
-    required this.muscleGroup,
-    required this.label,
-    required this.summaries,
-  });
+  const PrGroupSection({required this.muscleGroup, required this.label, required this.summaries});
 
   final PrimaryMuscleGroup? muscleGroup;
   final String label;
@@ -41,4 +37,15 @@ List<PrGroupSection> groupByMuscleGroup(List<PRSummary> summaries) {
   }
 
   return sections;
+}
+
+/// 依動作名稱搜尋 [summaries](不分大小寫、去頭尾空白;空字串回傳原清單)。
+/// 保留輸入順序,分組仍交給 [groupByMuscleGroup]。
+List<PRSummary> filterSummariesByName(List<PRSummary> summaries, String query) {
+  final needle = query.trim().toLowerCase();
+  if (needle.isEmpty) return summaries;
+  return [
+    for (final summary in summaries)
+      if (summary.exerciseName.toLowerCase().contains(needle)) summary,
+  ];
 }

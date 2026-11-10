@@ -1,4 +1,4 @@
-// 1RM 趨勢圖(fl_chart LineChart + 藍色點標記)。對應 iOS
+// 1RM 趨勢圖(fl_chart LineChart + 主色點標記)。對應 iOS
 // `PowerliftingView.manualRecordsSection` 裡的 Swift Charts `Chart`。
 //
 // x 軸刻意用「索引」而非實際日期的 epoch 值——[records] 已由呼叫端保證依
@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/power_lift_record.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
@@ -32,13 +33,13 @@ class OneRmTrendChart extends ConsumerWidget {
       key: const Key('oneRmTrendChart'),
       height: 200,
       child: Padding(
-        padding: const EdgeInsets.only(top: 8, right: 16),
+        padding: const EdgeInsets.only(top: AppSpacing.sm, right: AppSpacing.lg),
         child: LineChart(
           LineChartData(
             lineBarsData: [
               LineChartBarData(
                 spots: spots,
-                color: Colors.blue,
+                color: Theme.of(context).colorScheme.primary,
                 barWidth: 2,
                 dotData: const FlDotData(show: true),
               ),
@@ -55,7 +56,7 @@ class OneRmTrendChart extends ConsumerWidget {
                     final index = value.round();
                     if (index < 0 || index >= records.length) return const SizedBox.shrink();
                     return Padding(
-                      padding: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.only(top: AppSpacing.xs),
                       child: Text(
                         formatDate(records[index].achievedAt),
                         style: Theme.of(context).textTheme.labelSmall,

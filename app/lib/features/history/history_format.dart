@@ -8,6 +8,7 @@
 // 「4 份 format 函式各 feature 一份」是舊慣例;波 6 起收斂成共用一份、依
 // `WeightUnit` 換算顯示值,呼叫端一律要傳目前單位)。
 import '../../core/format/weight_format.dart' as weight_format;
+import '../../data/models/workout.dart';
 import '../settings/preferences/weight_unit.dart';
 
 /// 對照 iOS `.formatted(date: .abbreviated, time: .omitted)` 的視覺效果
@@ -46,4 +47,25 @@ String formatRestSeconds(int seconds) {
   final secs = seconds % 60;
   if (minutes > 0) return '$minutes:${secs.toString().padLeft(2, '0')}';
   return '${secs}s';
+}
+
+const _weekdayLabels = ['週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+
+/// 星期幾標籤(「週一」…「週日」),歷史列表卡片日期旁顯示。
+/// `DateTime.weekday`:週一=1 .. 週日=7。
+String formatHistoryWeekday(DateTime date) => _weekdayLabels[date.weekday - 1];
+
+/// 單一動作顯示名:優先用關聯的 Exercise 名稱,其次快照名稱,最後「未知動作」
+/// (與詳情頁動作明細同一套 fallback)。
+String workoutExerciseDisplayName(WorkoutExercise exercise) =>
+    exercise.exercise?.name ?? exercise.exerciseName ?? '未知動作';
+
+/// 列表卡片的動作摘要,例如「槓鈴臥推、深蹲 +2」:最多列出前 [maxNames]
+/// 個動作名,超出的以「+N」收尾。沒有任何動作時回傳 null(卡片不顯示該行)。
+String? summarizeWorkoutExercises(Workout workout, {int maxNames = 2}) {
+  final names = [for (final e in workout.exercises) workoutExerciseDisplayName(e)];
+  if (names.isEmpty) return null;
+  final shown = names.take(maxNames).join('、');
+  final rest = names.length - maxNames;
+  return rest > 0 ? '$shown +$rest' : shown;
 }

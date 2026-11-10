@@ -21,6 +21,8 @@ class BodyWeightSummary {
     this.max,
     this.min,
     this.change,
+    this.toTarget,
+    this.change30d,
   });
 
   /// 當前體重（最新一筆，對照 iOS `bodyWeights.first`）。
@@ -42,6 +44,15 @@ class BodyWeightSummary {
   /// `BodyWeightViewModel.weightChange` = `bodyWeights[0] - bodyWeights[1]`）。
   /// 只有一筆或沒有紀錄時為 null。
   final double? change;
+
+  /// 距目標:當前體重減目標體重(正值＝還高於目標,負值＝已低於目標)。
+  /// 沒有紀錄或沒設目標時為 null。
+  final double? toTarget;
+
+  /// 30 天變化:最新一筆減「最新一筆往前 30 天內最早的一筆」。以最新一筆為
+  /// 基準而非「今天」,所以久未記錄時仍顯示最後一段 30 天的走勢。30 天窗口內
+  /// 只有最新一筆(沒有可比較的對象)時為 null。
+  final double? change30d;
 }
 
 /// 從體重紀錄計算統計卡片所需的彙總值。
@@ -72,13 +83,25 @@ BodyWeightSummary computeBodyWeightSummary(
     change = entriesDescByMeasuredAt[0].weight - entriesDescByMeasuredAt[1].weight;
   }
 
+  final latest = entriesDescByMeasuredAt.first;
+  final cutoff = latest.measuredAt.subtract(const Duration(days: 30));
+  // entriesDesc 新到舊:從次新一筆往舊的方向走,最後一個仍在窗口內的就是
+  // 窗口內最早的一筆。
+  BodyWeight? baseline;
+  for (final entry in entriesDescByMeasuredAt.skip(1)) {
+    if (entry.measuredAt.isBefore(cutoff)) break;
+    baseline = entry;
+  }
+
   return BodyWeightSummary(
-    current: entriesDescByMeasuredAt.first.weight,
+    current: latest.weight,
     target: targetWeight,
     average: average,
     max: max,
     min: min,
     change: change,
+    toTarget: targetWeight == null ? null : latest.weight - targetWeight,
+    change30d: baseline == null ? null : latest.weight - baseline.weight,
   );
 }
 

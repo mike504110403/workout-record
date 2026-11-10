@@ -10,7 +10,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../../data/models/body_weight.dart';
+import '../trend_need_more_data.dart';
 import 'body_weight_controller.dart';
 import 'body_weight_stats.dart';
 import 'widgets/body_weight_chart.dart';
@@ -29,10 +33,8 @@ class BodyWeightTab extends StatelessWidget {
         final asyncState = ref.watch(bodyWeightTabControllerProvider);
         return asyncState.when(
           data: (state) => _BodyWeightContent(state: state),
-          loading: () => const Center(
-            key: Key('bodyWeightLoadingIndicator'),
-            child: CircularProgressIndicator(),
-          ),
+          loading: () =>
+              const Center(key: Key('bodyWeightLoadingIndicator'), child: CircularProgressIndicator()),
           error: (error, stackTrace) => _BodyWeightError(
             // `ref.invalidate` 而不是 `.refresh()`——對齊 dashboard_page.dart
             // `dashboardErrorRetryButton` 的既有慣例：invalidate 讓 provider
@@ -56,12 +58,12 @@ class _BodyWeightError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('載入失敗，請稍後再試'),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             FilledButton(
               key: const Key('bodyWeightErrorRetryButton'),
               onPressed: onRetry,
@@ -96,27 +98,32 @@ class _BodyWeightContent extends ConsumerWidget {
     // 直接找不到，不是位置問題而是根本沒建置）。
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('體重紀錄', style: Theme.of(context).textTheme.titleLarge),
-              IconButton(
-                key: const Key('addBodyWeightButton'),
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: '新增紀錄',
-                onPressed: () => _openAddForm(context),
-              ),
-            ],
+          SectionHeader(
+            title: '體重紀錄',
+            trailing: FilledButton.tonalIcon(
+              key: const Key('addBodyWeightButton'),
+              onPressed: () => _openAddForm(context),
+              icon: const Icon(Icons.add),
+              label: const Text('新增'),
+            ),
           ),
-          const SizedBox(height: 8),
-          BodyWeightChart(entriesDesc: state.entriesDesc, targetWeight: state.targetWeight),
-          const SizedBox(height: 20),
+          // 趨勢圖至少 2 筆才畫:單點畫不出趨勢,改顯示空狀態(統計與列表照常顯示)。
+          if (state.entriesDesc.length >= kMinTrendPoints)
+            AppCard(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: BodyWeightChart(entriesDesc: state.entriesDesc, targetWeight: state.targetWeight),
+            )
+          else
+            const AppCard(
+              child: SizedBox(height: 200, child: TrendNeedMoreData(key: Key('bodyWeightChartNeedMoreData'))),
+            ),
+          const SizedBox(height: AppSpacing.xl),
           BodyWeightStatsGrid(summary: summary),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.xl),
           BodyWeightRecordList(
             entriesDesc: state.entriesDesc,
             onEdit: (entry) => _openEditForm(context, entry),
@@ -131,6 +138,7 @@ class _BodyWeightContent extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       builder: (_) => const BodyWeightFormSheet(),
     );
   }
@@ -139,6 +147,7 @@ class _BodyWeightContent extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       builder: (_) => BodyWeightFormSheet(original: entry),
     );
   }
@@ -153,9 +162,7 @@ class _BodyWeightContent extends ConsumerWidget {
       await ref.read(bodyWeightTabControllerProvider.notifier).deleteEntry(entry.id);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('刪除失敗，請稍後再試')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('刪除失敗，請稍後再試')));
     }
   }
 }

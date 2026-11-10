@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'history_calendar_view.dart';
 import 'history_list_view.dart';
+import '../../core/theme/app_tokens.dart';
 
 enum HistoryViewMode { list, calendar }
 
@@ -25,7 +26,7 @@ class _HistoryPageState extends State<HistoryPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: SegmentedButton<HistoryViewMode>(
               key: const Key('historyViewModeSegmentedControl'),
               segments: const [

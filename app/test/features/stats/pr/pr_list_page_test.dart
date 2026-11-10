@@ -22,8 +22,8 @@ import '../../../data/test_helpers.dart';
 
 class _Harness {
   _Harness(this.db, this.container)
-      : exerciseRepo = DriftExerciseRepository(db),
-        personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
+    : exerciseRepo = DriftExerciseRepository(db),
+      personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -36,10 +36,7 @@ Future<_Harness> _setUpHarness({
   WeightUnit? weightUnit,
   OneRmFormula? formula,
 }) async {
-  SharedPreferences.setMockInitialValues({
-    kAppleUserIdKey: testUserId,
-    ...extraPrefs,
-  });
+  SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId, ...extraPrefs});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
   addTearDown(db.close);
@@ -109,6 +106,45 @@ void main() {
     });
   });
 
+  group('依動作名稱搜尋', () {
+    testWidgets('輸入關鍵字只留下名稱相符的動作卡,空白群組一併消失;清除後恢復;無符合顯示空狀態', (tester) async {
+      final harness = await _setUpHarness();
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final squat = systemExercises.firstWhere((e) => e.name == '深蹲');
+      final bench = systemExercises.firstWhere((e) => e.name == '槓鈴臥推');
+      await _createPR(harness, id: 'pr-sq', exerciseId: squat.id, oneRepMax: 140);
+      await _createPR(harness, id: 'pr-bp', exerciseId: bench.id, oneRepMax: 100);
+
+      await _pump(tester, harness);
+      expect(find.byKey(Key('prSummaryCard-${squat.id}')), findsOneWidget);
+      expect(find.byKey(Key('prSummaryCard-${bench.id}')), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('prListSearchField')), '臥推');
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key('prSummaryCard-${bench.id}')), findsOneWidget);
+      expect(find.byKey(Key('prSummaryCard-${squat.id}')), findsNothing);
+      // 深蹲所屬的腿部群組標題也跟著消失(沒有空群組)。
+      expect(find.byKey(const Key('prGroupSection-腿部')), findsNothing);
+
+      await tester.enterText(find.byKey(const Key('prListSearchField')), '不存在的動作');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('prListNoMatchState')), findsOneWidget);
+      expect(find.byKey(Key('prSummaryCard-${bench.id}')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('prListSearchClearButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key('prSummaryCard-${squat.id}')), findsOneWidget);
+      expect(find.byKey(Key('prSummaryCard-${bench.id}')), findsOneWidget);
+      expect(find.byKey(const Key('prListNoMatchState')), findsNothing);
+    });
+
+    testWidgets('沒有任何 PR 時不顯示搜尋欄(只有空狀態)', (tester) async {
+      final harness = await _setUpHarness();
+      await _pump(tester, harness);
+      expect(find.byKey(const Key('prListSearchField')), findsNothing);
+    });
+  });
+
   // 波 6:重量單位(lb 模式)。變異:PrSummaryCard 漏接 weightUnitProvider、
   // 恆用 kg 必紅。
   group('重量單位(lb 模式)', () {
@@ -135,16 +171,16 @@ void main() {
       final squat = systemExercises.firstWhere((e) => e.name == '深蹲');
       final now = DateTime.now();
       PersonalRecord pr(String id, double w, int reps, double stored) => PersonalRecord(
-            id: id,
-            userId: testUserId,
-            exerciseId: squat.id,
-            weight: w,
-            reps: reps,
-            oneRepMax: stored,
-            achievedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          );
+        id: id,
+        userId: testUserId,
+        exerciseId: squat.id,
+        weight: w,
+        reps: reps,
+        oneRepMax: stored,
+        achievedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      );
       // 儲存值(Epley):100x5 → 116.7;112x1 → 112。Brzycki 重算:100x5 → 112.5;112x1 → 112。
       // 儲存值最高的是 100x5,重算後最高仍是 100x5(112.5),但卡片 1RM 應是 112.5 不是 116.7。
       await harness.personalRecordRepo.create(pr('a', 100, 5, 116.7));
@@ -204,8 +240,20 @@ void main() {
       final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
       final squat = systemExercises.firstWhere((e) => e.name == '深蹲');
 
-      await _createPR(harness, id: 'pr-old', exerciseId: squat.id, oneRepMax: 140, achievedAt: DateTime(2026, 1, 1));
-      await _createPR(harness, id: 'pr-new', exerciseId: squat.id, oneRepMax: 100, achievedAt: DateTime(2026, 3, 1));
+      await _createPR(
+        harness,
+        id: 'pr-old',
+        exerciseId: squat.id,
+        oneRepMax: 140,
+        achievedAt: DateTime(2026, 1, 1),
+      );
+      await _createPR(
+        harness,
+        id: 'pr-new',
+        exerciseId: squat.id,
+        oneRepMax: 100,
+        achievedAt: DateTime(2026, 3, 1),
+      );
 
       await _pump(tester, harness);
 

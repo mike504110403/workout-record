@@ -1,14 +1,18 @@
-// 統計資訊卡片：當前體重、目標體重、平均、最高/最低、變化幅度。對照 iOS
-// 版 `BodyWeightView.currentWeightCard` + `trendCard`（iOS 只有「變化/平均/
-// 記錄」三項，本波依 brief 擴充成完整六項——目標體重、最高、最低是 brief
-// 明列但 iOS 尚未串接的欄位，見 iOS `BodyWeightChartView(targetWeight: nil,
-// // TODO: Get from user settings)`：這裡把「// TODO」補上，用真正的
-// `UserGoalRepository.targetWeight`）。
+// 統計資訊卡片:當前體重、距目標、30 天變化三格。
+//
+// UI 優化波 2:原本六格(當前/目標/平均/最高/最低/變化)精簡成三格——目標值
+// 已畫在趨勢圖上、平均/最高/最低是「體重」這種連續量少有人看的數字,留下最常
+// 被問的「現在多少、離目標多遠、最近一個月往哪走」。`BodyWeightSummary` 仍保留
+// 平均/最高/最低/變化欄位(純函式層不動),只是不再渲染。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/format/weight_format.dart' as weight_format;
+import '../../../../core/theme/app_tokens.dart';
+import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/metric_row.dart';
+import '../../../../core/widgets/metric_tile.dart';
 import '../../../settings/preferences/weight_unit.dart';
-import '../body_weight_format.dart';
 import '../body_weight_stats.dart';
 
 class BodyWeightStatsGrid extends ConsumerWidget {
@@ -19,124 +23,39 @@ class BodyWeightStatsGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    // review 打回(必修):390pt 寬手機(如 iPhone SE/mini)三欄 +
-    // childAspectRatio: 1.6 時,每格實際高度扣掉 Card 預設 margin(4×2)+
-    // 內距(8×2)後只剩 ~47px,裝不下「標籤 + 數值」兩行文字,
-    // `_StatTile` 內的 Column 會 RenderFlex overflow(release 模式直接把
-    // 溢出的文字裁掉,使用者看不到完整數字)。改成 childAspectRatio: 1.0
-    // （每格接近正方形,留更多垂直空間）＋ Card margin 歸零(GridView 本身
-    // 已經用 crossAxisSpacing/mainAxisSpacing 控制間距,Card 預設的
-    // `EdgeInsets.all(4)` margin只是白白吃掉可用空間,不需要疊加兩層
-    // 間距)。390×844 手機畫布的 widget test 見
-    // test/features/stats/body_weight/body_weight_tab_test.dart「手機寬度
-    // 溢出」——斷言 `tester.takeException()` 為 null、六卡文字皆可見;
-    // 變異(改回 1.6)必紅。
-    return GridView.count(
+    // 三格等分一列(MetricRow),每格的值是「數字 + 小字單位」,在 390pt 寬手機
+    // 上不會像舊的六格 GridView 那樣因固定長寬比而 overflow。
+    return AppCard(
       key: const Key('bodyWeightStatsGrid'),
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 3,
-      childAspectRatio: 1.0,
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      children: [
-        _StatTile(
-          statKey: 'current',
-          label: '當前體重',
-          value: summary.current,
-          unit: unit,
-        ),
-        _StatTile(
-          statKey: 'target',
-          label: '目標體重',
-          value: summary.target,
-          unit: unit,
-        ),
-        _StatTile(
-          statKey: 'average',
-          label: '平均',
-          value: summary.average,
-          unit: unit,
-        ),
-        _StatTile(
-          statKey: 'max',
-          label: '最高',
-          value: summary.max,
-          unit: unit,
-        ),
-        _StatTile(
-          statKey: 'min',
-          label: '最低',
-          value: summary.min,
-          unit: unit,
-        ),
-        _StatTile(
-          statKey: 'change',
-          label: '變化',
-          value: summary.change,
-          unit: unit,
-          signed: true,
-        ),
-      ],
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.lg),
+      child: MetricRow(
+        tiles: [
+          _tile(statKey: 'current', label: '當前', value: summary.current, unit: unit),
+          _tile(statKey: 'toTarget', label: '距目標', value: summary.toTarget, unit: unit, signed: true),
+          _tile(statKey: 'change30d', label: '30 天變化', value: summary.change30d, unit: unit, signed: true),
+        ],
+      ),
     );
   }
-}
 
-class _StatTile extends StatelessWidget {
-  const _StatTile({
-    required this.statKey,
-    required this.label,
-    required this.value,
-    required this.unit,
-    this.signed = false,
-  });
-
-  final String statKey;
-  final String label;
-  final double? value;
-  final WeightUnit unit;
-
-  /// 變化幅度要帶正負號（對照 iOS `BodyWeightStatItem` 的上下箭頭 +
-  /// `abs(value)`，這裡簡化成文字直接帶正負號，語意等價：正值代表增加、
-  /// 負值代表減少）。
-  final bool signed;
-
-  @override
-  Widget build(BuildContext context) {
+  /// [signed] 的數值帶正負號(正值＝增加、負值＝減少)。沒有值顯示「—」。
+  MetricTile _tile({
+    required String statKey,
+    required String label,
+    required double? value,
+    required WeightUnit unit,
+    bool signed = false,
+  }) {
     final v = value;
-    final displayValue = v == null
-        ? '—'
-        : signed
-            ? '${v > 0 ? '+' : ''}${formatBodyWeightKg(v, unit)}'
-            : formatBodyWeightKg(v, unit);
-
-    return Card(
+    if (v == null) {
+      return MetricTile(key: Key('bodyWeightStatCard-$statKey'), value: '—', label: label);
+    }
+    final number = weight_format.formatWeightValue(v, unit);
+    return MetricTile(
       key: Key('bodyWeightStatCard-$statKey'),
-      // GridView 本身已經用 crossAxisSpacing/mainAxisSpacing 控制格子間的
-      // 間距,Card 預設的 `EdgeInsets.all(4)` margin 只是多疊一層、白白吃掉
-      // 本來就緊繃的可用高度（見上面 build() 的 review 打回註解），歸零。
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              label,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              displayValue,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
+      value: signed && v > 0 ? '+$number' : number,
+      unit: unitSuffix(unit),
+      label: label,
     );
   }
 }

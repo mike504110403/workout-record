@@ -14,6 +14,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/section_header.dart';
 import 'powerlifting_controller.dart';
 import 'widgets/add_power_lift_record_sheet.dart';
 import 'widgets/lift_picker.dart';
@@ -37,7 +39,7 @@ class PowerliftingTab extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text('載入失敗，請稍後再試'),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.md),
                 FilledButton(
                   key: const Key('powerliftingErrorRetryButton'),
                   onPressed: () => ref.invalidate(powerliftingControllerProvider),
@@ -68,35 +70,32 @@ class _PowerliftingContent extends ConsumerWidget {
         // dashboard_page.dart:虛擬化的 ListView 會讓捲動範圍外的區塊不進
         // Element tree,widget test 用 find.byKey 會找不到。
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Text('經典三項', style: Theme.of(context).textTheme.titleLarge),
-                const Spacer(),
-                IconButton(
-                  key: const Key('addPowerLiftRecordButton'),
-                  icon: const Icon(Icons.add),
-                  onPressed: () => _showAddSheet(context),
-                ),
-              ],
+            SectionHeader(
+              title: '經典三項',
+              trailing: FilledButton.tonalIcon(
+                key: const Key('addPowerLiftRecordButton'),
+                onPressed: () => _showAddSheet(context),
+                icon: const Icon(Icons.add),
+                label: const Text('新增'),
+              ),
             ),
-            const SizedBox(height: 8),
             TotalLiftCard(totalLifts: state.totalLiftsValue, bestByLift: state.bestByLift),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             Center(
               child: LiftPicker(selected: state.selectedLift, onSelected: notifier.selectLift),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             ManualRecordsSection(
               records: state.currentManualRecords,
               chartRecords: state.chartData,
               currentPR: state.currentManualPR,
               onDelete: notifier.deleteManualRecord,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             SystemEstimateSection(
               summaries: state.currentSystemSummaries,
               lift: state.selectedLift,
@@ -111,6 +110,7 @@ class _PowerliftingContent extends ConsumerWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       builder: (context) => const AddPowerLiftRecordSheet(),
     );
   }

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/personal_record.dart';
 import '../../../settings/preferences/one_rm_formula_preference.dart';
 import '../../../settings/preferences/weight_unit.dart';
@@ -25,57 +26,60 @@ class PrSummaryCard extends ConsumerWidget {
     final pr = current?.record;
     return Card(
       key: Key('prSummaryCard-${summary.exerciseId}'),
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         // 對照 iOS `PRView` 的 NavigationLink -> PRDetailView。
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (context) => PrDetailPage(
-              exerciseId: summary.exerciseId,
-              exerciseName: summary.exerciseName,
-            ),
+            builder: (context) =>
+                PrDetailPage(exerciseId: summary.exerciseId, exerciseName: summary.exerciseName),
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(summary.exerciseName, style: Theme.of(context).textTheme.titleMedium),
               if (pr != null) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 const Divider(height: 1),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 Row(
                   children: [
                     _StatItem(label: 'PR 重量', value: '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)}'),
-                    const SizedBox(width: 24),
+                    const SizedBox(width: AppSpacing.xl),
                     _StatItem(label: '次數', value: '${pr.reps} 次'),
-                    const SizedBox(width: 24),
-                    _StatItem(label: '1RM 估算', value: '${formatWeight(current!.oneRepMax, unit)} ${unitSuffix(unit)}'),
+                    const SizedBox(width: AppSpacing.xl),
+                    _StatItem(
+                      label: '1RM 估算',
+                      value: '${formatWeight(current!.oneRepMax, unit)} ${unitSuffix(unit)}',
+                    ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 Row(
                   children: [
-                    Icon(Icons.calendar_today, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
                     Text(
                       formatDate(pr.achievedAt),
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     const Spacer(),
                     if (summary.prHistory.length > 1)
                       Text(
                         '${summary.prHistory.length} 次記錄',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                   ],
                 ),
@@ -101,10 +105,9 @@ class _StatItem extends StatelessWidget {
       children: [
         Text(
           label,
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 2),
         Text(value, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),

@@ -4,6 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/section_header.dart';
+
 import 'calendar_grid.dart';
 import 'history_calendar_controller.dart';
 import 'history_format.dart';
@@ -51,7 +54,7 @@ class _CalendarBody extends ConsumerWidget {
     final days = buildCalendarGrid(state.displayedMonth);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.pagePadding.copyWith(bottom: AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -76,7 +79,8 @@ class _CalendarBody extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
+          const _WeekdayHeader(),
           GridView.count(
             crossAxisCount: 7,
             shrinkWrap: true,
@@ -95,10 +99,40 @@ class _CalendarBody extends ConsumerWidget {
                   ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.xl),
           if (state.selectedDate != null) _SelectedDateWorkouts(state: state),
         ],
       ),
+    );
+  }
+}
+
+/// 星期標題列(日一二三四五六)。7 個 `Expanded` 等寬,與下方 `GridView.count`
+/// 的 7 欄對齊(格線無水平 padding)。
+class _WeekdayHeader extends StatelessWidget {
+  const _WeekdayHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(
+      context,
+    ).textTheme.labelMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    return Row(
+      key: const Key('historyCalendarWeekdayHeader'),
+      children: [
+        for (final (index, label) in kCalendarWeekdayLabels.indexed)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+              child: Text(
+                label,
+                key: Key('historyCalendarWeekday-$index'),
+                textAlign: TextAlign.center,
+                style: style,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -117,11 +151,13 @@ class _SelectedDateWorkouts extends StatelessWidget {
       key: const Key('historyCalendarSelectedDateSection'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(formatHistoryDate(selected), style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        SectionHeader(
+          title: '${formatHistoryDate(selected)} ${formatHistoryWeekday(selected)}',
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        ),
         if (dayWorkouts.isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
             child: Center(child: Text('當天無訓練記錄')),
           )
         else

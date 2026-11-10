@@ -1,14 +1,21 @@
 // 手動紀錄列表(三項表記錄)+ 1RM 趨勢圖。對應 iOS
 // `PowerliftingView.manualRecordsSection` + `ManualRecordRow`。
 //
-// 空狀態文案照搬 iOS `emptyChartView(message: "尚無三項表記錄\n點擊右上角 +
-// 開始記錄")`。
+// 空狀態文案沿用 iOS `emptyChartView(message: "尚無三項表記錄\n點擊右上角 +
+// 開始記錄")`(UI 優化波 2:右上角的 + 改成帶字的「新增」按鈕,文案跟著改)。
+// 圖表至少 2 筆才畫,只有 1 筆時顯示「再記錄一筆就能看到趨勢」。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_semantic_colors.dart';
+import '../../../../core/theme/app_tokens.dart';
+import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/empty_state.dart';
+import '../../../../core/widgets/section_header.dart';
 import '../../../../data/models/power_lift_record.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../powerlifting_format.dart';
+import '../../trend_need_more_data.dart';
 import 'one_rm_trend_chart.dart';
 
 class ManualRecordsSection extends ConsumerWidget {
@@ -35,67 +42,43 @@ class ManualRecordsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Card(
+    return AppCard(
       key: const Key('manualRecordsSection'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('三項表記錄', style: Theme.of(context).textTheme.titleMedium),
-                const Spacer(),
-                if (currentPR != null)
-                  _Badge(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            title: '三項表記錄',
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            trailing: currentPR == null
+                ? null
+                : _Badge(
                     key: const Key('manualPrBadge'),
                     text: 'PR: ${formatWeight(currentPR!.oneRepMax, unit)} ${unitSuffix(unit)}',
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.semanticColors.pr,
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (chartRecords.isEmpty)
-              const _EmptyRecordsState()
-            else
-              OneRmTrendChart(records: chartRecords),
-            if (records.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              // 與 iOS 的刻意差異:iOS 只顯示 .prefix(5),這裡全列——被截掉的
-              // 紀錄在 iOS 上永遠刪不到;CRUD 列表全列才能管理(review 裁定保留)。
-              for (final record in records) _ManualRecordRow(record: record, onDelete: onDelete, unit: unit),
-            ],
+          ),
+          if (chartRecords.isEmpty)
+            const SizedBox(
+              height: 200,
+              child: EmptyState(
+                key: Key('powerliftingEmptyState'),
+                icon: Icons.show_chart,
+                title: '尚無三項表記錄',
+                message: '點擊右上角「新增」開始記錄',
+              ),
+            )
+          else if (chartRecords.length < kMinTrendPoints)
+            const SizedBox(height: 200, child: TrendNeedMoreData(key: Key('powerliftingNeedMoreData')))
+          else
+            OneRmTrendChart(records: chartRecords),
+          if (records.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            // 與 iOS 的刻意差異:iOS 只顯示 .prefix(5),這裡全列——被截掉的
+            // 紀錄在 iOS 上永遠刪不到;CRUD 列表全列才能管理(review 裁定保留)。
+            for (final record in records) _ManualRecordRow(record: record, onDelete: onDelete, unit: unit),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyRecordsState extends StatelessWidget {
-  const _EmptyRecordsState();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      key: const Key('powerliftingEmptyState'),
-      height: 200,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.show_chart, size: 40, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 12),
-            Text(
-              '尚無三項表記錄\n點擊右上角 + 開始記錄',
-              textAlign: TextAlign.center,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -110,11 +93,8 @@ class _Badge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: AppRadius.chipRadius),
       child: Text(
         text,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w600),
@@ -165,9 +145,7 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
       await widget.onDelete(widget.record.id);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('刪除失敗，請稍後再試')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('刪除失敗，請稍後再試')));
     } finally {
       if (mounted) setState(() => _isDeleting = false);
     }
@@ -180,9 +158,9 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
 
     return Card(
       key: Key('manualRecordRow-${record.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(
           children: [
             Expanded(
@@ -193,20 +171,18 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
                   const SizedBox(height: 2),
                   Text(
                     '${formatWeight(record.weight, widget.unit)} ${unitSuffix(widget.unit)} × ${record.reps} 次',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                   if (hasNote)
                     Text(
                       record.note!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                 ],
               ),
@@ -216,28 +192,23 @@ class _ManualRecordRowState extends State<_ManualRecordRow> {
               children: [
                 Text(
                   '1RM',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 Text(
                   '${formatWeight(record.oneRepMax, widget.unit)} ${unitSuffix(widget.unit)}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ],
             ),
             IconButton(
               key: Key('deletePowerLiftRecordButton-${record.id}'),
               icon: _isDeleting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.delete_outline),
               onPressed: _isDeleting ? null : _confirmDelete,
             ),

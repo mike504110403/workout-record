@@ -3,12 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../data/models/power_lift_record.dart';
-
-const _liftLabels = {
-  PowerLift.squat: '深蹲',
-  PowerLift.benchPress: '槓鈴臥推',
-  PowerLift.deadlift: '硬舉',
-};
+import '../powerlifting_format.dart';
 
 class LiftPicker extends StatelessWidget {
   const LiftPicker({super.key, required this.selected, required this.onSelected});
@@ -21,8 +16,7 @@ class LiftPicker extends StatelessWidget {
     return SegmentedButton<PowerLift>(
       key: const Key('liftPicker'),
       segments: [
-        for (final lift in PowerLift.values)
-          ButtonSegment(value: lift, label: Text(_liftLabels[lift]!)),
+        for (final lift in PowerLift.values) ButtonSegment(value: lift, label: Text(powerLiftLabel(lift))),
       ],
       selected: {selected},
       onSelectionChanged: (selection) => onSelected(selection.first),

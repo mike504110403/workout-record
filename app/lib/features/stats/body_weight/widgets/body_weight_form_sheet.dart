@@ -17,6 +17,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/body_weight.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_controller.dart';
@@ -147,9 +148,9 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEditing ? '更新失敗，請稍後再試' : '儲存失敗，請稍後再試')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_isEditing ? '更新失敗，請稍後再試' : '儲存失敗，請稍後再試')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -160,17 +161,17 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
     final unit = ref.watch(weightUnitProvider);
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppSpacing.lg,
+        right: AppSpacing.lg,
+        top: AppSpacing.lg,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_isEditing ? '編輯體重紀錄' : '記錄體重', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           TextField(
             key: const Key('bodyWeightFormWeightField'),
             controller: _weightController,
@@ -180,21 +181,21 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
             decoration: InputDecoration(labelText: '體重 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           OutlinedButton.icon(
             key: const Key('bodyWeightFormDateButton'),
             onPressed: _isSaving ? null : _pickDate,
             icon: const Icon(Icons.calendar_today, size: 18),
             label: Text(formatBodyWeightDateTime(_selectedDate)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             key: const Key('bodyWeightFormNoteField'),
             controller: _noteController,
             enabled: !_isSaving,
             decoration: const InputDecoration(labelText: '備註（選填）'),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             children: [
               // 對照 iOS `AddBodyWeightSheet` 工具列的「取消」按鈕——單純
@@ -206,7 +207,7 @@ class _BodyWeightFormSheetState extends ConsumerState<BodyWeightFormSheet> {
                   child: const Text('取消'),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 flex: 2,
                 child: FilledButton(

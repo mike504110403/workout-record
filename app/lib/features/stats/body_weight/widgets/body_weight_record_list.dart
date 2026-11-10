@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
+import '../../../../core/widgets/section_header.dart';
 import '../../../../data/models/body_weight.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_format.dart';
@@ -28,8 +30,7 @@ class BodyWeightRecordList extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('歷史記錄', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        const SectionHeader(title: '歷史記錄'),
         for (final entry in entriesDesc)
           _BodyWeightRow(
             entry: entry,
@@ -47,7 +48,9 @@ class BodyWeightRecordList extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         key: const Key('deleteBodyWeightDialog'),
         title: const Text('刪除這筆體重紀錄？'),
-        content: Text('${formatBodyWeightDateTime(entry.measuredAt)} · ${formatBodyWeightKg(entry.weight, unit)}'),
+        content: Text(
+          '${formatBodyWeightDateTime(entry.measuredAt)} · ${formatBodyWeightKg(entry.weight, unit)}',
+        ),
         actions: [
           TextButton(
             key: const Key('deleteBodyWeightCancelButton'),
@@ -57,10 +60,7 @@ class BodyWeightRecordList extends ConsumerWidget {
           TextButton(
             key: const Key('deleteBodyWeightConfirmButton'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(
-              '刪除',
-              style: TextStyle(color: Theme.of(dialogContext).colorScheme.error),
-            ),
+            child: Text('刪除', style: TextStyle(color: Theme.of(dialogContext).colorScheme.error)),
           ),
         ],
       ),
@@ -88,7 +88,7 @@ class _BodyWeightRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       key: Key('bodyWeightRow-${entry.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: ListTile(
         onTap: onEdit,
         title: Text(

@@ -13,6 +13,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/format/weight_format.dart' as weight_format;
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/metric_row.dart';
+import '../../../core/widgets/metric_tile.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../../data/models/workout.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../../workout/add_set_sheet.dart';
@@ -50,7 +55,7 @@ class WorkoutEditPage extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text('載入失敗，請稍後再試'),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.md),
                 FilledButton(
                   key: const Key('workoutEditRetryButton'),
                   onPressed: () =>
@@ -106,18 +111,20 @@ class _WorkoutEditBody extends ConsumerWidget {
           child: AbsorbPointer(
             absorbing: state.isSaving,
             child: ListView(
-              padding: const EdgeInsets.all(12),
+              padding: AppSpacing.pagePadding.copyWith(
+                top: AppSpacing.sm,
+                bottom: AppSpacing.lg,
+              ),
               children: [
                 _SummaryHeader(workout: workout),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 _NoteSection(workoutId: workoutId, note: workout.note),
-                const SizedBox(height: 16),
-                const Text('動作', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.lg),
+                const SectionHeader(title: '動作'),
                 if (workout.exercises.isEmpty)
                   const Padding(
                     key: Key('workoutEditEmptyExercisesHint'),
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
                     child: Text('這筆訓練目前沒有任何動作'),
                   ),
                 for (final exercise in workout.exercises)
@@ -127,7 +134,7 @@ class _WorkoutEditBody extends ConsumerWidget {
                     exercise: exercise,
                   ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                   child: OutlinedButton.icon(
                     key: const Key('workoutEditAddExerciseButton'),
                     onPressed: () => _addExercise(context, ref, workoutId),
@@ -165,55 +172,31 @@ class _SummaryHeader extends ConsumerWidget {
     final totalSets = workout.totalSets;
     final totalExercises = workout.totalExercises;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _StatColumn(
+    return AppCard(
+      child: MetricRow(
+        tiles: [
+          MetricTile(
+            key: const Key('workoutEditTotalVolumeValue'),
             label: '總容量',
-            value: weight_format.formatWeight(totalVolume, unit, decimals: 0),
-            valueKey: const Key('workoutEditTotalVolumeValue'),
+            value: weight_format.formatWeightValue(
+              totalVolume,
+              unit,
+              decimals: 0,
+            ),
+            unit: unitSuffix(unit),
           ),
-          _StatColumn(
+          MetricTile(
+            key: const Key('workoutEditTotalSetsValue'),
             label: '總組數',
             value: '$totalSets',
-            valueKey: const Key('workoutEditTotalSetsValue'),
           ),
-          _StatColumn(
+          MetricTile(
+            key: const Key('workoutEditExerciseCountValue'),
             label: '動作數',
             value: '$totalExercises',
-            valueKey: const Key('workoutEditExerciseCountValue'),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _StatColumn extends StatelessWidget {
-  const _StatColumn({
-    required this.label,
-    required this.value,
-    required this.valueKey,
-  });
-
-  final String label;
-  final String value;
-  final Key valueKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      key: valueKey,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        Text(value, style: Theme.of(context).textTheme.titleMedium),
-      ],
     );
   }
 }
@@ -278,8 +261,7 @@ class _NoteSectionState extends ConsumerState<_NoteSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('備註', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
+        const SectionHeader(title: '備註'),
         TextField(
           key: const Key('workoutEditNoteField'),
           controller: _controller,
@@ -463,11 +445,11 @@ class _ExerciseEditCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Card(
-      key: Key('workoutEditExerciseCard_${exercise.id}'),
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+      child: AppCard(
+        key: Key('workoutEditExerciseCard_${exercise.id}'),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

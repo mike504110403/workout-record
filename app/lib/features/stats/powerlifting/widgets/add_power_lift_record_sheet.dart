@@ -3,6 +3,7 @@
 // 寫入與畫面刷新在彈窗還開著時就 await 完成、成功才 pop——理由與
 // `features/dashboard/widgets/add_body_weight_sheet.dart` 相同(避免
 // pumpAndSettle 跟 sheet 關閉轉場動畫的 Future resolve 時機打架)。
+import '../../../../core/theme/app_tokens.dart';
 import '../../../settings/preferences/one_rm_formula_preference.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -123,7 +124,7 @@ class _AddPowerLiftRecordSheetState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('新增紀錄', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           TextField(
             key: const Key('powerLiftWeightField'),
             controller: _weightController,
@@ -133,7 +134,7 @@ class _AddPowerLiftRecordSheetState
             decoration: InputDecoration(labelText: '重量 (${unitSuffix(unit)})'),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             key: const Key('powerLiftRepsField'),
             controller: _repsController,
@@ -142,7 +143,7 @@ class _AddPowerLiftRecordSheetState
             decoration: const InputDecoration(labelText: '次數'),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           ListTile(
             key: const Key('powerLiftDatePickerTile'),
             contentPadding: EdgeInsets.zero,
@@ -150,7 +151,7 @@ class _AddPowerLiftRecordSheetState
             trailing: Text('${_date.year}/${_date.month}/${_date.day}'),
             onTap: _isSaving ? null : _pickDate,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             key: const Key('powerLiftNoteField'),
             controller: _noteController,
@@ -159,7 +160,7 @@ class _AddPowerLiftRecordSheetState
             maxLines: 2,
           ),
           if (preview != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Text(
               '推估 1RM：${preview.toStringAsFixed(1)} ${unitSuffix(unit)}',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -168,7 +169,7 @@ class _AddPowerLiftRecordSheetState
               ),
             ),
           ],
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           SizedBox(
             width: double.infinity,
             child: FilledButton(

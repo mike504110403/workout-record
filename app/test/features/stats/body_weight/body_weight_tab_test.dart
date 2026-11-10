@@ -119,8 +119,8 @@ class _FlakyBodyWeightRepository extends DriftBodyWeightRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : bodyWeightRepo = DriftBodyWeightRepository(db),
-        userGoalRepo = DriftUserGoalRepository(db);
+    : bodyWeightRepo = DriftBodyWeightRepository(db),
+      userGoalRepo = DriftUserGoalRepository(db);
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -216,12 +216,7 @@ Future<void> _pump(WidgetTester tester, _Harness harness) async {
   await tester.pumpAndSettle();
 }
 
-BodyWeight _entry({
-  required String id,
-  required double weight,
-  required DateTime measuredAt,
-  String? note,
-}) {
+BodyWeight _entry({required String id, required double weight, required DateTime measuredAt, String? note}) {
   final now = DateTime.now();
   return BodyWeight(
     id: id,
@@ -368,7 +363,11 @@ void main() {
       final now = DateTime.now();
       for (var i = 0; i < 7; i++) {
         await harness.bodyWeightRepo.create(
-          _entry(id: 'daily-$i', weight: 70.0 + i, measuredAt: now.subtract(Duration(days: 6 - i))),
+          _entry(
+            id: 'daily-$i',
+            weight: 70.0 + i,
+            measuredAt: now.subtract(Duration(days: 6 - i)),
+          ),
         );
       }
 
@@ -395,8 +394,43 @@ void main() {
     });
   });
 
+  group('趨勢圖資料不足', () {
+    testWidgets('只有 1 筆紀錄:不畫圖(無孤點),改顯示「再記錄一筆就能看到趨勢」,統計與列表照常', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.bodyWeightRepo.create(
+        _entry(id: 'bw-only', weight: 75.0, measuredAt: DateTime.now().subtract(const Duration(minutes: 2))),
+      );
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('bodyWeightChart')), findsNothing);
+      expect(find.byType(LineChart), findsNothing);
+      expect(find.byKey(const Key('bodyWeightChartNeedMoreData')), findsOneWidget);
+      expect(find.text('再記錄一筆就能看到趨勢'), findsOneWidget);
+      // 其餘區塊不受影響。
+      expect(find.byKey(const Key('bodyWeightStatsGrid')), findsOneWidget);
+      expect(find.byKey(const Key('bodyWeightRow-bw-only')), findsOneWidget);
+    });
+
+    testWidgets('2 筆紀錄:開始畫圖', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(
+        _entry(id: 'bw-a', weight: 75.0, measuredAt: now.subtract(const Duration(minutes: 2))),
+      );
+      await harness.bodyWeightRepo.create(
+        _entry(id: 'bw-b', weight: 76.0, measuredAt: now.subtract(const Duration(days: 3))),
+      );
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('bodyWeightChartNeedMoreData')), findsNothing);
+      expect(_findLineChart(tester).data.lineBarsData.single.spots.length, 2);
+    });
+  });
+
   group('統計資訊卡', () {
-    testWidgets('當前/目標/平均/最高/最低/變化幅度依手算參照值顯示', (tester) async {
+    testWidgets('當前/距目標/30 天變化三格依手算參照值顯示(平均/最高/最低/目標卡已移除)', (tester) async {
       final harness = await _setUpHarness();
       await _seedThreeEntries(harness);
       final now = DateTime.now();
@@ -406,8 +440,8 @@ void main() {
 
       await _pump(tester, harness);
 
-      // 手算:current=78.0(最新), average=(78+76+74)/3=76.0, max=78.0,
-      // min=74.0, change=78.0-76.0=2.0(最新減次新,不是 max-min=4.0)。
+      // 手算:current=78.0(最新);距目標=78.0-70.0=+8.0;30 天變化=最新 78.0 減
+      // 30 天窗口內最早一筆(10 天前的 74.0)=+4.0(不是減次新一筆 76.0 的 +2.0)。
       expect(
         find.descendant(
           of: find.byKey(const Key('bodyWeightStatCard-current')),
@@ -417,49 +451,61 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-target')),
-          matching: find.text('70.0 kg'),
+          of: find.byKey(const Key('bodyWeightStatCard-toTarget')),
+          matching: find.text('+8.0 kg'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-average')),
-          matching: find.text('76.0 kg'),
+          of: find.byKey(const Key('bodyWeightStatCard-change30d')),
+          matching: find.text('+4.0 kg'),
         ),
         findsOneWidget,
       );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-max')),
-          matching: find.text('78.0 kg'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-min')),
-          matching: find.text('74.0 kg'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-change')),
-          matching: find.text('+2.0 kg'),
-        ),
-        findsOneWidget,
-      );
+      // 標籤。
+      expect(find.text('當前'), findsOneWidget);
+      expect(find.text('距目標'), findsOneWidget);
+      expect(find.text('30 天變化'), findsOneWidget);
+      // 只剩三格:舊的目標/平均/最高/最低/變化格不再渲染。
+      for (final key in ['target', 'average', 'max', 'min', 'change']) {
+        expect(find.byKey(Key('bodyWeightStatCard-$key')), findsNothing, reason: 'removed stat: $key');
+      }
     });
 
-    testWidgets('未設定目標體重時,目標卡顯示佔位符「—」', (tester) async {
+    testWidgets('未設定目標體重時,距目標格顯示佔位符「—」', (tester) async {
       final harness = await _setUpHarness();
       await _seedThreeEntries(harness);
 
       await _pump(tester, harness);
 
       expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-target')), matching: find.text('—')),
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-toTarget')), matching: find.text('—')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('30 天窗口外的舊紀錄不納入 30 天變化;窗口內只有最新一筆時顯示「—」', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(
+        _entry(id: 'bw-new', weight: 80.0, measuredAt: now.subtract(const Duration(minutes: 2))),
+      );
+      await harness.bodyWeightRepo.create(
+        _entry(id: 'bw-old', weight: 90.0, measuredAt: now.subtract(const Duration(days: 45))),
+      );
+
+      await _pump(tester, harness);
+
+      expect(
+        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-change30d')), matching: find.text('—')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-current')),
+          matching: find.text('80.0 kg'),
+        ),
         findsOneWidget,
       );
     });
@@ -470,7 +516,7 @@ void main() {
     // 測試視窗設成 390×844 邏輯像素(devicePixelRatio 設 1.0,physicalSize
     // 就等於邏輯尺寸,不用另外換算),斷言沒有任何例外被拋出、且六張卡的
     // 文字都還完整可見——變異(把 childAspectRatio 改回 1.6)必紅。
-    testWidgets('390×844 手機寬度:統計卡六格無 overflow,文字皆可見(review 打回必修)', (tester) async {
+    testWidgets('390×844 手機寬度:統計卡三格無 overflow,文字皆可見(review 打回必修)', (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -493,8 +539,8 @@ void main() {
       // 數字」的產品級缺陷,test 模式的例外正是偵測它的訊號。
       expect(tester.takeException(), isNull);
 
-      // 六張卡都渲染出來,文字內容(標籤+數值)完整可見,不是被裁到消失。
-      for (final key in ['current', 'target', 'average', 'max', 'min', 'change']) {
+      // 三格都渲染出來,文字內容(標籤+數值)完整可見,不是被裁到消失。
+      for (final key in ['current', 'toTarget', 'change30d']) {
         expect(find.byKey(Key('bodyWeightStatCard-$key')), findsOneWidget, reason: 'stat card: $key');
       }
       expect(
@@ -506,15 +552,15 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-target')),
-          matching: find.text('70.0 kg'),
+          of: find.byKey(const Key('bodyWeightStatCard-toTarget')),
+          matching: find.text('+8.0 kg'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-change')),
-          matching: find.text('+2.0 kg'),
+          of: find.byKey(const Key('bodyWeightStatCard-change30d')),
+          matching: find.text('+4.0 kg'),
         ),
         findsOneWidget,
       );
@@ -699,7 +745,12 @@ void main() {
       final harness = await _setUpHarness();
       await _seedThreeEntries(harness);
       await harness.bodyWeightRepo.create(
-        _entry(id: 'bw-noted', weight: 73.0, measuredAt: DateTime.now().subtract(const Duration(days: 3)), note: '早上空腹量測'),
+        _entry(
+          id: 'bw-noted',
+          weight: 73.0,
+          measuredAt: DateTime.now().subtract(const Duration(days: 3)),
+          note: '早上空腹量測',
+        ),
       );
       await _pump(tester, harness);
 
@@ -742,13 +793,7 @@ void main() {
       await tester.tap(find.byKey(const Key('editBodyWeightButton-bw-noted')));
       await tester.pumpAndSettle();
 
-      await _pickCustomDateTime(
-        tester,
-        mmddyyyy: '03/15/2024',
-        hour12: '09',
-        minute: '05',
-        isAm: true,
-      );
+      await _pickCustomDateTime(tester, mmddyyyy: '03/15/2024', hour12: '09', minute: '05', isAm: true);
 
       await tester.tap(find.byKey(const Key('bodyWeightFormSaveButton')));
       await tester.pumpAndSettle();
@@ -914,7 +959,7 @@ void main() {
   // 消費點。變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言必紅(不是
   // 拿手抄的 2.20462 係數比對,期望值一律用 kgToDisplay/displayToKg 現算)。
   group('重量單位(lb 模式)', () {
-    testWidgets('統計卡六格換算成 lb 顯示,字尾正確', (tester) async {
+    testWidgets('統計卡三格換算成 lb 顯示,字尾正確', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
       await _seedThreeEntries(harness);
       final now = DateTime.now();
@@ -924,33 +969,27 @@ void main() {
 
       await _pump(tester, harness);
 
-      // 手算(kg):current=78.0, target=70.0, average=76.0, max=78.0,
-      // min=74.0, change=+2.0——換算期望值一律用 kgToDisplay 現算。
+      // 手算(kg):current=78.0, 距目標=+8.0, 30 天變化=+4.0——換算期望值一律用
+      // kgToDisplay 現算。
       String lb(double kg) => '${kgToDisplay(kg, WeightUnit.lb).toStringAsFixed(1)} lb';
       expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-current')), matching: find.text(lb(78.0))),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-target')), matching: find.text(lb(70.0))),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-average')), matching: find.text(lb(76.0))),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-max')), matching: find.text(lb(78.0))),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: find.byKey(const Key('bodyWeightStatCard-min')), matching: find.text(lb(74.0))),
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-current')),
+          matching: find.text(lb(78.0)),
+        ),
         findsOneWidget,
       );
       expect(
         find.descendant(
-          of: find.byKey(const Key('bodyWeightStatCard-change')),
-          matching: find.text('+${lb(2.0)}'),
+          of: find.byKey(const Key('bodyWeightStatCard-toTarget')),
+          matching: find.text('+${lb(8.0)}'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightStatCard-change30d')),
+          matching: find.text('+${lb(4.0)}'),
         ),
         findsOneWidget,
       );
@@ -973,7 +1012,10 @@ void main() {
       expect(spots.length, 3);
       expect(spots.first.y, closeTo(kgToDisplay(74.0, WeightUnit.lb), 0.001));
       expect(spots.last.y, closeTo(kgToDisplay(78.0, WeightUnit.lb), 0.001));
-      expect(chart.data.extraLinesData.horizontalLines.single.y, closeTo(kgToDisplay(70.0, WeightUnit.lb), 0.001));
+      expect(
+        chart.data.extraLinesData.horizontalLines.single.y,
+        closeTo(kgToDisplay(70.0, WeightUnit.lb), 0.001),
+      );
 
       // 資料層(DB)不受顯示層換算影響——恆 kg。
       final all = await harness.bodyWeightRepo.fetchAll();
@@ -1030,8 +1072,9 @@ void main() {
 
       final weightField = tester.widget<TextField>(find.byKey(const Key('bodyWeightFormWeightField')));
       final expectedLb = kgToDisplay(76.0, WeightUnit.lb);
-      final expectedText =
-          expectedLb == expectedLb.roundToDouble() ? expectedLb.toStringAsFixed(0) : expectedLb.toString();
+      final expectedText = expectedLb == expectedLb.roundToDouble()
+          ? expectedLb.toStringAsFixed(0)
+          : expectedLb.toString();
       expect(weightField.controller?.text, expectedText);
     });
   });

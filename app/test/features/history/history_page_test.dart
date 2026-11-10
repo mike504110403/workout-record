@@ -25,6 +25,7 @@ import 'package:workout_record/data/repositories/workout_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/history/history_format.dart';
+import 'package:workout_record/features/history/history_week_grouping.dart';
 import 'package:workout_record/features/history/edit/workout_edit_page.dart';
 import 'package:workout_record/features/history/history_page.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
@@ -152,8 +153,7 @@ Future<_HistoryHarness> _setUpHarness({
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appDatabaseProvider.overrideWithValue(db),
-      if (workoutRepoBuilder != null)
-        workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
+      if (workoutRepoBuilder != null) workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
       if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
     ],
   );
@@ -182,21 +182,11 @@ void main() {
       final harness = await _setUpHarness();
       final now = DateTime.now();
       await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'oldest',
-          startedAt: now.subtract(const Duration(days: 4)),
-          totalVolume: 100,
-        ),
+        _buildWorkout(id: 'oldest', startedAt: now.subtract(const Duration(days: 4)), totalVolume: 100),
       );
+      await harness.workoutRepo.create(_buildWorkout(id: 'newest', startedAt: now, totalVolume: 300));
       await harness.workoutRepo.create(
-        _buildWorkout(id: 'newest', startedAt: now, totalVolume: 300),
-      );
-      await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'middle',
-          startedAt: now.subtract(const Duration(days: 2)),
-          totalVolume: 200,
-        ),
+        _buildWorkout(id: 'middle', startedAt: now.subtract(const Duration(days: 2)), totalVolume: 200),
       );
 
       await _pumpHistory(tester, harness);
@@ -217,16 +207,10 @@ void main() {
     testWidgets('草稿(endedAt 為 null)不出現在列表,只有已完成訓練出現', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
-      await harness.workoutRepo.create(
-        _buildWorkout(id: 'completed-1', startedAt: now, totalVolume: 500),
-      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'completed-1', startedAt: now, totalVolume: 500));
       // 草稿:endedAt 明確傳 null,不吃預設值(fixture 必須兩種形狀都有)。
       await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'draft-1',
-          startedAt: now.subtract(const Duration(hours: 1)),
-          isDraft: true,
-        ),
+        _buildWorkout(id: 'draft-1', startedAt: now.subtract(const Duration(hours: 1)), isDraft: true),
       );
 
       await _pumpHistory(tester, harness);
@@ -244,6 +228,92 @@ void main() {
       expect(find.byKey(const Key('historyEmptyState')), findsOneWidget);
       expect(find.text('尚無訓練記錄'), findsOneWidget);
     });
+
+    testWidgets('按週分組:本週/上週/M/D – M/D 標題,各筆歸在對應標題之下,卡片顯示星期幾', (tester) async {
+      final harness = await _setUpHarness();
+      final thisWeek = startOfIsoWeek(DateTime.now());
+      // 本週週一、上週三、兩週前的週五(標題為日期區間)。
+      final thisWeekDay = DateTime(thisWeek.year, thisWeek.month, thisWeek.day, 9);
+      final lastWeekDay = DateTime(thisWeek.year, thisWeek.month, thisWeek.day - 5, 9);
+      final olderDay = DateTime(thisWeek.year, thisWeek.month, thisWeek.day - 10, 9);
+      final olderStart = startOfIsoWeek(olderDay);
+      final olderEnd = DateTime(olderStart.year, olderStart.month, olderStart.day + 6);
+      final olderLabel = '${olderStart.month}/${olderStart.day} – ${olderEnd.month}/${olderEnd.day}';
+
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-this', startedAt: thisWeekDay));
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-last', startedAt: lastWeekDay));
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-older', startedAt: olderDay));
+
+      await _pumpHistory(tester, harness);
+
+      expect(find.text('本週'), findsOneWidget);
+      expect(find.text('上週'), findsOneWidget);
+      expect(find.text(olderLabel), findsOneWidget);
+
+      // 垂直順序:標題 → 該週卡片 → 下一個標題 → ...
+      double y(Finder f) => tester.getCenter(f).dy;
+      final thisHeader = y(find.text('本週'));
+      final lastHeader = y(find.text('上週'));
+      final olderHeader = y(find.text(olderLabel));
+      final thisCard = y(find.byKey(const Key('historyWorkoutCard-w-this')));
+      final lastCard = y(find.byKey(const Key('historyWorkoutCard-w-last')));
+      final olderCard = y(find.byKey(const Key('historyWorkoutCard-w-older')));
+      expect(thisHeader, lessThan(thisCard));
+      expect(thisCard, lessThan(lastHeader));
+      expect(lastHeader, lessThan(lastCard));
+      expect(lastCard, lessThan(olderHeader));
+      expect(olderHeader, lessThan(olderCard));
+
+      // 星期幾:上週三固定是「週三」。
+      expect(
+        find.descendant(of: find.byKey(const Key('historyWorkoutCard-w-last')), matching: find.text('週三')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('卡片顯示動作名摘要:最多兩個動作名,超出以 +N 收尾', (tester) async {
+      final harness = await _setUpHarness();
+      final exercises = await harness.exerciseRepo.fetchAll();
+      WorkoutExercise we(String id, String workoutId, int index) => _buildExercise(
+        id: id,
+        workoutId: workoutId,
+        exerciseId: exercises[index].id,
+        orderIndex: index,
+        sets: [_buildSet(id: '$id-s', workoutExerciseId: id, setNumber: 1, weight: 50, reps: 5)],
+      );
+      final now = DateTime.now();
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-three',
+          startedAt: now,
+          totalExercises: 3,
+          exercises: [we('we-a', 'w-three', 0), we('we-b', 'w-three', 1), we('we-c', 'w-three', 2)],
+        ),
+      );
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-one',
+          startedAt: now.subtract(const Duration(minutes: 5)),
+          totalExercises: 1,
+          exercises: [we('we-d', 'w-one', 3)],
+        ),
+      );
+
+      await _pumpHistory(tester, harness);
+
+      final names = [for (final e in exercises) e.name];
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('historyWorkoutCard-w-three')),
+          matching: find.text('${names[0]}、${names[1]} +1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(const Key('historyWorkoutCard-w-one')), matching: find.text(names[3])),
+        findsOneWidget,
+      );
+    });
   });
 
   group('刪除流程(列表滑動)', () {
@@ -253,10 +323,7 @@ void main() {
 
       await _pumpHistory(tester, harness);
 
-      await tester.drag(
-        find.byKey(const Key('historyWorkoutDismissible-w-1')),
-        const Offset(-500, 0),
-      );
+      await tester.drag(find.byKey(const Key('historyWorkoutDismissible-w-1')), const Offset(-500, 0));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('deleteWorkoutDialog')), findsOneWidget);
 
@@ -274,10 +341,7 @@ void main() {
 
       await _pumpHistory(tester, harness);
 
-      await tester.drag(
-        find.byKey(const Key('historyWorkoutDismissible-w-1')),
-        const Offset(-500, 0),
-      );
+      await tester.drag(find.byKey(const Key('historyWorkoutDismissible-w-1')), const Offset(-500, 0));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('deleteWorkoutConfirmButton')));
       await tester.pumpAndSettle();
@@ -299,10 +363,7 @@ void main() {
 
       await _pumpHistory(tester, harness);
 
-      await tester.drag(
-        find.byKey(const Key('historyWorkoutDismissible-w-1')),
-        const Offset(-500, 0),
-      );
+      await tester.drag(find.byKey(const Key('historyWorkoutDismissible-w-1')), const Offset(-500, 0));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('deleteWorkoutConfirmButton')));
       await tester.pumpAndSettle();
@@ -342,11 +403,7 @@ void main() {
       );
       // 草稿放在同月第 11 天。
       await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'draft-11',
-          startedAt: DateTime(now.year, now.month, 11, 9),
-          isDraft: true,
-        ),
+        _buildWorkout(id: 'draft-11', startedAt: DateTime(now.year, now.month, 11, 9), isDraft: true),
       );
 
       await _pumpHistory(tester, harness);
@@ -360,9 +417,7 @@ void main() {
       final harness = await _setUpHarness();
       final now = DateTime.now();
       final day = DateTime(now.year, now.month, 10, 9);
-      await harness.workoutRepo.create(
-        _buildWorkout(id: 'w-day10', startedAt: day, totalVolume: 777),
-      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-day10', startedAt: day, totalVolume: 777));
 
       await _pumpHistory(tester, harness);
       await _switchToCalendar(tester);
@@ -382,6 +437,57 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('workoutDetailSummaryCard')), findsOneWidget);
+    });
+  });
+
+  group('日曆星期列', () {
+    testWidgets('顯示日一二三四五六標題,且日期格落在對應星期欄(週日起算)', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      const labels = ['日', '一', '二', '三', '四', '五', '六'];
+      final headerXs = <double>[];
+      for (var i = 0; i < labels.length; i++) {
+        final header = find.byKey(Key('historyCalendarWeekday-$i'));
+        expect(header, findsOneWidget);
+        expect(tester.widget<Text>(header).data, labels[i]);
+        headerXs.add(tester.getCenter(header).dx);
+      }
+      // 由左到右嚴格遞增。
+      for (var i = 1; i < headerXs.length; i++) {
+        expect(headerXs[i], greaterThan(headerXs[i - 1]));
+      }
+
+      // 當月 1 號所在欄 = weekday % 7(週日=0),其水平中心要對齊該欄標題。
+      final now = DateTime.now();
+      final first = DateTime(now.year, now.month, 1);
+      final cell = find.byKey(Key('historyCalendarDay-${now.year}-${now.month}-1'));
+      expect(tester.getCenter(cell).dx, closeTo(headerXs[first.weekday % 7], 1.0));
+    });
+
+    testWidgets('有訓練的日期格有實心底色(與無訓練的日期格不同)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.workoutRepo.create(
+        _buildWorkout(id: 'w-day10', startedAt: DateTime(now.year, now.month, 10, 9)),
+      );
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      Color? backgroundOf(int day) {
+        final container = find.descendant(
+          of: find.byKey(Key('historyCalendarDay-${now.year}-${now.month}-$day')),
+          matching: find.byType(Container),
+        );
+        final decoration = tester.widget<Container>(container.first).decoration as BoxDecoration;
+        return decoration.color;
+      }
+
+      expect(backgroundOf(10), isNotNull);
+      // 12 號既沒訓練、也一定不是今天以外的特殊格(若今天剛好是 12 號,改比 13 號)。
+      final plainDay = now.day == 12 ? 13 : 12;
+      expect(backgroundOf(plainDay), isNull);
     });
   });
 
@@ -409,9 +515,7 @@ void main() {
           workoutId: 'w-detail',
           exerciseId: exerciseB.id,
           orderIndex: 1,
-          sets: [
-            _buildSet(id: 'set-3', workoutExerciseId: 'we-2', setNumber: 1, weight: 40, reps: 10),
-          ],
+          sets: [_buildSet(id: 'set-3', workoutExerciseId: 'we-2', setNumber: 1, weight: 40, reps: 10)],
         ),
       ];
       await harness.workoutRepo.create(
@@ -440,24 +544,15 @@ void main() {
       );
       expect(find.text(formatVolumeKg(1234, WeightUnit.kg)), findsWidgets);
       expect(
-        find.descendant(
-          of: find.byKey(const Key('workoutDetailDuration')),
-          matching: find.text('45 分鐘'),
-        ),
+        find.descendant(of: find.byKey(const Key('workoutDetailDuration')), matching: find.text('45 分鐘')),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: find.byKey(const Key('workoutDetailTotalSets')),
-          matching: find.text('7 組'),
-        ),
+        find.descendant(of: find.byKey(const Key('workoutDetailTotalSets')), matching: find.text('7 組')),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: find.byKey(const Key('workoutDetailTotalExercises')),
-          matching: find.text('2 個'),
-        ),
+        find.descendant(of: find.byKey(const Key('workoutDetailTotalExercises')), matching: find.text('2 個')),
         findsOneWidget,
       );
 
@@ -466,6 +561,52 @@ void main() {
       await tester.tap(find.byKey(const Key('workoutDetailEditButton')));
       await tester.pumpAndSettle();
       expect(find.byType(WorkoutEditPage), findsOneWidget);
+    });
+
+    testWidgets('容量分布卡:動作數 < 2 隱藏、>= 2 顯示', (tester) async {
+      final harness = await _setUpHarness();
+      final exercises = await harness.exerciseRepo.fetchAll();
+      WorkoutExercise we(String id, String workoutId, int index) => _buildExercise(
+        id: id,
+        workoutId: workoutId,
+        exerciseId: exercises[index].id,
+        orderIndex: index,
+        sets: [_buildSet(id: '$id-s', workoutExerciseId: id, setNumber: 1, weight: 50, reps: 5)],
+      );
+      final now = DateTime.now();
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-single',
+          startedAt: now,
+          totalExercises: 1,
+          exercises: [we('we-s1', 'w-single', 0)],
+        ),
+      );
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-double',
+          startedAt: now.subtract(const Duration(days: 1)),
+          totalExercises: 2,
+          exercises: [we('we-d1', 'w-double', 0), we('we-d2', 'w-double', 1)],
+        ),
+      );
+
+      await _pumpHistory(tester, harness);
+
+      await tester.tap(find.byKey(const Key('historyWorkoutCard-w-single')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('workoutDetailSummaryCard')), findsOneWidget);
+      expect(find.byKey(const Key('workoutDetailVolumeBreakdownCard')), findsNothing);
+      expect(find.text('容量分布'), findsNothing);
+      // 動作明細不受影響。
+      expect(find.byKey(const Key('workoutDetailExercise-we-s1')), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('historyWorkoutCard-w-double')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('workoutDetailVolumeBreakdownCard')), findsOneWidget);
+      expect(find.text('容量分布'), findsOneWidget);
     });
 
     testWidgets('編輯返回後詳情頁重讀:編輯頁改組重量 → 返回 → summary 顯示新值', (tester) async {
@@ -584,9 +725,7 @@ void main() {
       // 刪除按鈕的 loading 已解除、恢復可按——拔掉 catch 分支裡
       // `setState(() => _isDeleting = false);` 那行,這裡必紅(按鈕會一直
       // 卡在 disabled 的 loading 圖示)。
-      final deleteButton = tester.widget<IconButton>(
-        find.byKey(const Key('workoutDetailDeleteButton')),
-      );
+      final deleteButton = tester.widget<IconButton>(find.byKey(const Key('workoutDetailDeleteButton')));
       expect(deleteButton.onPressed, isNotNull);
 
       // 回到列表頁確認該筆仍在,DB 也真的沒被刪掉。
@@ -630,9 +769,7 @@ void main() {
               id: 'we-1',
               workoutId: 'w-detail-lb',
               exerciseId: exerciseId,
-              sets: [
-                _buildSet(id: 'set-1', workoutExerciseId: 'we-1', setNumber: 1, weight: 60, reps: 8),
-              ],
+              sets: [_buildSet(id: 'set-1', workoutExerciseId: 'we-1', setNumber: 1, weight: 60, reps: 8)],
             ),
           ],
         ),

@@ -55,9 +55,9 @@ class _ThrowingOnDeleteRepository extends DriftPowerLiftRecordRepository {
 
 class _Harness {
   _Harness(this.db, this.container)
-      : powerLiftRepo = DriftPowerLiftRecordRepository(db),
-        exerciseRepo = DriftExerciseRepository(db),
-        personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
+    : powerLiftRepo = DriftPowerLiftRecordRepository(db),
+      exerciseRepo = DriftExerciseRepository(db),
+      personalRecordRepo = DriftPersonalRecordRepository(db, DriftExerciseRepository(db));
 
   final AppDatabase db;
   final ProviderContainer container;
@@ -74,10 +74,7 @@ Future<_Harness> _setUpHarness({
   PowerLiftRecordRepository Function(AppDatabase db)? powerLiftRepoBuilder,
   WeightUnit? weightUnit,
 }) async {
-  SharedPreferences.setMockInitialValues({
-    kAppleUserIdKey: testUserId,
-    ...extraPrefs,
-  });
+  SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId, ...extraPrefs});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
   addTearDown(db.close);
@@ -102,9 +99,7 @@ Future<_Harness> _setUpHarness({
 /// 上不可互動的文字時,tap() 不會有任何效果、也不會報錯,是一個吃過虧的
 /// 陷阱寫法。
 Future<void> _selectLift(WidgetTester tester, String label) async {
-  await tester.tap(
-    find.descendant(of: find.byKey(const Key('liftPicker')), matching: find.text(label)),
-  );
+  await tester.tap(find.descendant(of: find.byKey(const Key('liftPicker')), matching: find.text(label)));
   await tester.pumpAndSettle();
 }
 
@@ -149,9 +144,7 @@ void main() {
   group('動作切換', () {
     testWidgets('切換動作分頁改變手動紀錄清單(不同動作各自的資料不互相污染)', (tester) async {
       final harness = await _setUpHarness();
-      await harness.powerLiftRepo.create(
-        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140),
-      );
+      await harness.powerLiftRepo.create(_manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140));
       await harness.powerLiftRepo.create(
         _manualRecord(id: 'bp-1', lift: PowerLift.benchPress, oneRepMax: 85),
       );
@@ -183,9 +176,7 @@ void main() {
       await harness.powerLiftRepo.create(
         _manualRecord(id: 'bp-1', lift: PowerLift.benchPress, oneRepMax: 80),
       );
-      await harness.powerLiftRepo.create(
-        _manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 180),
-      );
+      await harness.powerLiftRepo.create(_manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 180));
 
       await _pump(tester, harness);
 
@@ -202,9 +193,7 @@ void main() {
 
     testWidgets('沒有紀錄的動作顯示 "--"', (tester) async {
       final harness = await _setUpHarness();
-      await harness.powerLiftRepo.create(
-        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100),
-      );
+      await harness.powerLiftRepo.create(_manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100));
 
       await _pump(tester, harness);
 
@@ -220,8 +209,58 @@ void main() {
       await _pump(tester, harness);
 
       expect(find.byKey(const Key('powerliftingEmptyState')), findsOneWidget);
-      expect(find.text('尚無三項表記錄\n點擊右上角 + 開始記錄'), findsOneWidget);
+      expect(find.text('尚無三項表記錄'), findsOneWidget);
+      expect(find.text('點擊右上角「新增」開始記錄'), findsOneWidget);
       expect(find.byKey(const Key('oneRmTrendChart')), findsNothing);
+    });
+
+    testWidgets('三個動作都沒有手動紀錄:不顯示「0.0」總和大字,改顯示空狀態', (tester) async {
+      final harness = await _setUpHarness();
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('totalLiftEmptyState')), findsOneWidget);
+      expect(find.text('還沒有三項紀錄'), findsOneWidget);
+      expect(find.byKey(const Key('totalLiftValue')), findsNothing);
+      expect(find.text('0.0'), findsNothing);
+      expect(find.byKey(const Key('bestLiftColumn-squat')), findsNothing);
+    });
+
+    testWidgets('只有任一動作有紀錄就顯示總和與三項最佳成績(不顯示總和空狀態)', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.powerLiftRepo.create(_manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 150));
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('totalLiftEmptyState')), findsNothing);
+      expect(tester.widget<Text>(find.byKey(const Key('totalLiftValue'))).data, '150.0');
+    });
+
+    testWidgets('選取動作只有 1 筆紀錄:不畫孤點,顯示「再記錄一筆就能看到趨勢」,紀錄列仍在', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.powerLiftRepo.create(_manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140));
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('oneRmTrendChart')), findsNothing);
+      expect(find.byKey(const Key('powerliftingNeedMoreData')), findsOneWidget);
+      expect(find.text('再記錄一筆就能看到趨勢'), findsOneWidget);
+      expect(find.byKey(const Key('manualRecordRow-sq-1')), findsOneWidget);
+    });
+
+    testWidgets('選取動作有 2 筆紀錄:開始畫趨勢圖', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140, achievedAt: DateTime(2026, 1, 1)),
+      );
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'sq-2', lift: PowerLift.squat, oneRepMax: 145, achievedAt: DateTime(2026, 2, 1)),
+      );
+
+      await _pump(tester, harness);
+
+      expect(find.byKey(const Key('oneRmTrendChart')), findsOneWidget);
+      expect(find.byKey(const Key('powerliftingNeedMoreData')), findsNothing);
     });
   });
 
@@ -278,7 +317,16 @@ void main() {
       await _pump(tester, harness);
 
       expect(find.byKey(const Key('systemEstimateEmptyState')), findsOneWidget);
-      expect(find.text('尚無訓練數據\n開始訓練後系統會自動計算'), findsOneWidget);
+      // 空狀態文案明指目前選取的動作(預設深蹲),並隨動作切換。
+      expect(find.text('尚無深蹲的訓練紀錄'), findsOneWidget);
+      expect(find.text('開始訓練後系統會自動計算'), findsOneWidget);
+
+      await _selectLift(tester, '槓鈴臥推');
+      expect(find.text('尚無槓鈴臥推的訓練紀錄'), findsOneWidget);
+      expect(find.text('尚無深蹲的訓練紀錄'), findsNothing);
+
+      await _selectLift(tester, '硬舉');
+      expect(find.text('尚無硬舉的訓練紀錄'), findsOneWidget);
     });
   });
 
@@ -315,9 +363,7 @@ void main() {
     });
 
     testWidgets('新增失敗路徑:注入拋錯 repository,顯示錯誤 SnackBar,彈窗不關閉', (tester) async {
-      final harness = await _setUpHarness(
-        powerLiftRepoBuilder: (db) => _ThrowingOnCreateRepository(db),
-      );
+      final harness = await _setUpHarness(powerLiftRepoBuilder: (db) => _ThrowingOnCreateRepository(db));
 
       await _pump(tester, harness);
 
@@ -369,14 +415,12 @@ void main() {
     });
 
     testWidgets('刪除失敗路徑:注入拋錯 repository,顯示錯誤 SnackBar,紀錄仍在畫面上', (tester) async {
-      final harness = await _setUpHarness(
-        powerLiftRepoBuilder: (db) => _ThrowingOnDeleteRepository(db),
-      );
+      final harness = await _setUpHarness(powerLiftRepoBuilder: (db) => _ThrowingOnDeleteRepository(db));
       // 種子資料直接用真實 repository 寫入(harness.powerLiftRepo 是真實的,
       // 只有 provider 注入的那份是會拋錯的版本)。
-      await DriftPowerLiftRecordRepository(harness.db).create(
-        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100),
-      );
+      await DriftPowerLiftRecordRepository(
+        harness.db,
+      ).create(_manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100));
 
       await _pump(tester, harness);
 
@@ -417,15 +461,11 @@ void main() {
   group('重量單位(lb 模式)', () {
     testWidgets('三項總和卡與最佳成績卡換算成 lb 顯示,字尾正確', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
-      await harness.powerLiftRepo.create(
-        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140),
-      );
+      await harness.powerLiftRepo.create(_manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 140));
       await harness.powerLiftRepo.create(
         _manualRecord(id: 'bp-1', lift: PowerLift.benchPress, oneRepMax: 80),
       );
-      await harness.powerLiftRepo.create(
-        _manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 180),
-      );
+      await harness.powerLiftRepo.create(_manualRecord(id: 'dl-1', lift: PowerLift.deadlift, oneRepMax: 180));
 
       await _pump(tester, harness);
 
@@ -478,13 +518,17 @@ void main() {
 
     testWidgets('手動紀錄列 PR badge/單筆重量與 1RM 換算成 lb,趨勢圖顯示 y 值換算(資料層不變)', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
+      // 趨勢圖至少 2 筆才畫,所以種兩筆(舊 100、新 120);PR badge 取最高 1RM。
       await harness.powerLiftRepo.create(
-        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100),
+        _manualRecord(id: 'sq-1', lift: PowerLift.squat, oneRepMax: 100, achievedAt: DateTime(2026, 1, 1)),
+      );
+      await harness.powerLiftRepo.create(
+        _manualRecord(id: 'sq-2', lift: PowerLift.squat, oneRepMax: 120, achievedAt: DateTime(2026, 2, 1)),
       );
 
       await _pump(tester, harness);
 
-      final expectedPrBadge = 'PR: ${kgToDisplay(100, WeightUnit.lb).toStringAsFixed(1)} lb';
+      final expectedPrBadge = 'PR: ${kgToDisplay(120, WeightUnit.lb).toStringAsFixed(1)} lb';
       expect(
         find.descendant(of: find.byKey(const Key('manualPrBadge')), matching: find.text(expectedPrBadge)),
         findsOneWidget,
@@ -493,11 +537,13 @@ void main() {
       final chart = tester.widget<LineChart>(
         find.descendant(of: find.byKey(const Key('oneRmTrendChart')), matching: find.byType(LineChart)),
       );
-      expect(chart.data.lineBarsData.single.spots.single.y, closeTo(kgToDisplay(100, WeightUnit.lb), 0.001));
+      final spots = chart.data.lineBarsData.single.spots;
+      expect(spots[0].y, closeTo(kgToDisplay(100, WeightUnit.lb), 0.001));
+      expect(spots[1].y, closeTo(kgToDisplay(120, WeightUnit.lb), 0.001));
 
       // 資料層(DB)不受顯示層換算影響——恆 kg。
       final rows = await harness.powerLiftRepo.getAll(testUserId);
-      expect(rows.single.oneRepMax, 100);
+      expect(rows.map((r) => r.oneRepMax).toSet(), {100.0, 120.0});
     });
 
     testWidgets('輸入表單:label 顯示 lb,1RM 預覽帶 lb 字尾,輸入 220.5 lb 換算存成約 100kg', (tester) async {

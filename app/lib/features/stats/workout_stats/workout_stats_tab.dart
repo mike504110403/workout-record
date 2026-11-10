@@ -3,7 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/widgets/stat_card.dart';
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/metric_tile.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../../data/models/workout.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../pr/pr_list_controller.dart';
@@ -29,7 +34,7 @@ class WorkoutStatsTab extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('載入失敗，請稍後再試'),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             FilledButton(
               key: const Key('workoutStatsErrorRetryButton'),
               onPressed: () => ref.invalidate(workoutStatsControllerProvider),
@@ -58,7 +63,7 @@ class _WorkoutStatsContent extends ConsumerWidget {
       onRefresh: controller.refresh,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -70,23 +75,18 @@ class _WorkoutStatsContent extends ConsumerWidget {
               onTimeRangeChanged: controller.changeTimeRange,
               onMuscleGroupFilterChanged: controller.selectMuscleGroupFilter,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.xl),
             _PrEntryCard(
               onTap: () {
                 // PR 排行頁的 provider 非 autoDispose,push 前失效讓每次
                 // 進入都重新查詢(否則二次進入看到舊快照;WAVE4 merge 接線)。
                 ref.invalidate(prListControllerProvider);
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (context) => const PrListPage()),
-                );
+                Navigator.of(context).push(MaterialPageRoute<void>(builder: (context) => const PrListPage()));
               },
             ),
-            const SizedBox(height: 20),
-            _WeekStatsRow(
-              weekWorkoutCount: state.weekWorkoutCount,
-              weekTotalVolume: state.weekTotalVolume,
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.xl),
+            _WeekStatsRow(weekWorkoutCount: state.weekWorkoutCount, weekTotalVolume: state.weekTotalVolume),
+            const SizedBox(height: AppSpacing.xl),
             _RecentWorkoutsSection(recentWorkouts: state.recentWorkouts),
           ],
         ),
@@ -102,35 +102,18 @@ class _PrEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: const Key('prEntryCard'),
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              colors: [
-                Colors.orange.withValues(alpha: 0.1),
-                Colors.yellow.withValues(alpha: 0.1),
-              ],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.emoji_events, color: Colors.orange),
-              const SizedBox(width: 12),
-              Text('個人記錄 (PR)', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ],
-          ),
-        ),
+    final colors = Theme.of(context).colorScheme;
+    return AppCard(
+      key: const Key('prEntryCard'),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Icon(Icons.emoji_events, color: context.semanticColors.pr),
+          const SizedBox(width: AppSpacing.md),
+          Text('個人記錄 (PR)', style: Theme.of(context).textTheme.titleMedium),
+          const Spacer(),
+          Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+        ],
       ),
     );
   }
@@ -148,27 +131,24 @@ class _WeekStatsRow extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('本週統計', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        const SectionHeader(title: '本週統計'),
         Row(
           children: [
             Expanded(
-              child: StatCard(
+              child: AppCard(
                 key: const Key('statsWeekWorkoutCountCard'),
-                icon: Icons.fitness_center,
-                color: Colors.blue,
-                title: '訓練次數',
-                value: '$weekWorkoutCount',
+                child: MetricTile(value: '$weekWorkoutCount', label: '訓練次數'),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSpacing.md),
             Expanded(
-              child: StatCard(
+              child: AppCard(
                 key: const Key('statsWeekTotalVolumeCard'),
-                icon: Icons.bar_chart,
-                color: Colors.green,
-                title: '總容量',
-                value: formatVolumeBare(weekTotalVolume, unit),
+                // 數字不帶單位(沿用既有慣例),單位放進標籤。
+                child: MetricTile(
+                  value: formatVolumeBare(weekTotalVolume, unit),
+                  label: '總容量 (${unitSuffix(unit)})',
+                ),
               ),
             ),
           ],
@@ -188,34 +168,15 @@ class _RecentWorkoutsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('最近訓練', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        const SectionHeader(title: '最近訓練'),
         // 對齊 iOS `EmptyWorkoutStatsView`(圖示 + 「尚無訓練記錄」+ 「開始
-        // 你的第一次訓練吧！」兩行文案),r2 review 打回記錄:先前只有單行
-        // 文字、沒有圖示與第二行鼓勵文案。
+        // 你的第一次訓練吧！」兩行文案)。
         if (recentWorkouts.isEmpty)
-          Padding(
-            key: const Key('statsRecentWorkoutsEmpty'),
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.directions_walk,
-                    size: 40,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('尚無訓練記錄', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text(
-                    '開始你的第一次訓練吧！',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
+          const EmptyState(
+            key: Key('statsRecentWorkoutsEmpty'),
+            icon: Icons.directions_walk,
+            title: '尚無訓練記錄',
+            message: '開始你的第一次訓練吧！',
           )
         else
           for (final workout in recentWorkouts) _RecentWorkoutRow(workout: workout),
@@ -233,11 +194,10 @@ class _RecentWorkoutRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
     final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      key: Key('statsRecentWorkoutRow-${workout.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
+        key: Key('statsRecentWorkoutRow-${workout.id}'),
         child: Row(
           children: [
             Expanded(
@@ -246,16 +206,14 @@ class _RecentWorkoutRow extends ConsumerWidget {
                 children: [
                   Text(
                     formatWorkoutDateTime(workout.startedAt),
-                    style:
-                        Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     '${workout.totalExercises} 個動作 • ${workout.totalSets} 組',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: colorScheme.onSurfaceVariant),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -267,13 +225,10 @@ class _RecentWorkoutRow extends ConsumerWidget {
                   formatVolumeKg(workout.totalVolume, unit),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   '${workout.duration ?? 0} 分鐘',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: colorScheme.onSurfaceVariant),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
                 ),
               ],
             ),

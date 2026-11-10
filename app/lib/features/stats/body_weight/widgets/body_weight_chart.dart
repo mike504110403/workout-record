@@ -1,13 +1,16 @@
-// 體重趨勢圖。對照 iOS 版
+// 體重趨勢圖(顏色走主題:折線/面積＝主色,目標線＝語意色 success)。
+// 對照 iOS 版
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Charts/BodyWeightChartView.swift`：
-// 平滑曲線（isCurved，對齊 iOS `.interpolationMethod(.catmullRom)`）、藍色
-// 漸層面積（上藍下透明）、資料點標記、綠色虛線目標體重水平線（無目標不畫）。
+// 平滑曲線（isCurved，對齊 iOS `.interpolationMethod(.catmullRom)`）、主色
+// 漸層面積（上濃下透明）、資料點標記、虛線目標體重水平線（無目標不畫）。
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_semantic_colors.dart';
+import '../../../../core/theme/app_tokens.dart';
 import '../../../../data/models/body_weight.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_stats.dart';
@@ -16,11 +19,7 @@ import '../body_weight_stats.dart';
 const _oneDayMs = 24 * 60 * 60 * 1000;
 
 class BodyWeightChart extends ConsumerWidget {
-  const BodyWeightChart({
-    super.key,
-    required this.entriesDesc,
-    this.targetWeight,
-  });
+  const BodyWeightChart({super.key, required this.entriesDesc, this.targetWeight});
 
   /// 新到舊排序（沿用 `BodyWeightTabState.entriesDesc` 既有順序）——本
   /// widget 內部負責轉成升序再畫圖，呼叫端不需要事先反轉。
@@ -33,6 +32,9 @@ class BodyWeightChart extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
+    final lineColor = Theme.of(context).colorScheme.primary;
+    final targetColor = context.semanticColors.success;
+    final axisStyle = Theme.of(context).textTheme.labelSmall;
     // 畫圖前先轉成 measuredAt 由舊到新——`entriesDesc` 是新到舊（列表用的
     // 既有順序），若這裡漏掉這一步、直接拿原始順序畫圖，折線的左右方向會
     // 完全反過來（widget test 的「排序反轉必紅」變異案例就是在驗證這個
@@ -78,14 +80,14 @@ class BodyWeightChart extends ConsumerWidget {
       key: const Key('bodyWeightChart'),
       height: 220,
       child: Padding(
-        padding: const EdgeInsets.only(right: 16, top: 16),
+        padding: const EdgeInsets.only(right: AppSpacing.lg, top: AppSpacing.lg),
         child: LineChart(
           LineChartData(
             lineBarsData: [
               LineChartBarData(
                 spots: spots,
                 isCurved: true,
-                color: Colors.blue,
+                color: lineColor,
                 barWidth: 2.5,
                 dotData: const FlDotData(),
                 belowBarData: BarAreaData(
@@ -93,10 +95,7 @@ class BodyWeightChart extends ConsumerWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.blue.withValues(alpha: 0.3),
-                      Colors.blue.withValues(alpha: 0.0),
-                    ],
+                    colors: [lineColor.withValues(alpha: 0.3), lineColor.withValues(alpha: 0.0)],
                   ),
                 ),
               ),
@@ -109,13 +108,13 @@ class BodyWeightChart extends ConsumerWidget {
                 if (target != null)
                   HorizontalLine(
                     y: target,
-                    color: Colors.green,
+                    color: targetColor,
                     strokeWidth: 2,
                     dashArray: const [6, 4],
                     label: HorizontalLineLabel(
                       show: true,
                       alignment: Alignment.topRight,
-                      style: const TextStyle(color: Colors.green, fontSize: 11),
+                      style: TextStyle(color: targetColor, fontSize: 11),
                       labelResolver: (line) => '目標 ${line.y.toStringAsFixed(1)} ${unitSuffix(unit)}',
                     ),
                   ),
@@ -135,21 +134,22 @@ class BodyWeightChart extends ConsumerWidget {
                     final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
                     final last = lastShownDate;
                     final isSameDayAsLastShown =
-                        last != null && last.year == date.year && last.month == date.month && last.day == date.day;
+                        last != null &&
+                        last.year == date.year &&
+                        last.month == date.month &&
+                        last.day == date.day;
                     if (isSameDayAsLastShown) {
                       return const SizedBox.shrink();
                     }
                     lastShownDate = date;
                     return Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text('${date.month}/${date.day}', style: const TextStyle(fontSize: 10)),
+                      padding: const EdgeInsets.only(top: AppSpacing.sm),
+                      child: Text('${date.month}/${date.day}', style: axisStyle),
                     );
                   },
                 ),
               ),
-              leftTitles: const AxisTitles(
-                sideTitles: SideTitles(showTitles: true, reservedSize: 40),
-              ),
+              leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
             ),
             gridData: const FlGridData(drawVerticalLine: false),
             borderData: FlBorderData(show: false),

@@ -3,12 +3,12 @@
 // 文案。比照 dashboard_page_test.dart 的慣例(不測 controller 內部欄位)。
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:workout_record/data/db/app_database.dart'
-    hide Workout, WorkoutExercise, WorkoutSet, Exercise;
+import 'package:workout_record/data/db/app_database.dart' hide Workout, WorkoutExercise, WorkoutSet, Exercise;
 import 'package:workout_record/data/models/exercise.dart';
 import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/data/providers.dart';
@@ -147,10 +147,7 @@ class _Harness {
   final WorkoutRepository workoutRepo;
 }
 
-Future<_Harness> _setUpHarness({
-  bool useThrowingWorkoutRepo = false,
-  WeightUnit? weightUnit,
-}) async {
+Future<_Harness> _setUpHarness({bool useThrowingWorkoutRepo = false, WeightUnit? weightUnit}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final db = openTestDatabase();
@@ -183,6 +180,36 @@ Future<void> _pump(WidgetTester tester, _Harness harness) async {
   await tester.pumpAndSettle();
 }
 
+/// 肌群篩選是標題列右側的下拉選單(MenuAnchor):先點按鈕展開,再點選項。
+Future<void> _selectMuscleGroup(WidgetTester tester, String filterName) async {
+  await tester.tap(find.byKey(const Key('muscleGroupFilterButton')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('muscleGroupMenuItem-$filterName')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _seedChestWorkouts(_Harness harness, int count) async {
+  final chest = _chestExercise();
+  await harness.exerciseRepo.create(chest);
+  for (var i = 0; i < count; i++) {
+    await harness.workoutRepo.create(
+      _buildWorkout(
+        id: 'trend-$i',
+        startedAt: DateTime.now().subtract(Duration(days: i)),
+        totalVolume: 100,
+        exercises: [
+          _workoutExercise(
+            id: 'we-trend-$i',
+            workoutId: 'trend-$i',
+            exercise: chest,
+            sets: const [(weight: 50, reps: 2, isWarmup: false)],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 void main() {
   group('空狀態', () {
     testWidgets('沒有任何訓練時,圖表顯示空狀態文案、本週統計為 0、最近訓練顯示空狀態', (tester) async {
@@ -194,13 +221,76 @@ void main() {
       expect(find.text('尚無訓練數據'), findsOneWidget);
       expect(find.text('完成訓練後這裡會顯示容量趨勢'), findsOneWidget);
       expect(
-        find.descendant(
-          of: find.byKey(const Key('statsWeekWorkoutCountCard')),
-          matching: find.text('0'),
-        ),
+        find.descendant(of: find.byKey(const Key('statsWeekWorkoutCountCard')), matching: find.text('0')),
         findsOneWidget,
       );
       expect(find.byKey(const Key('statsRecentWorkoutsEmpty')), findsOneWidget);
+    });
+  });
+
+  group('趨勢圖資料不足', () {
+    testWidgets('只有 1 個資料點:不畫折線圖,顯示「再記錄一筆就能看到趨勢」;統計摘要照常', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedChestWorkouts(harness, 1);
+
+      await _pump(tester, harness);
+
+      expect(find.byType(LineChart), findsNothing);
+      expect(find.byKey(const Key('volumeChartNeedMoreData')), findsOneWidget);
+      expect(find.text('再記錄一筆就能看到趨勢'), findsOneWidget);
+      expect(find.byKey(const Key('volumeChartEmptyState')), findsNothing);
+      expect(
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('2 個資料點:開始畫折線圖', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedChestWorkouts(harness, 2);
+
+      await _pump(tester, harness);
+
+      expect(find.byType(LineChart), findsOneWidget);
+      expect(find.byKey(const Key('volumeChartNeedMoreData')), findsNothing);
+    });
+
+    testWidgets('肌群篩選後可畫的點 < 2:改顯示空狀態(以篩選後點數為準);沒練到該肌群顯示專屬文案', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedChestWorkouts(harness, 3); // 3 天都只練胸
+
+      await _pump(tester, harness);
+      expect(find.byType(LineChart), findsOneWidget);
+
+      // 切到腿部:3 天都沒練腿 → 篩選後 0 點。
+      await _selectMuscleGroup(tester, 'legs');
+      expect(find.byType(LineChart), findsNothing);
+      expect(find.byKey(const Key('volumeChartNoMuscleData')), findsOneWidget);
+      expect(find.text('這段期間沒有腿部的紀錄'), findsOneWidget);
+
+      // 切回胸部:3 點,恢復畫圖。
+      await _selectMuscleGroup(tester, 'chest');
+      expect(find.byType(LineChart), findsOneWidget);
+    });
+  });
+
+  group('肌群下拉', () {
+    testWidgets('肌群以下拉選單呈現(不再是 chip 列),按鈕顯示目前選取;選項包含全部七種', (tester) async {
+      final harness = await _setUpHarness();
+      await _pump(tester, harness);
+
+      expect(find.byType(FilterChip), findsNothing);
+      expect(tester.widget<Text>(find.byKey(const Key('muscleGroupFilterLabel'))).data, '總容量');
+
+      await tester.tap(find.byKey(const Key('muscleGroupFilterButton')));
+      await tester.pumpAndSettle();
+      for (final filter in ['all', 'chest', 'back', 'legs', 'shoulders', 'arms', 'core']) {
+        expect(find.byKey(Key('muscleGroupMenuItem-$filter')), findsOneWidget, reason: filter);
+      }
+
+      await tester.tap(find.byKey(const Key('muscleGroupMenuItem-shoulders')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('muscleGroupFilterLabel'))).data, '肩部');
     });
   });
 
@@ -251,10 +341,7 @@ void main() {
 
       // 預設「月」範圍:5 筆全部落在 30 天內。
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatCount')),
-          matching: find.text('5'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('5')),
         findsOneWidget,
       );
 
@@ -263,10 +350,7 @@ void main() {
 
       // 切到「週」:只剩最近 7 天內的 3 筆。
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatCount')),
-          matching: find.text('3'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('3')),
         findsOneWidget,
       );
     });
@@ -308,44 +392,28 @@ void main() {
 
       // all 模式:平均/最高 = 800,數據點 = 1。
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatAverage')),
-          matching: find.text('800 kg'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatAverage')), matching: find.text('800 kg')),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatCount')),
-          matching: find.text('1'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('1')),
         findsOneWidget,
       );
 
-      await tester.tap(find.byKey(const Key('muscleGroupChip-chest')));
-      await tester.pumpAndSettle();
+      await _selectMuscleGroup(tester, 'chest');
 
       // 篩選胸部後:平均/最高改成只算胸部的 500,不是總容量 800。
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatAverage')),
-          matching: find.text('500 kg'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatAverage')), matching: find.text('500 kg')),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatHighest')),
-          matching: find.text('500 kg'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatHighest')), matching: find.text('500 kg')),
         findsOneWidget,
       );
       // 數據點數不受篩選影響,維持 1(對齊 iOS:固定顯示總天數)。
       expect(
-        find.descendant(
-          of: find.byKey(const Key('volumeStatCount')),
-          matching: find.text('1'),
-        ),
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('1')),
         findsOneWidget,
       );
     });
@@ -356,16 +424,10 @@ void main() {
       final harness = await _setUpHarness();
       final now = DateTime.now();
 
-      await harness.workoutRepo.create(
-        _buildWorkout(id: 'in-week', startedAt: now, totalVolume: 100),
-      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'in-week', startedAt: now, totalVolume: 100));
       // 週外:10 天前,任何合理的一週定義都會落在上週之外。
       await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'out-of-week',
-          startedAt: now.subtract(const Duration(days: 10)),
-          totalVolume: 999,
-        ),
+        _buildWorkout(id: 'out-of-week', startedAt: now.subtract(const Duration(days: 10)), totalVolume: 999),
       );
       // 草稿:endedAt 為 null(進行中,未完成)——變異:草稿混入必紅。
       await harness.workoutRepo.create(
@@ -383,27 +445,12 @@ void main() {
 
       final countCard = find.byKey(const Key('statsWeekWorkoutCountCard'));
       final volumeCard = find.byKey(const Key('statsWeekTotalVolumeCard'));
-      expect(
-        find.descendant(of: countCard, matching: find.text('1')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: volumeCard, matching: find.text('100')),
-        findsOneWidget,
-      );
+      expect(find.descendant(of: countCard, matching: find.text('1')), findsOneWidget);
+      expect(find.descendant(of: volumeCard, matching: find.text('100')), findsOneWidget);
       // 反向斷言:週外/草稿的數字不該出現在本週統計卡片裡。
-      expect(
-        find.descendant(of: volumeCard, matching: find.text('999')),
-        findsNothing,
-      );
-      expect(
-        find.descendant(of: volumeCard, matching: find.text('777')),
-        findsNothing,
-      );
-      expect(
-        find.descendant(of: countCard, matching: find.text('3')),
-        findsNothing,
-      );
+      expect(find.descendant(of: volumeCard, matching: find.text('999')), findsNothing);
+      expect(find.descendant(of: volumeCard, matching: find.text('777')), findsNothing);
+      expect(find.descendant(of: countCard, matching: find.text('3')), findsNothing);
     });
   });
 
@@ -424,17 +471,9 @@ void main() {
       await _pump(tester, harness);
 
       for (var i = 0; i < 5; i++) {
-        expect(
-          find.byKey(Key('statsRecentWorkoutRow-recent-$i')),
-          findsOneWidget,
-          reason: 'i=$i 應該出現',
-        );
+        expect(find.byKey(Key('statsRecentWorkoutRow-recent-$i')), findsOneWidget, reason: 'i=$i 應該出現');
       }
-      expect(
-        find.byKey(const Key('statsRecentWorkoutRow-recent-5')),
-        findsNothing,
-        reason: '第 6 筆(最舊)應被排除',
-      );
+      expect(find.byKey(const Key('statsRecentWorkoutRow-recent-5')), findsNothing, reason: '第 6 筆(最舊)應被排除');
 
       await tester.tap(find.byKey(const Key('prEntryCard')));
       await tester.pumpAndSettle();
@@ -473,10 +512,7 @@ void main() {
 
       final lbBare = kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0);
       expect(
-        find.descendant(
-          of: find.byKey(const Key('statsWeekTotalVolumeCard')),
-          matching: find.text(lbBare),
-        ),
+        find.descendant(of: find.byKey(const Key('statsWeekTotalVolumeCard')), matching: find.text(lbBare)),
         findsOneWidget,
       );
       expect(

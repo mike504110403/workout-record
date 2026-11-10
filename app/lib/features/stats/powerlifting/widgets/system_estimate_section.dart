@@ -10,6 +10,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
+import '../../../../core/widgets/app_card.dart';
+import '../../../../core/widgets/empty_state.dart';
+import '../../../../core/widgets/section_header.dart';
 import '../../../../data/models/personal_record.dart';
 import '../../../../data/models/power_lift_record.dart';
 import '../../../settings/preferences/one_rm_formula_preference.dart';
@@ -34,97 +38,72 @@ class SystemEstimateSection extends ConsumerWidget {
     // 1RM 依偏好公式重算,與 PR 清單/詳情頁同口徑(見 currentPrEntry)。
     final formula = ref.watch(oneRmFormulaProvider);
     final best = bestSystemEstimate(summaries, lift, formula: formula);
-    final orange = Colors.orange;
-    return Card(
+    final accent = Theme.of(context).colorScheme.tertiary;
+    return AppCard(
       key: const Key('systemEstimateSection'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                // 標題「訓練推估」照 iOS 畫面實際顯示字(PowerliftingView.swift:198);
-                // 「系統推估」只是該段 MARK 註解用詞(code review 對齊)。
-                Text('訓練推估', style: Theme.of(context).textTheme.titleMedium),
-                const Spacer(),
-                if (best != null)
-                  Container(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 標題「訓練推估」照 iOS 畫面實際顯示字(PowerliftingView.swift:198);
+          // 「系統推估」只是該段 MARK 註解用詞(code review 對齊)。
+          SectionHeader(
+            title: '訓練推估',
+            padding: EdgeInsets.zero,
+            trailing: best == null
+                ? null
+                : Container(
                     key: const Key('systemEstimateBadge'),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
                     decoration: BoxDecoration(
-                      color: orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      color: accent.withValues(alpha: 0.1),
+                      borderRadius: AppRadius.chipRadius,
                     ),
                     child: Text(
                       '推估: ${formatWeight(best.oneRepMax, unit)} ${unitSuffix(unit)}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: orange, fontWeight: FontWeight.w600),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: accent, fontWeight: FontWeight.w600),
                     ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '根據您的訓練記錄推算',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
-            if (summaries.isEmpty)
-              _EmptySystemEstimateState(orange: orange)
-            else
-              for (final summary in summaries)
-                if (summary.currentPR != null)
-                  _SystemRecordRow(summary: summary, formula: formula, orange: orange, unit: unit),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptySystemEstimateState extends StatelessWidget {
-  const _EmptySystemEstimateState({required this.orange});
-
-  final Color orange;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      key: const Key('systemEstimateEmptyState'),
-      height: 120,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.insights_outlined, size: 32, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 8),
-            Text(
-              '尚無訓練數據\n開始訓練後系統會自動計算',
-              textAlign: TextAlign.center,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '根據您的訓練記錄推算',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (summaries.isEmpty)
+            // 明指目前選取的動作(切換深蹲/臥推/硬舉時文案跟著變),
+            // 不是泛稱「尚無訓練數據」。
+            EmptyState(
+              key: const Key('systemEstimateEmptyState'),
+              icon: Icons.insights_outlined,
+              title: '尚無${powerLiftLabel(lift)}的訓練紀錄',
+              message: '開始訓練後系統會自動計算',
+            )
+          else
+            for (final summary in summaries)
+              if (summary.currentPR != null)
+                _SystemRecordRow(summary: summary, formula: formula, accent: accent, unit: unit),
+        ],
       ),
     );
   }
 }
 
 class _SystemRecordRow extends StatelessWidget {
-  const _SystemRecordRow({required this.summary, required this.formula, required this.orange, required this.unit});
+  const _SystemRecordRow({
+    required this.summary,
+    required this.formula,
+    required this.accent,
+    required this.unit,
+  });
 
   final PRSummary summary;
   final OneRmFormula formula;
-  final Color orange;
+  final Color accent;
   final WeightUnit unit;
 
   @override
@@ -133,10 +112,10 @@ class _SystemRecordRow extends StatelessWidget {
     final pr = entry.record;
     return Card(
       key: Key('systemRecordRow-${summary.exerciseId}'),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(
           children: [
             Expanded(
@@ -147,10 +126,9 @@ class _SystemRecordRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)} × ${pr.reps} 次 · ${formatDate(pr.achievedAt)}',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -158,13 +136,12 @@ class _SystemRecordRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('推估', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: orange)),
+                Text('推估', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: accent)),
                 Text(
                   '${formatWeight(entry.oneRepMax, unit)} ${unitSuffix(unit)}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold, color: orange),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: accent),
                 ),
               ],
             ),

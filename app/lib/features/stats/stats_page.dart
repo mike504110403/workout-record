@@ -1,14 +1,13 @@
-// 數據 tab 殼:三段 segmented control(體重/訓練/三項,標籤文字對齊 iOS
+// 數據 tab 殼:三段 segmented control(訓練/體重/三項,標籤文字對齊 iOS
 // `StatsView.swift` 的 `Picker` tag 文字)。對應 iOS
 // `Views/Stats/StatsView.swift`。
 //
-// 與 iOS 差異申報:iOS `StatsView` 的 `selectedTab` 預設是 0(體重)。這裡
-// 依 brief 明確指示改成預設停在「訓練」(index 1)——Dashboard「查看
-// 進度」快速操作 `context.go('/stats')` 進來就是這個子頁,不需要使用者
-// 再手動切一次分頁。brief 原文把這個決定描述成「對齊 iOS」,但實際讀過
-// iOS 原始碼後(`StatsView.swift:4`)預設值其實是體重(0),不是訓練
-// (1)——這裡照 brief 的明確指示(訓練為預設)執行,並在此註記發現的
-// 落差,不是我方自行取捨。
+// 與 iOS 差異申報:iOS `StatsView` 的順序是 體重/訓練/三項、預設 selectedTab = 0
+// (體重)。Dashboard「查看進度」快速操作 `context.go('/stats')` 進來希望直接
+// 看到訓練統計,先前的做法是保留 iOS 順序、把預設停在中間的「訓練」(index 1)
+// ——預設值與第一個分段不一致,使用者會看到 segmented control 的選取落在中間。
+// UI 優化波 2 改成「把訓練移到第一位、預設 index 0」:預設選取＝第一個分段,
+// 同時 Dashboard 進來仍直接是訓練統計。
 //
 // WAVE4-MERGE 注意事項(給 merge 時的大腦看):
 // 1. **router.dart 分頁失效點目前只掛了訓練統計子頁**——`_AppShellState`
@@ -32,6 +31,7 @@
 //    如果實測有感卡頓再考慮改懶載入。
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_tokens.dart';
 import 'body_weight/body_weight_tab.dart';
 import 'powerlifting/powerlifting_tab.dart';
 import 'workout_stats/workout_stats_tab.dart';
@@ -46,11 +46,11 @@ class StatsPage extends StatefulWidget {
 class _StatsPageState extends State<StatsPage> {
   // 標籤文字對齊 iOS StatsView.swift:11-13 的 Picker tag 文字(體重/訓練/
   // 三項),不是「訓練統計」——那是這個子頁在文件/程式碼裡的功能描述,不是
-  // 使用者看到的分頁標籤字。
-  static const _tabLabels = ['體重', '訓練', '三項'];
+  // 使用者看到的分頁標籤字。順序見檔頭「與 iOS 差異申報」:訓練排第一。
+  static const _tabLabels = ['訓練', '體重', '三項'];
 
-  /// 預設停在「訓練」(index 1),見檔頭「與 iOS 差異申報」註記。
-  int _selectedIndex = 1;
+  /// 預設選取第一個分段(訓練)。
+  int _selectedIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +59,7 @@ class _StatsPageState extends State<StatsPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.md),
             child: SegmentedButton<int>(
               key: const Key('statsSegmentedControl'),
               segments: [
@@ -81,11 +81,7 @@ class _StatsPageState extends State<StatsPage> {
           Expanded(
             child: IndexedStack(
               index: _selectedIndex,
-              children: const [
-                BodyWeightTab(),
-                WorkoutStatsTab(),
-                PowerliftingTab(),
-              ],
+              children: const [WorkoutStatsTab(), BodyWeightTab(), PowerliftingTab()],
             ),
           ),
         ],

@@ -34,9 +34,7 @@ void main() {
     });
 
     test('沒有主要肌群的動作歸入「未分類」區塊', () {
-      final summaries = [
-        _summary(exerciseId: 'e1', exerciseName: '自訂動作', muscleGroup: null),
-      ];
+      final summaries = [_summary(exerciseId: 'e1', exerciseName: '自訂動作', muscleGroup: null)];
 
       final sections = groupByMuscleGroup(summaries);
 
@@ -67,6 +65,32 @@ void main() {
 
     test('空清單回傳空區塊清單', () {
       expect(groupByMuscleGroup(const []), isEmpty);
+    });
+  });
+
+  group('filterSummariesByName', () {
+    final summaries = [
+      _summary(exerciseId: 'e1', exerciseName: '槓鈴深蹲', muscleGroup: PrimaryMuscleGroup.legs),
+      _summary(exerciseId: 'e2', exerciseName: '槓鈴臥推', muscleGroup: PrimaryMuscleGroup.chest),
+      _summary(exerciseId: 'e3', exerciseName: 'Lat Pulldown', muscleGroup: PrimaryMuscleGroup.back),
+    ];
+
+    test('空字串/純空白不過濾,回傳原清單', () {
+      expect(filterSummariesByName(summaries, ''), summaries);
+      expect(filterSummariesByName(summaries, '   '), summaries);
+    });
+
+    test('名稱包含關鍵字才保留,維持原順序', () {
+      expect(filterSummariesByName(summaries, '槓鈴').map((s) => s.exerciseId), ['e1', 'e2']);
+      expect(filterSummariesByName(summaries, '臥推').map((s) => s.exerciseId), ['e2']);
+    });
+
+    test('不分大小寫、忽略頭尾空白', () {
+      expect(filterSummariesByName(summaries, '  lat PULL ').map((s) => s.exerciseId), ['e3']);
+    });
+
+    test('沒有符合 → 空清單', () {
+      expect(filterSummariesByName(summaries, '不存在'), isEmpty);
     });
   });
 }

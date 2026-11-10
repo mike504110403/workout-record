@@ -9,6 +9,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_tokens.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../settings/preferences/one_rm_formula_preference.dart';
 import '../../settings/preferences/weight_unit.dart';
 import 'pr_detail_calculations.dart';
@@ -41,7 +46,7 @@ class PrDetailPage extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('載入失敗，請稍後再試'),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               FilledButton(
                 key: const Key('prDetailErrorRetryButton'),
                 onPressed: () => ref.invalidate(prDetailRecordsProvider(exerciseId)),
@@ -64,13 +69,16 @@ class _PrDetailBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = data.current!;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _CurrentPrCard(entry: current),
-          if (data.chartAsc.length > 1) ...[const SizedBox(height: 24), _ProgressSection(data: data)],
-          const SizedBox(height: 24),
+          if (data.chartAsc.length > 1) ...[
+            const SizedBox(height: AppSpacing.xl),
+            _ProgressSection(data: data),
+          ],
+          const SizedBox(height: AppSpacing.xl),
           _HistorySection(data: data),
         ],
       ),
@@ -88,61 +96,57 @@ class _CurrentPrCard extends ConsumerWidget {
     final unit = ref.watch(weightUnitProvider);
     final theme = Theme.of(context);
     final pr = entry.record;
-    return Card(
+    return AppCard(
       key: const Key('prDetailCurrentCard'),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.emoji_events, color: Colors.orange),
-                const SizedBox(width: 8),
-                Text('當前 PR', style: theme.textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _BigStat(
-                  valueKey: const Key('prDetailCurrentWeight'),
-                  value: formatWeight(pr.weight, unit),
-                  unit: unitSuffix(unit),
-                  label: '重量',
-                ),
-                _BigStat(
-                  valueKey: const Key('prDetailCurrentReps'),
-                  value: '${pr.reps}',
-                  unit: '次',
-                  label: '次數',
-                ),
-                _BigStat(
-                  valueKey: const Key('prDetailCurrentOneRm'),
-                  value: formatWeight(entry.oneRepMax, unit),
-                  unit: unitSuffix(unit),
-                  label: '1RM',
-                  valueColor: Colors.blue,
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            Row(
-              children: [
-                Icon(Icons.calendar_today, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Text('達成日期：', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-                Text(
-                  formatDate(pr.achievedAt),
-                  key: const Key('prDetailCurrentDate'),
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.emoji_events, color: context.semanticColors.pr),
+              const SizedBox(width: AppSpacing.sm),
+              Text('當前 PR', style: theme.textTheme.titleMedium),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _BigStat(
+                valueKey: const Key('prDetailCurrentWeight'),
+                value: formatWeight(pr.weight, unit),
+                unit: unitSuffix(unit),
+                label: '重量',
+              ),
+              _BigStat(
+                valueKey: const Key('prDetailCurrentReps'),
+                value: '${pr.reps}',
+                unit: '次',
+                label: '次數',
+              ),
+              _BigStat(
+                valueKey: const Key('prDetailCurrentOneRm'),
+                value: formatWeight(entry.oneRepMax, unit),
+                unit: unitSuffix(unit),
+                label: '1RM',
+                valueColor: theme.colorScheme.primary,
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            children: [
+              Icon(Icons.calendar_today, size: 16, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: AppSpacing.sm),
+              Text('達成日期：', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+              Text(
+                formatDate(pr.achievedAt),
+                key: const Key('prDetailCurrentDate'),
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -174,7 +178,7 @@ class _BigStat extends StatelessWidget {
           key: valueKey,
           style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: valueColor),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpacing.xs),
         Text(unit, style: muted),
         Text(label, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],
@@ -196,20 +200,19 @@ class _ProgressSection extends ConsumerWidget {
       key: const Key('prDetailProgressSection'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('進步趨勢', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 12),
+        const SectionHeader(title: '進步趨勢'),
         PrProgressChart(entriesAsc: data.chartAsc),
         if (progress != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Builder(
             builder: (context) {
               final positive = progress.deltaKg >= 0;
-              final color = positive ? Colors.green : Colors.red;
+              final color = positive ? context.semanticColors.success : theme.colorScheme.error;
               final sign = positive ? '+' : '';
               return Row(
                 children: [
                   Icon(positive ? Icons.trending_up : Icons.trending_down, size: 18, color: color),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppSpacing.sm),
                   Text('總進步：', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
                   Text(
                     '$sign${formatWeight(progress.deltaKg, unit)} ${unitSuffix(unit)} '
@@ -239,8 +242,7 @@ class _HistorySection extends ConsumerWidget {
       key: const Key('prDetailHistoryList'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('歷史記錄', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
+        const SectionHeader(title: '歷史記錄'),
         for (final entry in data.historyDesc)
           _HistoryRow(entry: entry, isCurrent: entry.record.id == currentId),
       ],
@@ -259,13 +261,14 @@ class _HistoryRow extends ConsumerWidget {
     final unit = ref.watch(weightUnitProvider);
     final theme = Theme.of(context);
     final pr = entry.record;
+    final prColor = context.semanticColors.pr;
     return Container(
       key: Key('prDetailHistoryRow-${pr.id}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: isCurrent ? Colors.orange.withValues(alpha: 0.1) : theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        color: isCurrent ? prColor.withValues(alpha: 0.15) : theme.colorScheme.surfaceContainerHighest,
+        borderRadius: AppRadius.chipRadius,
       ),
       child: Row(
         children: [
@@ -281,11 +284,25 @@ class _HistoryRow extends ConsumerWidget {
                   ),
                 ),
                 if (isCurrent)
-                  Text('當前 PR', style: theme.textTheme.labelSmall?.copyWith(color: Colors.orange)),
+                  // 琥珀色文字在淺色底對比不足,只讓小獎盃圖示用 pr 色,文字走 onSurface。
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.emoji_events, size: 12, color: prColor),
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(
+                        '當前 PR',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: _DataItem(label: '重量', value: '${formatWeight(pr.weight, unit)} ${unitSuffix(unit)}'),
           ),
@@ -323,7 +340,7 @@ class _DataItem extends StatelessWidget {
           value,
           style: theme.textTheme.bodySmall?.copyWith(
             fontWeight: highlight ? FontWeight.w600 : FontWeight.normal,
-            color: highlight ? Colors.blue : null,
+            color: highlight ? theme.colorScheme.primary : null,
           ),
         ),
       ],
@@ -336,27 +353,11 @@ class _EmptyPrDetailState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      key: const Key('prDetailEmptyState'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.emoji_events_outlined, size: 60, color: Colors.orange),
-            const SizedBox(height: 16),
-            Text('尚無 PR 記錄', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              '這個動作還沒有個人最佳記錄',
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      key: Key('prDetailEmptyState'),
+      icon: Icons.emoji_events_outlined,
+      title: '尚無 PR 記錄',
+      message: '這個動作還沒有個人最佳記錄',
     );
   }
 }

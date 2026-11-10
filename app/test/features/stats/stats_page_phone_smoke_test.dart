@@ -40,7 +40,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: '訓練統計子頁(預設)不得 overflow');
 
-    await tester.tap(find.byKey(const Key('statsSegment-0')));
+    await tester.tap(find.byKey(const Key('statsSegment-1')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: '體重子頁不得 overflow');
 

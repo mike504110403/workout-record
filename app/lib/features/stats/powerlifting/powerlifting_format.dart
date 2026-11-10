@@ -7,6 +7,7 @@
 // `WeightUnit` 換算顯示值,呼叫端一律要傳目前單位——本檔案雖不在原本 4
 // 份之列,但同樣是「各 feature 一份」的重複實作,一併收斂)。
 import '../../../core/format/weight_format.dart' as weight_format;
+import '../../../data/models/power_lift_record.dart';
 import '../../settings/preferences/weight_unit.dart';
 
 /// 對照 iOS `String(format: "%.1f", weight)`(不含單位字尾,呼叫端各自
@@ -15,3 +16,10 @@ String formatWeight(double weight, WeightUnit unit) => weight_format.formatWeigh
 
 /// 對照 iOS `.formatted(date: .abbreviated, time: .omitted)` 的視覺效果。
 String formatDate(DateTime date) => '${date.year}/${date.month}/${date.day}';
+
+/// 三項動作的顯示名稱(動作 Picker、最佳成績卡、訓練推估空狀態共用)。
+String powerLiftLabel(PowerLift lift) => switch (lift) {
+  PowerLift.squat => '深蹲',
+  PowerLift.benchPress => '槓鈴臥推',
+  PowerLift.deadlift => '硬舉',
+};

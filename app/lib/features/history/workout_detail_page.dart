@@ -7,8 +7,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/metric_row.dart';
+import '../../core/widgets/metric_tile.dart';
+import '../../core/widgets/section_header.dart';
 import '../../data/models/workout.dart';
 import '../../data/providers.dart';
+import '../../core/theme/app_text_styles.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'edit/workout_edit_page.dart';
 import 'history_calendar_controller.dart';
@@ -38,17 +44,14 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
   /// 重讀失敗或查無此筆(理論上不會:編輯頁刪不掉 workout 本體)時保留
   /// 原快照,不擋使用者。
   Future<void> _openEdit(BuildContext context) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => WorkoutEditPage(workoutId: _workout.id),
-      ),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => WorkoutEditPage(workoutId: _workout.id)));
     if (!mounted) return;
     ref.invalidate(historyListControllerProvider);
     ref.invalidate(historyCalendarControllerProvider);
     try {
-      final refreshed =
-          await ref.read(workoutRepositoryProvider).fetchById(_workout.id);
+      final refreshed = await ref.read(workoutRepositoryProvider).fetchById(_workout.id);
       if (!mounted || refreshed == null) return;
       setState(() => _workout = refreshed);
     } catch (_) {
@@ -72,11 +75,7 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
           IconButton(
             key: const Key('workoutDetailDeleteButton'),
             icon: _isDeleting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.delete_outline),
             tooltip: '刪除',
             onPressed: _isDeleting ? null : () => _confirmAndDelete(context, workout),
@@ -84,14 +83,17 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _SummaryCard(workout: workout),
-            const SizedBox(height: 16),
-            _VolumeBreakdownCard(workout: workout),
-            const SizedBox(height: 16),
+            // 只有 1 個動作時,分布永遠是 100%,卡片沒有資訊量 → 至少 2 個動作才顯示。
+            if (workout.exercises.length >= 2) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _VolumeBreakdownCard(workout: workout),
+            ],
+            const SizedBox(height: AppSpacing.lg),
             _ExerciseDetailList(workout: workout),
           ],
         ),
@@ -126,80 +128,57 @@ class _SummaryCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Card(
+    final theme = Theme.of(context);
+    return AppCard(
       key: const Key('workoutDetailSummaryCard'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  formatHistoryDate(workout.startedAt),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                Text(
-                  formatVolumeKg(workout.totalVolume, unit),
-                  key: const Key('workoutDetailTotalVolume'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(formatHistoryDate(workout.startedAt), style: theme.textTheme.titleMedium),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    formatHistoryWeekday(workout.startedAt),
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _StatItem(
-                  key: const Key('workoutDetailDuration'),
-                  label: '時長',
-                  value: formatDurationMinutes(workout.duration),
-                ),
-                _StatItem(
-                  key: const Key('workoutDetailTotalSets'),
-                  label: '總組數',
-                  value: '${workout.totalSets} 組',
-                ),
-                _StatItem(
-                  key: const Key('workoutDetailTotalExercises'),
-                  label: '動作數',
-                  value: '${workout.totalExercises} 個',
-                ),
-              ],
-            ),
-          ],
-        ),
+                ],
+              ),
+              Text(
+                formatVolumeKg(workout.totalVolume, unit),
+                key: const Key('workoutDetailTotalVolume'),
+                style: AppNumberStyles.medium(context).copyWith(color: theme.colorScheme.primary),
+              ),
+            ],
+          ),
+          const Divider(height: AppSpacing.xl),
+          MetricRow(
+            tiles: [
+              MetricTile(
+                key: const Key('workoutDetailDuration'),
+                label: '時長',
+                value: '${workout.duration ?? 0}',
+                unit: '分鐘',
+              ),
+              MetricTile(
+                key: const Key('workoutDetailTotalSets'),
+                label: '總組數',
+                value: '${workout.totalSets}',
+                unit: '組',
+              ),
+              MetricTile(
+                key: const Key('workoutDetailTotalExercises'),
+                label: '動作數',
+                value: '${workout.totalExercises}',
+                unit: '個',
+              ),
+            ],
+          ),
+        ],
       ),
-    );
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  const _StatItem({super.key, required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ),
-      ],
     );
   }
 }
@@ -218,38 +197,35 @@ class _VolumeBreakdownCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
     final totalVolume = workout.totalVolume;
-    return Card(
+    return AppCard(
       key: const Key('workoutDetailVolumeBreakdownCard'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('容量分布', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            for (final exercise in workout.exercises)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(exercise.exercise?.name ?? exercise.exerciseName ?? '未知動作'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(
+            title: '容量分布',
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+          ),
+          for (final exercise in workout.exercises)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+              child: Row(
+                children: [
+                  Expanded(child: Text(workoutExerciseDisplayName(exercise))),
+                  Text(formatVolumeKg(nonWarmupExerciseVolume(exercise), unit)),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    formatPercentage(
+                      totalVolume > 0 ? nonWarmupExerciseVolume(exercise) / totalVolume * 100 : 0,
                     ),
-                    Text(formatVolumeKg(nonWarmupExerciseVolume(exercise), unit)),
-                    const SizedBox(width: 8),
-                    Text(
-                      formatPercentage(
-                        totalVolume > 0 ? nonWarmupExerciseVolume(exercise) / totalVolume * 100 : 0,
-                      ),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ],
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -269,37 +245,34 @@ class _ExerciseDetailList extends ConsumerWidget {
       key: const Key('workoutDetailExerciseList'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('動作明細', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
+        const SectionHeader(title: '動作明細'),
         for (final exercise in workout.exercises)
-          Card(
-            key: Key('workoutDetailExercise-${exercise.id}'),
-            margin: const EdgeInsets.only(bottom: 8),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: AppCard(
+              key: Key('workoutDetailExercise-${exercise.id}'),
+              padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    exercise.exercise?.name ?? exercise.exerciseName ?? '未知動作',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                    workoutExerciseDisplayName(exercise),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppSpacing.sm),
                   // 表頭:對照 iOS WorkoutDetailView.swift:283-296(組/重量/次數/
                   // 休息/容量),欄寬與下方每組列一致。
                   Padding(
                     key: Key('workoutDetailSetHeader-${exercise.id}'),
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: DefaultTextStyle.merge(
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                       child: const Row(
                         children: [
                           SizedBox(width: 56, child: Text('組')),
-                          SizedBox(width: 8),
+                          SizedBox(width: AppSpacing.sm),
                           Expanded(child: Text('重量')),
                           Expanded(child: Text('次數')),
                           Expanded(child: Text('休息')),
@@ -334,7 +307,7 @@ class _ExerciseDetailList extends ConsumerWidget {
                               softWrap: false,
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: AppSpacing.sm),
                           // review 打回 MINOR-3:改用 formatWeightKg,不直印
                           // double(避免「60.0 kg」這種不必要的浮點尾綴)。
                           Expanded(child: Text(formatWeightKg(set.weight, unit))),
@@ -350,9 +323,7 @@ class _ExerciseDetailList extends ConsumerWidget {
                               ),
                             ),
                           ),
-                          Expanded(
-                            child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end),
-                          ),
+                          Expanded(child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end)),
                         ],
                       ),
                     ),

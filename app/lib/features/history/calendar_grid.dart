@@ -27,3 +27,7 @@ List<DateTime?> buildCalendarGrid(DateTime month) {
 DateTime dateOnly(DateTime dateTime) => DateTime(dateTime.year, dateTime.month, dateTime.day);
 
 bool isSameDate(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// 日曆星期標題列的標籤。順序與 [buildCalendarGrid] 的欄位一致:週日為第 0 欄
+/// (對齊 iOS 版「日一二三四五六」)。
+const List<String> kCalendarWeekdayLabels = ['日', '一', '二', '三', '四', '五', '六'];

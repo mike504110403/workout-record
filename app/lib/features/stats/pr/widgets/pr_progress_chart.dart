@@ -1,5 +1,5 @@
 // PR 進步趨勢圖(1RM 隨達成日變化)。對照 iOS `PRDetailView.prProgressChart`:
-// 藍色折線 + 資料點。x 軸用達成日的 epoch 毫秒(真實時間軸,間隔不等距,
+// 主色折線 + 資料點。x 軸用達成日的 epoch 毫秒(真實時間軸,間隔不等距,
 // 同 body_weight_chart.dart),y 值為 1RM 依目前單位換算後的顯示值。
 //
 // 只有一筆資料時 minX == maxX,fl_chart 的刻度/縮放會除以零,所以單點時
@@ -10,6 +10,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_tokens.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../../chart_palette.dart';
 import '../pr_detail_calculations.dart';
@@ -25,7 +26,7 @@ class PrProgressChart extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    final color = chartPalette[MuscleGroupFilter.all]!;
+    final color = chartColorFor(context, MuscleGroupFilter.all);
 
     final spots = [
       for (final e in entriesAsc)
@@ -45,7 +46,7 @@ class PrProgressChart extends ConsumerWidget {
       key: const Key('prProgressChart'),
       height: 200,
       child: Padding(
-        padding: const EdgeInsets.only(top: 8, right: 16),
+        padding: const EdgeInsets.only(top: AppSpacing.sm, right: AppSpacing.lg),
         child: LineChart(
           LineChartData(
             minX: minX,
