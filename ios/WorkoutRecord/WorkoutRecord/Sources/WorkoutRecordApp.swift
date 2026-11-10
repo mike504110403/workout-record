@@ -179,8 +179,8 @@ class AppState: ObservableObject {
                 // 初始化默認數據（系統動作、示例模板等）
                 try await DataMigrationService().initializeDefaultData()
                 
-                // 檢查數據保留策略
-                DataRetentionService.shared.scheduleCleanupIfNeeded()
+                // 2026-11-10 移除:DataRetentionService 會每週刪除 30 天前的訓練記錄,
+                // 造成用戶歷史資料遺失。資料保留不再自動清理。
                 
                 print("✅ App 初始化完成")
             } catch {
