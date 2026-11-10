@@ -1,11 +1,11 @@
 # WIP — 三平台改寫(2026-07-24 起)
 
-> **新 session 接手:讀完本檔即可動工。Mike 喊「繼續」= 直接開波 6(流程見下方「下一步」),不需再問。**
+> **新 session 接手:讀完本檔即可動工。Mike 喊「繼續」= 接「波 8」待做片,不需再問。**
 
 ## 現況(2026-11-10,stage: mvp)
 
 - **2026-11-10 Mike 裁示轉 /mvp**(覆寫入選條件:iOS 版已上架,Flutter 版未發布即視為 MVP;Flutter 首次發布＝畢業,總審必含 CoreData 匯入與 schema migration)。MVP 規則:直接在 develop 小顆 commit,不開 worktree、不跑 review chain。
-- 波 0~6 全部落在 develop(最後 4c40e36,**未推 origin**)。基線:analyze 0、test 579/579、build web ✓。
+- 波 0~7 已推 origin/develop(2026-11-10,8060bc9)。
 - 波 6 內容:設定主頁四組、個人資料頁、關於頁、偏好頁(主題/休息秒數/1RM 公式/kg-lb)、全 app kg/lb 顯示層、接線(themeMode、預設休息秒數、Brzycki/Lander 補實作)。
 
 ## 下一步:波 7 改 Supabase(2026-11-10 Mike 裁示,取代自建 Go 後端)
@@ -14,10 +14,18 @@
 - Supabase:新 org(PRO)專案 `workout-dev`,URL/ref/publishable key/DB 密碼在 repo 根 `.env`(已 gitignore,不進 git)。prod 等發布波再開。
 - 做法:8 個 repository 抽介面＋Supabase 實作(公開 API 不變);Drift 實作留作測試假件,`USE_MOCK` 切換;依 `tables.dart` 寫 schema＋RLS＋GRANT migration(新表不自動 expose、已開 automatic RLS);舊 CoreData 照舊先進本機 Drift,登入後一次性上傳。
 - 參考實作:`~/Documents/self/accounting`(`lib/data/supabase_client.dart`、`lib/data/auth.dart`、`supabase/migrations/`、`docs/adr/0005`)。
-- **待 Mike**:Supabase Auth 開 Apple、Google provider;Google Cloud 建 iOS/Android/Web 三組 OAuth client 給 client ID。
+- Supabase Apple provider 已開;Google 待 Mike 建三組 OAuth client(先跳過)。
 - **進度(2026-11-10)**:資料層 a8f4a58、migration 已推 workout-dev(4 支,遠端清單一致、anon 被拒)、Apple 登入 bccf019(預設連雲端;USE_MOCK=true 走 Drift)。600/600 綠。Google 登入 Mike 裁示先跳過(Web/Android 雲端模式暫無登入)。
 - **2026-11-10 收尾**:舊資料上傳 d03fda9、隱私文案＋分頁 668e7a0、session 被動結束監聽(本 commit)。638 綠。
 - **待做片**:(1) Mike 真機 Apple 登入實測(含舊資料上傳狀態看設定頁);(2) Google 登入(Mike 裁示先跳過);(3) 上架前改 docs/privacy.html(1.2/1.3/2/3/4.1/5 節,Firebase→Supabase、刪 analytics/crash、刪除帳號管道)與同意頁 analytics key 改名;(4) 遠端 max_rows 確認維持 1000。
+
+## 波 8:上架缺口(2026-11-10 起)
+
+- 刪除帳號 6dced61:RPC `delete_my_account`(security definer,刪 auth.users,資料全 cascade;本機 rollback 實測 A 刪光、B 與 66 系統動作完好、anon/無 uid 被拒)+ 設定頁兩段確認 + 成功後清本機 Drift 並退休舊 iOS 匯入。**migration 0500 尚未推遠端 workout-dev(需 Mike 同意)**。
+- **待做**:Apple 授權撤銷(App Store 要求刪帳號時 revoke Apple token;需 Mike 提供 Sign in with Apple 的 .p8 key、Key ID、Team ID,走 Edge Function 呼叫 appleid.apple.com/auth/revoke);隱私頁/關於頁補「設定 > 刪除帳號」管道說明(併 privacy.html 改寫)。
+- 進行中:訓練中離線草稿(雲端模式草稿存本機、完成時 create_workout 一次上傳、失敗保留可重試)。
+- 其後候選:動作清單離線快取(離線開始訓練時選動作)、資料匯出 CSV/JSON。
+
 - 不再適用:原「同步波前置決策」(updatedAt 增量拉推/LWW/墓碑)因改直連作廢,見 git 歷史。
 
 ## Mike 待辦
