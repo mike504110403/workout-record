@@ -383,3 +383,15 @@ UserDefaults.standard.removeObject(forKey: "CoreDataModelVersion")
 - ⚠️ 警告訊息
 - ❌ 錯誤訊息
 - 📱 UI 狀態變化
+
+## Code graph(graft)
+
+用 [`@nanonets/graft`](https://www.npmjs.com/package/@nanonets/graft) 把 repo 建成可查詢的呼叫圖與 per-file 卡片。圖是本機產物(`graft/`,已 gitignore),每個人 clone 後自己建,不進 git、不跑 CI;只有 `.ignore`(讓 ripgrep 搜得到卡片)與 `.gitignore` 的 `/graft/` 進 repo。
+
+```bash
+graft build --lsp --no-gitignore --no-ignore .   # clone 後、pull 後
+graft check .                                     # 回報 STALE 就重跑上一行
+```
+
+- graft 沒有 Dart 的 language server,Dart 只有語法層呼叫邊:同名方法(介面與多個實作)的 `callers` 會是空的,改用 `graft grep "<名稱>"`。
+- 結尾若出現 clangd 的 `ERR_STREAM_DESTROYED`(來自 iOS bridging header),不影響圖。
