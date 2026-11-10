@@ -60,14 +60,15 @@ void main() {
       await tester.pumpAndSettle();
 
       // 同意之後進 Onboarding。
-      expect(find.text('歡迎使用健身記錄'), findsOneWidget);
+      expect(find.text('歡迎使用 Work It Out'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('skipOnboardingButton')));
       await tester.pumpAndSettle();
 
       // 最終進到 5-tab 殼。
       expect(find.byType(NavigationBar), findsOneWidget);
-      expect(find.widgetWithText(AppBar, '首頁'), findsOneWidget);
+      // 首頁改 large title(SliverAppBar.large),標題在展開/收合各有一份 Text。
+      expect(find.widgetWithText(AppBar, '首頁'), findsWidgets);
     },
   );
 
@@ -173,6 +174,8 @@ void main() {
 
       // 設定頁入口變多後登出鈕落在 800x600 預設視窗的可視範圍外(ListView 懶建),先捲到。
       await tester.scrollUntilVisible(find.byKey(const Key('signOutButton')), 200);
+      await tester.ensureVisible(find.byKey(const Key('signOutButton')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('signOutButton')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('登出').last);

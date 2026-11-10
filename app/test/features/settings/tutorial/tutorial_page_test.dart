@@ -21,7 +21,7 @@ import '../../../data/test_helpers.dart';
 void main() {
   setUp(() {
     PackageInfo.setMockInitialValues(
-      appName: 'WorkItOut',
+      appName: 'Work It Out',
       packageName: 'com.mikelin.workitout',
       version: '2.0.0',
       buildNumber: '6',
@@ -34,7 +34,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '使用教學'), findsOneWidget);
-    expect(find.text('歡迎使用 WorkItOut'), findsOneWidget);
+    expect(find.text('歡迎使用 Work It Out'), findsOneWidget);
     expect(find.text('快速開始'), findsOneWidget);
     expect(find.text('開始訓練'), findsOneWidget);
 
@@ -67,11 +67,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(find.byKey(const Key('aboutTutorialTile')), 300);
+    await tester.ensureVisible(find.byKey(const Key('aboutTutorialTile')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('aboutTutorialTile')));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '使用教學'), findsOneWidget);
-    expect(find.text('歡迎使用 WorkItOut'), findsOneWidget);
+    expect(find.text('歡迎使用 Work It Out'), findsOneWidget);
   });
 
   testWidgets('設定頁 settingsTutorialEntry → 教學頁', (tester) async {
@@ -97,10 +99,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(find.byKey(const Key('settingsTutorialEntry')), 200);
+    await tester.ensureVisible(find.byKey(const Key('settingsTutorialEntry')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('settingsTutorialEntry')));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, '使用教學'), findsOneWidget);
-    expect(find.text('歡迎使用 WorkItOut'), findsOneWidget);
+    expect(find.text('歡迎使用 Work It Out'), findsOneWidget);
   });
 }

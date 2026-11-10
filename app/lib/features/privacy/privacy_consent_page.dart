@@ -14,6 +14,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/app_card.dart';
 import 'privacy_consent_controller.dart';
 
 class PrivacyConsentPage extends ConsumerStatefulWidget {
@@ -48,113 +50,116 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
       return const _DeclinedBlockingPage();
     }
 
+    final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 24),
-            Icon(
-              Icons.front_hand,
-              size: 50,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '隱私權同意',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              children: [
+                const SizedBox(height: AppSpacing.xl),
+                Icon(
+                  Icons.privacy_tip_outlined,
+                  size: 48,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  '隱私權同意',
+                  style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '使用前請閱讀並同意以下條款',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    _TermsSection(
-                      title: '資料收集範圍',
-                      items: [
-                        'Apple ID 登入資訊(姓名、電子郵件)',
-                        '您輸入的訓練記錄、體重與健身目標等資料',
-                        '登入後訓練資料儲存於雲端伺服器(Supabase),並與您的帳號綁定',
-                      ],
-                    ),
-                    SizedBox(height: 24),
-                    _TermsSection(
-                      title: '資料使用目的',
-                      items: [
-                        '提供帳號登入功能',
-                        '儲存您的訓練資料並提供跨裝置存取',
-                      ],
-                    ),
-                    SizedBox(height: 24),
-                    _TermsSection(
-                      title: '隱私保護承諾',
-                      items: [
-                        '只有您本人登入後可以存取您的訓練資料',
-                        '登出時會清除本機的個人資料',
-                        '僅收集必要的帳號資訊與訓練資料',
-                        '不用於廣告或行銷目的',
-                        '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
-                      ],
-                    ),
-                  ],
                 ),
-              ),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _CheckboxRow(
-                    key: const Key('analyticsConsentCheckbox'),
-                    value: _analyticsAgreed,
-                    text: '我同意將訓練資料儲存於雲端伺服器以提供跨裝置存取',
-                    onChanged: (value) => setState(() => _analyticsAgreed = value),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  '使用前請閱讀並同意以下條款',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  _CheckboxRow(
-                    key: const Key('privacyConsentCheckbox'),
-                    value: _privacyAgreed,
-                    text: '我已閱讀並同意隱私政策',
-                    onChanged: (value) => setState(() => _privacyAgreed = value),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      key: const Key('agreeAndContinueButton'),
-                      onPressed: _bothAgreed ? _handleAgreeAndContinue : null,
-                      child: const Text('同意並繼續'),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: AppSpacing.pagePadding,
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _TermsSection(
+                          title: '資料收集範圍',
+                          items: [
+                            'Apple ID 登入資訊(姓名、電子郵件)',
+                            '您輸入的訓練記錄、體重與健身目標等資料',
+                            '登入後訓練資料儲存於雲端伺服器(Supabase),並與您的帳號綁定',
+                          ],
+                        ),
+                        SizedBox(height: AppSpacing.md),
+                        _TermsSection(
+                          title: '資料使用目的',
+                          items: [
+                            '提供帳號登入功能',
+                            '儲存您的訓練資料並提供跨裝置存取',
+                          ],
+                        ),
+                        SizedBox(height: AppSpacing.md),
+                        _TermsSection(
+                          title: '隱私保護承諾',
+                          items: [
+                            '只有您本人登入後可以存取您的訓練資料',
+                            '登出時會清除本機的個人資料',
+                            '僅收集必要的帳號資訊與訓練資料',
+                            '不用於廣告或行銷目的',
+                            '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    key: const Key('declineButton'),
-                    onPressed: _handleDecline,
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
-                    child: const Text('不同意'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.sm,
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.sm,
                   ),
-                ],
-              ),
+                  child: Column(
+                    children: [
+                      _CheckboxRow(
+                        key: const Key('analyticsConsentCheckbox'),
+                        value: _analyticsAgreed,
+                        text: '我同意將訓練資料儲存於雲端伺服器以提供跨裝置存取',
+                        onChanged: (value) => setState(() => _analyticsAgreed = value),
+                      ),
+                      _CheckboxRow(
+                        key: const Key('privacyConsentCheckbox'),
+                        value: _privacyAgreed,
+                        text: '我已閱讀並同意隱私政策',
+                        onChanged: (value) => setState(() => _privacyAgreed = value),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          key: const Key('agreeAndContinueButton'),
+                          onPressed: _bothAgreed ? _handleAgreeAndContinue : null,
+                          child: const Text('同意並繼續'),
+                        ),
+                      ),
+                      TextButton(
+                        key: const Key('declineButton'),
+                        onPressed: _handleDecline,
+                        style: TextButton.styleFrom(
+                          foregroundColor: theme.colorScheme.error,
+                        ),
+                        child: const Text('不同意'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -169,28 +174,34 @@ class _TermsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: double.infinity,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
-        ),
-        const SizedBox(height: 8),
-        for (final item in items)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('•  ', style: Theme.of(context).textTheme.bodyMedium),
-                Expanded(child: Text(item, style: Theme.of(context).textTheme.bodyMedium)),
-              ],
             ),
-          ),
-      ],
+            const SizedBox(height: AppSpacing.sm),
+            for (final item in items)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('•  ', style: theme.textTheme.bodyMedium),
+                    Expanded(child: Text(item, style: theme.textTheme.bodyMedium)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -209,22 +220,13 @@ class _CheckboxRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              value ? Icons.check_box : Icons.check_box_outline_blank,
-              color: value ? Theme.of(context).colorScheme.primary : Colors.grey,
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(text)),
-          ],
-        ),
-      ),
+    return CheckboxListTile(
+      value: value,
+      onChanged: (checked) => onChanged(checked ?? false),
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(text, style: Theme.of(context).textTheme.bodyMedium),
     );
   }
 }
@@ -238,20 +240,20 @@ class _DeclinedBlockingPage extends StatelessWidget {
       body: SafeArea(
         child: Center(
           child: Padding(
-            padding: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(AppSpacing.xxl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.block, size: 48, color: Theme.of(context).colorScheme.error),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 Text(
                   '需要您的同意才能繼續使用',
                   style: Theme.of(context).textTheme.titleLarge,
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
-                  'WorkoutRecord 需要您同意隱私權條款才能提供服務。'
+                  'Work It Out 需要您同意隱私權條款才能提供服務。'
                   '請關閉此分頁,或重新整理頁面以重新查看條款。',
                   style: Theme.of(context).textTheme.bodyMedium,
                   textAlign: TextAlign.center,

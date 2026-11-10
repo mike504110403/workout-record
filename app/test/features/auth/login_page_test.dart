@@ -29,16 +29,30 @@ Future<void> _pumpLoginPage(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('顯示標題、副標與隱私保護四點說明', (tester) async {
+  testWidgets('顯示標題、副標與單行「隱私政策」連結(條列說明已移除)', (tester) async {
     await _pumpLoginPage(tester);
 
-    expect(find.text('歡迎使用 WorkoutRecord'), findsOneWidget);
+    expect(find.text('歡迎使用 Work It Out'), findsOneWidget);
     expect(find.text('請使用 Apple ID 登入以開始使用'), findsOneWidget);
-    expect(find.text('隱私保護'), findsOneWidget);
-    expect(find.text('使用 Apple ID 安全登入'), findsOneWidget);
-    expect(find.text('登入後訓練記錄儲存於雲端,僅限本人存取'), findsOneWidget);
-    expect(find.text('僅收集必要的帳號資訊'), findsOneWidget);
-    expect(find.text('不用於廣告或第三方分享'), findsOneWidget);
+    expect(find.byKey(const Key('loginPrivacyPolicyLink')), findsOneWidget);
+    expect(find.text('隱私政策'), findsOneWidget);
+    // 隱私說明條列與隱私同意頁重複,登入頁不再顯示。
+    expect(find.text('隱私保護'), findsNothing);
+    expect(find.text('使用 Apple ID 安全登入'), findsNothing);
+    expect(find.text('登入後訓練記錄儲存於雲端,僅限本人存取'), findsNothing);
+    expect(find.text('僅收集必要的帳號資訊'), findsNothing);
+    expect(find.text('不用於廣告或第三方分享'), findsNothing);
+  });
+
+  testWidgets('點「隱私政策」連結 → 進入隱私政策頁(含資料儲存方式)', (tester) async {
+    await _pumpLoginPage(tester);
+
+    await tester.tap(find.byKey(const Key('loginPrivacyPolicyLink')));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(AppBar, '隱私政策'), findsOneWidget);
+    expect(find.textContaining('雲端伺服器(Supabase)'), findsOneWidget);
+    expect(find.textContaining('只有您本人'), findsOneWidget);
   });
 
   testWidgets('測試環境(非 iOS 真機)顯示測試登入 fallback 按鈕', (tester) async {

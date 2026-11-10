@@ -10,7 +10,7 @@ import 'package:workout_record/features/settings/about/about_page.dart';
 void main() {
   setUp(() {
     PackageInfo.setMockInitialValues(
-      appName: 'WorkItOut',
+      appName: 'Work It Out',
       packageName: 'com.mikelin.workitout',
       version: '2.0.0',
       buildNumber: '6',

@@ -19,6 +19,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../core/theme/app_tokens.dart';
+import '../settings/about/about_page.dart' show PrivacyPolicyPage;
 import 'cloud_auth.dart';
 import 'session_controller.dart';
 
@@ -126,144 +128,118 @@ class LoginPage extends ConsumerWidget {
       }
     });
 
+    final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 32),
-                Text(
-                  '歡迎使用 WorkoutRecord',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '請使用 Apple ID 登入以開始使用',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-                if (showRealAppleSignIn)
-                  SignInWithAppleButton(
-                    onPressed: () =>
-                        ref.read(sessionControllerProvider.notifier).signInWithApple(),
-                  )
-                else if (showAppleUnavailableNotice)
-                  Text(
-                    kAppleSignInUnsupportedMessage,
-                    key: const Key('appleSignInUnavailableNotice'),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                    textAlign: TextAlign.center,
-                  )
-                else
-                  SizedBox(
-                    height: 50,
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      key: const Key('testLoginButton'),
-                      onPressed: () =>
-                          ref.read(sessionControllerProvider.notifier).signInTest(),
-                      child: const Text('測試登入'),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: AppSpacing.xxl),
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: AppRadius.cardRadius,
+                    ),
+                    child: Icon(
+                      Icons.fitness_center,
+                      size: 36,
+                      color: theme.colorScheme.onPrimaryContainer,
                     ),
                   ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 50,
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    key: const Key('googleSignInPlaceholderButton'),
-                    onPressed: null,
-                    child: const Text('使用 Google 登入(即將推出)'),
+                  const SizedBox(height: AppSpacing.xl),
+                  Text(
+                    '歡迎使用 Work It Out',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                ),
-                if (session.isLoading) ...[
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '登入中...',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                      ),
-                    ],
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    '請使用 Apple ID 登入以開始使用',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
+                  const SizedBox(height: AppSpacing.xxl),
+                  if (showRealAppleSignIn)
+                    SignInWithAppleButton(
+                      onPressed: () =>
+                          ref.read(sessionControllerProvider.notifier).signInWithApple(),
+                    )
+                  else if (showAppleUnavailableNotice)
+                    Text(
+                      kAppleSignInUnsupportedMessage,
+                      key: const Key('appleSignInUnavailableNotice'),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                      textAlign: TextAlign.center,
+                    )
+                  else
+                    SizedBox(
+                      height: AppSizes.buttonHeight,
+                      width: double.infinity,
+                      child: FilledButton(
+                        key: const Key('testLoginButton'),
+                        onPressed: () =>
+                            ref.read(sessionControllerProvider.notifier).signInTest(),
+                        child: const Text('測試登入'),
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    height: AppSizes.buttonHeight,
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      key: const Key('googleSignInPlaceholderButton'),
+                      onPressed: null,
+                      child: const Text('使用 Google 登入(即將推出)'),
+                    ),
+                  ),
+                  if (session.isLoading) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Text(
+                          '登入中...',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
+                  // 隱私說明條列已移除(與隱私同意頁內容重複),只留入口連結。
+                  TextButton(
+                    key: const Key('loginPrivacyPolicyLink'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyPage()),
+                    ),
+                    child: const Text('隱私政策'),
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
                 ],
-                const SizedBox(height: 32),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '隱私保護',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      const _PrivacyBullet('使用 Apple ID 安全登入'),
-                      const _PrivacyBullet('登入後訓練記錄儲存於雲端,僅限本人存取'),
-                      const _PrivacyBullet('僅收集必要的帳號資訊'),
-                      const _PrivacyBullet('不用於廣告或第三方分享'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-              ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _PrivacyBullet extends StatelessWidget {
-  const _PrivacyBullet(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.check_circle, color: Colors.green, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ),
-        ],
       ),
     );
   }
