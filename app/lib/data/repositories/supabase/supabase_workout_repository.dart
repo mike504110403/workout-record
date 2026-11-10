@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../models/exercise.dart';
 import '../../models/workout.dart';
 import '../workout_repository.dart';
 import 'supabase_mapping.dart';
@@ -260,28 +259,5 @@ class SupabaseWorkoutRepository implements WorkoutRepository {
 
   // MARK: - Conversion
 
-  Workout _hydrate(Map<String, dynamic> row) {
-    final exerciseRows = [
-      for (final child in (row['workout_exercises'] as List? ?? const []))
-        Map<String, dynamic>.from(child as Map),
-    ]..sort((a, b) => (a['order_index'] as num).compareTo(b['order_index'] as num));
-
-    final exercises = <WorkoutExercise>[];
-    for (final exerciseRow in exerciseRows) {
-      final setRows = [
-        for (final s in (exerciseRow['workout_sets'] as List? ?? const []))
-          Map<String, dynamic>.from(s as Map),
-      ]..sort((a, b) => (a['set_number'] as num).compareTo(b['set_number'] as num));
-      final exerciseJson = exerciseRow['exercises'];
-      final Exercise? exercise = exerciseJson is Map<String, dynamic>
-          ? Exercise.fromRow(exerciseRowFromJson(exerciseJson))
-          : null;
-      exercises.add(WorkoutExercise.fromRow(
-        workoutExerciseRowFromJson(exerciseRow),
-        exercise: exercise,
-        sets: setRows.map((j) => WorkoutSet.fromRow(workoutSetRowFromJson(j))).toList(),
-      ));
-    }
-    return Workout.fromRow(workoutRowFromJson(row), exercises: exercises);
-  }
+  Workout _hydrate(Map<String, dynamic> row) => workoutFromNestedJson(row);
 }

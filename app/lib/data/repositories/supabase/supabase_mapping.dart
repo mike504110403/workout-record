@@ -11,6 +11,8 @@ import 'package:drift/drift.dart' show UpdateCompanion, Variable;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../db/app_database.dart' as db;
+import '../../models/exercise.dart';
+import '../../models/workout.dart';
 
 /// Drift 產生的 SQL 欄名 → Postgres 欄名的例外清單(其餘同名)。
 /// Drift 把 `videoURL` 轉成 `video_u_r_l`,Postgres 這邊用可讀的 `video_url`。
@@ -264,3 +266,65 @@ db.PowerLiftRecord powerLiftRecordRowFromJson(Map<String, dynamic> j) => db.Powe
       createdAt: _dt(j['created_at']),
       updatedAt: _dt(j['updated_at']),
     );
+
+// ---------- 巢狀 workout JSON ⇄ domain model ----------
+
+/// PostgREST 巢狀 workout JSON(`*, workout_exercises(*, exercises(*), workout_sets(*))`
+/// 的形狀)→ [Workout]。exercises 依 order_index、sets 依 set_number 排序;
+/// `exercises` 子物件缺席時 [WorkoutExercise.exercise] 為 null。
+/// [SupabaseWorkoutRepository] 讀雲端與 `OfflineDraftWorkoutRepository` 讀本機
+/// 草稿共用這一份。
+Workout workoutFromNestedJson(Map<String, dynamic> row) {
+  final exerciseRows =
+      [
+        for (final child in (row['workout_exercises'] as List? ?? const []))
+          Map<String, dynamic>.from(child as Map),
+      ]..sort(
+        (a, b) => (a['order_index'] as num).compareTo(b['order_index'] as num),
+      );
+
+  final exercises = <WorkoutExercise>[];
+  for (final exerciseRow in exerciseRows) {
+    final setRows =
+        [
+          for (final s in (exerciseRow['workout_sets'] as List? ?? const []))
+            Map<String, dynamic>.from(s as Map),
+        ]..sort(
+          (a, b) => (a['set_number'] as num).compareTo(b['set_number'] as num),
+        );
+    final exerciseJson = exerciseRow['exercises'];
+    final Exercise? exercise = exerciseJson is Map
+        ? Exercise.fromRow(
+            exerciseRowFromJson(Map<String, dynamic>.from(exerciseJson)),
+          )
+        : null;
+    exercises.add(
+      WorkoutExercise.fromRow(
+        workoutExerciseRowFromJson(exerciseRow),
+        exercise: exercise,
+        sets: setRows
+            .map((j) => WorkoutSet.fromRow(workoutSetRowFromJson(j)))
+            .toList(),
+      ),
+    );
+  }
+  return Workout.fromRow(workoutRowFromJson(row), exercises: exercises);
+}
+
+/// [workoutFromNestedJson] 的反向:[Workout](含 exercises/sets)→ 同形狀的巢狀
+/// JSON(欄名與值編碼同 [companionToJson])。[WorkoutExercise.exercise] 非 null
+/// 時一併寫進 `exercises` 子物件。
+Map<String, dynamic> workoutToNestedJson(Workout workout) => {
+  ...companionToJson(workout.toCompanion()),
+  'workout_exercises': [
+    for (final e in workout.exercises)
+      {
+        ...companionToJson(e.toCompanion()),
+        if (e.exercise != null)
+          'exercises': companionToJson(e.exercise!.toCompanion()),
+        'workout_sets': [
+          for (final s in e.sets) companionToJson(s.toCompanion()),
+        ],
+      },
+  ],
+};
