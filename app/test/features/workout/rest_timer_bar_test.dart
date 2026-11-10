@@ -57,4 +57,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('restFinishedDialog')), findsNothing);
   });
+
+  testWidgets('−15 / +15 / 跳過 的點擊區至少 48x48', (tester) async {
+    final container = await _pump(tester);
+    container.read(restTimerControllerProvider.notifier).start(seconds: 60, exerciseName: '深蹲');
+    await tester.pump();
+
+    for (final key in ['restTimerMinus15Button', 'restTimerPlus15Button', 'restTimerSkipButton']) {
+      final size = tester.getSize(find.byKey(Key(key)));
+      expect(size.width, greaterThanOrEqualTo(48), reason: '$key 寬');
+      expect(size.height, greaterThanOrEqualTo(48), reason: '$key 高');
+    }
+
+    // 收掉 Timer.periodic,避免測試結束時 pending timer 斷言。
+    container.read(restTimerControllerProvider.notifier).skip();
+    await tester.pump();
+  });
 }

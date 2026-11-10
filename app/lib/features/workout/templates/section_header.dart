@@ -2,6 +2,7 @@
 // template_picker_sheet.dart 各自有一份幾乎相同的 `_SectionHeader`——僅
 // 上緣 padding 差 4px(16 vs 12),抽共用時統一採 16)。
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class TemplateSectionHeader extends StatelessWidget {
   const TemplateSectionHeader(this.title, {super.key});
@@ -11,7 +12,7 @@ class TemplateSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xs),
       child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
     );
   }

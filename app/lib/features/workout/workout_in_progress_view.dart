@@ -8,6 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/weight_format.dart' as weight_format;
+import '../../core/theme/app_semantic_colors.dart';
+import '../../core/theme/app_text_styles.dart';
+import '../../core/theme/app_tokens.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/metric_tile.dart';
 import '../../data/models/workout.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'add_set_sheet.dart';
@@ -15,6 +20,7 @@ import 'exercise_picker/exercise_picker_sheet.dart';
 import 'rest_timer_bar.dart';
 import 'rest_timer_controller.dart';
 import 'workout_controller.dart';
+import 'workout_metric_row.dart';
 import 'workout_summary_sheet.dart';
 import 'workout_ui_shared.dart';
 
@@ -48,37 +54,41 @@ class WorkoutInProgressView extends ConsumerWidget {
     return Column(
       children: [
         const RestTimerBar(),
-        _WorkoutHeader(draft: draft),
+        _WorkoutHeader(
+          draft: draft,
+          isCompleting: flow.isCompleting,
+          isAbandoning: flow.isAbandoning,
+        ),
         Expanded(
           child: draft.exercises.isEmpty
               ? _EmptyExercisesPrompt(onAdd: () => _addExercise(context, ref))
               : ListView(
-                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.sm,
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.lg,
+                  ),
                   children: [
-                    for (final exercise in draft.exercises)
+                    for (final exercise in draft.exercises) ...[
                       _ExerciseCard(
                         key: ValueKey(exercise.id),
                         exercise: exercise,
                       ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      child: OutlinedButton.icon(
-                        key: const Key('addExerciseButton'),
-                        onPressed: () => _addExercise(context, ref),
-                        icon: const Icon(Icons.add),
-                        label: const Text('新增動作'),
-                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    OutlinedButton.icon(
+                      key: const Key('addExerciseButton'),
+                      onPressed: () => _addExercise(context, ref),
+                      icon: const Icon(Icons.add),
+                      label: const Text('新增動作'),
                     ),
                   ],
                 ),
         ),
         _BottomActions(
-          draft: draft,
+          isBusy: flow.isCompleting || flow.isAbandoning,
           isCompleting: flow.isCompleting,
-          isAbandoning: flow.isAbandoning,
         ),
       ],
     );
@@ -92,31 +102,48 @@ class _EmptyExercisesPrompt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('還沒有動作'),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            key: const Key('addExerciseButtonEmptyState'),
-            onPressed: onAdd,
-            icon: const Icon(Icons.add),
-            label: const Text('新增動作'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.fitness_center,
+              size: 56,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text('還沒有動作', style: theme.textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.xl),
+            FilledButton.icon(
+              key: const Key('addExerciseButtonEmptyState'),
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('新增動作'),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// 訓練時長每秒跳 + 即時統計(總容量/已完成組數/動作數,對照
-/// `WorkoutInProgressView.workoutHeader`)。獨立 `StatefulWidget` 只為了
-/// `Timer.periodic` 驅動的每秒重繪,不影響其餘畫面的 rebuild 範圍。
+/// 訓練時長每秒跳 + 即時統計(時長 · 容量 · 組數,對照
+/// `WorkoutInProgressView.workoutHeader`),右側 ⋯ 選單收納「放棄訓練」。
+/// 獨立 `StatefulWidget` 只為了 `Timer.periodic` 驅動的每秒重繪,不影響其餘
+/// 畫面的 rebuild 範圍。
 class _WorkoutHeader extends ConsumerStatefulWidget {
-  const _WorkoutHeader({required this.draft});
+  const _WorkoutHeader({
+    required this.draft,
+    required this.isCompleting,
+    required this.isAbandoning,
+  });
 
   final Workout draft;
+  final bool isCompleting;
+  final bool isAbandoning;
 
   @override
   ConsumerState<_WorkoutHeader> createState() => _WorkoutHeaderState();
@@ -147,73 +174,102 @@ class _WorkoutHeaderState extends ConsumerState<_WorkoutHeader> {
     final elapsed = DateTime.now().difference(widget.draft.startedAt);
     final totalVolume = nonWarmupTotalVolume(widget.draft.exercises);
     final totalSets = nonWarmupTotalSets(widget.draft.exercises);
+    final busy = widget.isCompleting || widget.isAbandoning;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _StatColumn(
-            label: '訓練時長',
-            value: _formatDuration(elapsed),
-            valueKey: const Key('workoutDurationValue'),
-          ),
-          _StatColumn(
-            label: '總容量',
-            value: weight_format.formatWeight(totalVolume, unit, decimals: 0),
-            valueKey: const Key('workoutTotalVolumeValue'),
-          ),
-          _StatColumn(
-            label: '總組數',
-            value: '$totalSets',
-            valueKey: const Key('workoutTotalSetsValue'),
-          ),
-          _StatColumn(
-            label: '動作數',
-            value: '${widget.draft.exercises.length}',
-            valueKey: const Key('workoutExerciseCountValue'),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageHorizontal,
+        AppSpacing.sm,
+        AppSpacing.pageHorizontal,
+        0,
+      ),
+      child: AppCard(
+        padding: const EdgeInsets.only(
+          left: AppSpacing.lg,
+          top: AppSpacing.sm,
+          bottom: AppSpacing.sm,
+          right: AppSpacing.xs,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: FittedMetricRow(
+                tiles: [
+                  MetricTile(
+                    key: const Key('workoutDurationValue'),
+                    value: _formatDuration(elapsed),
+                    label: '時長',
+                  ),
+                  MetricTile(
+                    key: const Key('workoutTotalVolumeValue'),
+                    value: weight_format.formatWeightValue(
+                      totalVolume,
+                      unit,
+                      decimals: 0,
+                    ),
+                    unit: unitSuffix(unit),
+                    label: '容量',
+                  ),
+                  MetricTile(
+                    key: const Key('workoutTotalSetsValue'),
+                    value: '$totalSets',
+                    label: '組數',
+                  ),
+                ],
+              ),
+            ),
+            if (widget.isAbandoning)
+              const SizedBox(
+                width: 48,
+                height: 48,
+                child: Center(
+                  child: SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
+            else
+              PopupMenuButton<_WorkoutMenuAction>(
+                key: const Key('workoutMoreMenuButton'),
+                tooltip: '更多',
+                enabled: !busy,
+                onSelected: (action) {
+                  switch (action) {
+                    case _WorkoutMenuAction.abandon:
+                      _confirmAbandon(context, ref);
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    key: const Key('abandonWorkoutButton'),
+                    value: _WorkoutMenuAction.abandon,
+                    child: Text(
+                      '放棄訓練',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
+enum _WorkoutMenuAction { abandon }
+
+/// 時長顯示:不滿 1 小時 `MM:SS`,滿 1 小時 `H:MM:SS`。
 String _formatDuration(Duration d) {
   final h = d.inHours;
-  final m = d.inMinutes.remainder(60);
-  final s = d.inSeconds.remainder(60);
-  if (h > 0) {
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
-  return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-}
-
-class _StatColumn extends StatelessWidget {
-  const _StatColumn({
-    required this.label,
-    required this.value,
-    required this.valueKey,
-  });
-
-  final String label;
-  final String value;
-  final Key valueKey;
-
-  @override
-  Widget build(BuildContext context) {
-    // key 掛在 wrapper(Column)而非 Text 本身,對照 dashboard 慣例與
-    // workout_summary_sheet.dart _StatTile 的修法——測試用
-    // find.descendant(of: find.byKey(...), matching: find.text(...))。
-    return Column(
-      key: valueKey,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        Text(value, style: Theme.of(context).textTheme.titleMedium),
-      ],
-    );
-  }
+  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (h > 0) return '$h:$m:$s';
+  return '$m:$s';
 }
 
 class _ExerciseCard extends ConsumerWidget {
@@ -363,210 +419,292 @@ class _ExerciseCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Card(
+    final theme = Theme.of(context);
+    return AppCard(
       key: Key('exerciseCard_${exercise.id}'),
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _displayName,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                if (exercise.isCompleted)
-                  Icon(
-                    Icons.check_circle,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                IconButton(
-                  key: Key('deleteExerciseButton_${exercise.id}'),
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteExercise(context, ref),
-                ),
-              ],
-            ),
-            for (final set in exercise.sets)
-              ListTile(
-                key: Key('setRow_${set.id}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: Text('#${set.setNumber}${set.isWarmup ? ' 暖身' : ''}'),
-                title: Text(
-                  '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次'
-                  '${set.rpe != null ? '  RPE ${trimZeros(set.rpe!)}' : ''}',
-                ),
-                subtitle: Text(
-                  '容量 ${kgToDisplay(set.volume, unit).toStringAsFixed(0)}',
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      key: Key('editSetButton_${set.id}'),
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: () => _editSet(context, ref, set),
-                    ),
-                    IconButton(
-                      key: Key('deleteSetButton_${set.id}'),
-                      icon: const Icon(Icons.close),
-                      onPressed: () => _deleteSet(context, ref, set),
-                    ),
-                  ],
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: AppSpacing.xs),
+                  child: Text(_displayName, style: theme.textTheme.titleMedium),
                 ),
               ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (!exercise.isCompleted) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: Key('addSetButton_${exercise.id}'),
-                      onPressed: () => _openAddSetSheet(context, ref),
-                      icon: const Icon(Icons.add),
-                      label: const Text('新增組數'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
+              if (exercise.isCompleted)
+                Icon(Icons.check_circle, color: context.semanticColors.success),
+              IconButton(
+                key: Key('deleteExerciseButton_${exercise.id}'),
+                tooltip: '刪除動作',
+                icon: const Icon(Icons.delete_outline),
+                color: theme.colorScheme.onSurfaceVariant,
+                onPressed: () => _deleteExercise(context, ref),
+              ),
+            ],
+          ),
+          for (final set in exercise.sets)
+            _SetRow(
+              key: Key('setRow_${set.id}'),
+              set: set,
+              unit: unit,
+              onEdit: () => _editSet(context, ref, set),
+              onDelete: () => _deleteSet(context, ref, set),
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              if (!exercise.isCompleted) ...[
                 Expanded(
-                  child: FilledButton.tonalIcon(
-                    key: Key('toggleExerciseCompletedButton_${exercise.id}'),
-                    onPressed: () => _toggleCompleted(context, ref),
-                    icon: Icon(exercise.isCompleted ? Icons.undo : Icons.check),
-                    label: Text(exercise.isCompleted ? '取消完成' : '完成動作'),
+                  child: OutlinedButton.icon(
+                    key: Key('addSetButton_${exercise.id}'),
+                    onPressed: () => _openAddSetSheet(context, ref),
+                    icon: const Icon(Icons.add),
+                    label: const Text('新增組數'),
                   ),
                 ),
+                const SizedBox(width: AppSpacing.sm),
               ],
-            ),
-          ],
-        ),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  key: Key('toggleExerciseCompletedButton_${exercise.id}'),
+                  onPressed: () => _toggleCompleted(context, ref),
+                  icon: Icon(exercise.isCompleted ? Icons.undo : Icons.check),
+                  label: Text(exercise.isCompleted ? '取消完成' : '完成動作'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _BottomActions extends ConsumerWidget {
-  const _BottomActions({
-    required this.draft,
-    required this.isCompleting,
-    required this.isAbandoning,
+/// 單組列:序號 · 重量 × 次數(RPE 次要灰字)· 暖身 chip · 編輯/刪除。
+class _SetRow extends StatelessWidget {
+  const _SetRow({
+    super.key,
+    required this.set,
+    required this.unit,
+    required this.onEdit,
+    required this.onDelete,
   });
 
-  final Workout draft;
-  final bool isCompleting;
-  final bool isAbandoning;
+  final WorkoutSet set;
+  final WeightUnit unit;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
-  /// 對照 iOS `canCompleteWorkout`:至少一個動作,且每個動作都已標記完成
-  /// 且至少有一組記錄。
-  bool get _canComplete =>
-      draft.exercises.isNotEmpty &&
-      draft.exercises.every((e) => e.isCompleted && e.sets.isNotEmpty);
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '${set.setNumber}',
+              style: theme.textTheme.labelMedium?.tabular.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text:
+                        '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次',
+                    style: AppNumberStyles.body(
+                      context,
+                    ).copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  if (set.rpe != null)
+                    TextSpan(
+                      text: '  RPE ${trimZeros(set.rpe!)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (set.isWarmup) ...[
+            const SizedBox(width: AppSpacing.sm),
+            Chip(
+              label: const Text('暖身'),
+              labelStyle: theme.textTheme.labelSmall,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              backgroundColor: colors.tertiaryContainer,
+              labelPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+              ),
+            ),
+          ],
+          IconButton(
+            key: Key('editSetButton_${set.id}'),
+            tooltip: '編輯這組',
+            visualDensity: VisualDensity.compact,
+            color: colors.onSurfaceVariant,
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: onEdit,
+          ),
+          IconButton(
+            key: Key('deleteSetButton_${set.id}'),
+            tooltip: '刪除這組',
+            visualDensity: VisualDensity.compact,
+            color: colors.onSurfaceVariant,
+            icon: const Icon(Icons.close),
+            onPressed: onDelete,
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-  Future<void> _confirmAbandon(BuildContext context, WidgetRef ref) async {
+Future<void> _confirmAbandon(BuildContext context, WidgetRef ref) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('放棄訓練'),
+      content: const Text('確定要放棄這次訓練嗎？已記錄的內容都會被刪除，此動作無法復原。'),
+      actions: [
+        TextButton(
+          key: const Key('abandonWorkoutCancelButton'),
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          key: const Key('abandonWorkoutConfirmButton'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('放棄'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  try {
+    await ref.read(workoutControllerProvider.notifier).abandonWorkout();
+    ref.read(restTimerControllerProvider.notifier).skip();
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('放棄訓練失敗:$e')));
+  }
+}
+
+/// 按下「完成訓練」:有動作尚未標記完成時先跳一次確認(取消 → 什麼都不做;
+/// 結束 → 繼續完成)。全部動作都已完成(或沒有任何動作)時不跳確認。
+Future<void> _onCompletePressed(BuildContext context, WidgetRef ref) async {
+  // 以按下當下的草稿為準(不用 build 時捕獲的快照)。
+  final draft = ref.read(workoutControllerProvider).value?.draft;
+  if (draft == null) return;
+  final pending = draft.exercises.where((e) => !e.isCompleted).length;
+  if (pending > 0) {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('放棄訓練'),
-        content: const Text('確定要放棄這次訓練嗎？已記錄的內容都會被刪除，此動作無法復原。'),
+        key: const Key('completeWorkoutConfirmDialog'),
+        title: const Text('結束訓練'),
+        content: Text('有 $pending 個動作尚未完成,仍要結束訓練?'),
         actions: [
           TextButton(
-            key: const Key('abandonWorkoutCancelButton'),
+            key: const Key('completeWorkoutCancelButton'),
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('取消'),
           ),
           TextButton(
-            key: const Key('abandonWorkoutConfirmButton'),
+            key: const Key('completeWorkoutConfirmButton'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放棄'),
+            child: const Text('結束'),
           ),
         ],
       ),
     );
     if (confirmed != true || !context.mounted) return;
-
-    try {
-      await ref.read(workoutControllerProvider.notifier).abandonWorkout();
-      ref.read(restTimerControllerProvider.notifier).skip();
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('放棄訓練失敗:$e')));
-    }
   }
+  await _completeWorkout(context, ref);
+}
 
-  Future<void> _complete(BuildContext context, WidgetRef ref) async {
-    try {
-      final outcome = await ref
-          .read(workoutControllerProvider.notifier)
-          .completeWorkout();
-      if (!context.mounted) return;
-      if (outcome is WorkoutCompleted) {
-        ref.read(restTimerControllerProvider.notifier).skip();
-        await showWorkoutSummarySheet(
-          context,
-          outcome.workout,
-          outcome.newPersonalRecordCount,
-        );
-      }
-      // WorkoutCompletionNoOp:已經完成過了(冪等),不重複彈 summary。
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
+Future<void> _completeWorkout(BuildContext context, WidgetRef ref) async {
+  try {
+    final outcome = await ref
+        .read(workoutControllerProvider.notifier)
+        .completeWorkout();
+    if (!context.mounted) return;
+    if (outcome is WorkoutCompleted) {
+      ref.read(restTimerControllerProvider.notifier).skip();
+      await showWorkoutSummarySheet(
         context,
-      ).showSnackBar(
-        const SnackBar(
-          content: Text('完成訓練失敗,訓練已保留在這台裝置,恢復網路後再按一次「完成訓練」'),
-        ),
+        outcome.workout,
+        outcome.newPersonalRecordCount,
       );
     }
+    // WorkoutCompletionNoOp:已經完成過了(冪等),不重複彈 summary。
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('完成訓練失敗,訓練已保留在這台裝置,恢復網路後再按一次「完成訓練」')),
+    );
   }
+}
+
+/// 固定在底部的主按鈕:全寬「完成訓練」。隨時可按(不再要求每個動作都先按過
+/// 「完成動作」)——尚有未完成動作時由 [_onCompletePressed] 跳確認。
+class _BottomActions extends ConsumerWidget {
+  const _BottomActions({required this.isBusy, required this.isCompleting});
+
+  final bool isBusy;
+  final bool isCompleting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final busy = isCompleting || isAbandoning;
-    return Padding(
-      padding: const EdgeInsets.all(12),
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.outlineVariant)),
+      ),
       child: SafeArea(
         top: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                key: const Key('abandonWorkoutButton'),
-                onPressed: busy ? null : () => _confirmAbandon(context, ref),
-                child: isAbandoning
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('放棄'),
-              ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.pageHorizontal,
+            vertical: AppSpacing.md,
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('completeWorkoutButton'),
+              onPressed: isBusy ? null : () => _onCompletePressed(context, ref),
+              child: isCompleting
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('完成訓練'),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton(
-                key: const Key('completeWorkoutButton'),
-                onPressed: (busy || !_canComplete)
-                    ? null
-                    : () => _complete(context, ref),
-                child: isCompleting
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('完成訓練'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

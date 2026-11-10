@@ -15,6 +15,7 @@ import '../../../data/models/exercise.dart';
 import '../../../data/models/workout_template.dart';
 import '../exercise_picker/exercise_picker_sheet.dart';
 import 'templates_controller.dart';
+import '../../../core/theme/app_tokens.dart';
 
 /// 表單內部用的暫存動作項目:動作本身 + 使用者輸入的建議組數/次數。
 class TemplateFormExerciseDraft {
@@ -208,20 +209,20 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           TextField(
             key: const Key('templateFormNameField'),
             controller: _nameController,
             decoration: const InputDecoration(labelText: '名稱'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             key: const Key('templateFormDescriptionField'),
             controller: _descriptionController,
             decoration: const InputDecoration(labelText: '描述(選填)'),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -236,7 +237,7 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
           for (var i = 0; i < _exercises.length; i++)
             Padding(
               key: Key('templateFormExerciseRow_${_exercises[i].exercise.id}'),
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
               child: Row(
                 children: [
                   Expanded(flex: 3, child: Text(_exercises[i].exercise.name)),
@@ -257,7 +258,7 @@ class _TemplateFormPageState extends ConsumerState<TemplateFormPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: TextFormField(
                       key: Key('templateFormRepsField_${_exercises[i].exercise.id}'),

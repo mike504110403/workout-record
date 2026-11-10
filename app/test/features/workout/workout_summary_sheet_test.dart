@@ -9,12 +9,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:workout_record/core/theme/app_semantic_colors.dart';
 import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/workout/workout_summary_sheet.dart';
 import 'package:workout_record/features/workout/workout_ui_shared.dart';
 
-Workout _buildWorkout() {
+WorkoutSet _set(String id, int n, double weight, int reps, {bool warmup = false}) {
+  final now = DateTime.now();
+  return WorkoutSet(
+    id: id,
+    workoutExerciseId: 'we-1',
+    setNumber: n,
+    weight: weight,
+    reps: reps,
+    isWarmup: warmup,
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+Workout _buildWorkout({List<WorkoutSet>? sets}) {
   final now = DateTime.now();
   return Workout(
     id: 'w-summary',
@@ -35,23 +50,18 @@ Workout _buildWorkout() {
         exerciseName: 'Fixture 動作',
         createdAt: now,
         updatedAt: now,
-        sets: [
-          WorkoutSet(
-            id: 'set-1',
-            workoutExerciseId: 'we-1',
-            setNumber: 1,
-            weight: 100,
-            reps: 5,
-            createdAt: now,
-            updatedAt: now,
-          ),
-        ],
+        sets: sets ?? [_set('set-1', 1, 100, 5)],
       ),
     ],
   );
 }
 
-Future<void> _pumpSummary(WidgetTester tester, {WeightUnit? weightUnit}) async {
+Future<void> _pumpSummary(
+  WidgetTester tester, {
+  WeightUnit? weightUnit,
+  Workout? workout,
+  int prCount = 0,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
@@ -68,7 +78,7 @@ Future<void> _pumpSummary(WidgetTester tester, {WeightUnit? weightUnit}) async {
         home: Builder(
           builder: (context) => ElevatedButton(
             onPressed: () =>
-                showWorkoutSummarySheet(context, _buildWorkout(), 0),
+                showWorkoutSummarySheet(context, workout ?? _buildWorkout(), prCount),
             child: const Text('open'),
           ),
         ),
@@ -117,5 +127,56 @@ void main() {
 
     final expectedSetWeight = '${trimZeros(kgToDisplay(100, WeightUnit.lb))}lb';
     expect(find.text('$expectedSetWeight × 5'), findsOneWidget);
+  });
+
+  testWidgets('同重量 × 次數的組合併顯示「80kg × 8 ×2」;單組不加 ×1;暖身獨立不併入', (tester) async {
+    await _pumpSummary(
+      tester,
+      workout: _buildWorkout(
+        sets: [
+          _set('s1', 1, 20, 10, warmup: true),
+          _set('s2', 2, 80, 8),
+          _set('s3', 3, 80, 8),
+          _set('s4', 4, 60, 10),
+          _set('s5', 5, 80, 8),
+        ],
+      ),
+    );
+
+    expect(find.text('80kg × 8 ×3'), findsOneWidget);
+    expect(find.text('60kg × 10'), findsOneWidget);
+    expect(find.text('20kg × 10 (暖身)'), findsOneWidget);
+    // 合併後 5 組只剩 3 個徽章。
+    expect(find.byWidgetPredicate((w) => w is Chip), findsNWidgets(3));
+  });
+
+  testWidgets('PR:醒目卡片用 semanticColors.pr,文案不含 emoji', (tester) async {
+    await _pumpSummary(tester, prCount: 2);
+
+    expect(find.byKey(const Key('summaryNewPRBanner')), findsOneWidget);
+    final text = tester.widget<Text>(find.byKey(const Key('summaryNewPRText')));
+    expect(text.data, '本次訓練創造了 2 個新 PR！');
+    expect(text.data!.contains('🏆'), isFalse);
+    final decoration =
+        tester.widget<Container>(find.byKey(const Key('summaryNewPRBanner'))).decoration! as BoxDecoration;
+    expect((decoration.border! as Border).top.color, AppSemanticColors.light.pr);
+  });
+
+  testWidgets('沒有新 PR:不顯示 PR 卡片', (tester) async {
+    await _pumpSummary(tester, prCount: 0);
+    expect(find.byKey(const Key('summaryNewPRBanner')), findsNothing);
+    expect(find.byKey(const Key('summaryNewPRText')), findsNothing);
+  });
+
+  testWidgets('關閉入口只留底部主按鈕:頂部不再有「完成」', (tester) async {
+    await _pumpSummary(tester);
+
+    expect(find.byKey(const Key('workoutSummaryDoneButton')), findsOneWidget);
+    expect(find.text('完成'), findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: find.byType(TextButton)), findsNothing);
+
+    await tester.tap(find.byKey(const Key('workoutSummaryDoneButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('summaryTitleText')), findsNothing);
   });
 }

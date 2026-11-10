@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/exercise.dart';
 import 'exercise_picker_categories.dart';
 import 'exercise_picker_controller.dart';
@@ -16,6 +17,7 @@ import 'exercise_picker_controller.dart';
 Future<Exercise?> showQuickAddExerciseSheet(BuildContext context) {
   return showModalBottomSheet<Exercise?>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (_) => const _QuickAddExerciseForm(),
@@ -82,10 +84,10 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppSpacing.lg,
+        right: AppSpacing.lg,
+        top: AppSpacing.sm,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
       child: Form(
         key: _formKey,
@@ -94,7 +96,7 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('新增自訂動作', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextFormField(
               key: const Key('quick_add_name_field'),
               controller: _nameController,
@@ -102,13 +104,13 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
               validator: (value) =>
                   (value == null || value.trim().isEmpty) ? '請輸入動作名稱' : null,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             TextFormField(
               key: const Key('quick_add_name_en_field'),
               controller: _nameEnController,
               decoration: const InputDecoration(labelText: '英文名稱(選填)'),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             DropdownButtonFormField<String>(
               key: const Key('quick_add_category_field'),
               initialValue: _categoryId,
@@ -121,7 +123,7 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
                 if (value != null) setState(() => _categoryId = value);
               },
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             DropdownButtonFormField<ExerciseType>(
               key: const Key('quick_add_type_field'),
               initialValue: _type,
@@ -135,14 +137,14 @@ class _QuickAddExerciseFormState extends ConsumerState<_QuickAddExerciseForm> {
               },
             ),
             if (customExerciseError != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               Text(
                 customExerciseError,
                 key: const Key('quick_add_error_text'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             FilledButton(
               key: const Key('quick_add_submit_button'),
               onPressed: isSubmitting ? null : _submit,

@@ -100,6 +100,9 @@ Future<void> _fillAddSetSheet(
   await tester.enterText(find.byKey(const Key('addSetWeightField')), weight);
   await tester.enterText(find.byKey(const Key('addSetRepsField')), reps);
   if (isWarmup) {
+    // 暖身開關在預設收合的「進階選項」內,先展開。
+    await tester.tap(find.text('進階選項'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addSetWarmupSwitch')));
   }
   await tester.pump();
@@ -198,11 +201,12 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, '訓練'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('startFromTemplateButton')));
-    await tester.pumpAndSettle();
-
+    // 開始畫面直接列出模板卡,點一下即以該模板開始(不再經過 sheet)。
     expect(find.text('全身訓練'), findsOneWidget);
-    await tester.tap(find.byKey(Key('templatePickerCardTap_${await _systemTemplateId(harness.db, '全身訓練')}')));
+    final templateCard = find.byKey(Key('startTemplateCard_${await _systemTemplateId(harness.db, '全身訓練')}'));
+    await tester.ensureVisible(templateCard);
+    await tester.pumpAndSettle();
+    await tester.tap(templateCard);
     await tester.pumpAndSettle();
 
     final workoutRepo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));

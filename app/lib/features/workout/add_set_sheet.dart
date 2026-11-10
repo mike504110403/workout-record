@@ -1,4 +1,5 @@
-// 記組 sheet:重量/次數必填、RPE 選填、暖身組開關、休息秒數(對照 iOS
+// 記組 sheet:主區只有重量/次數(大字輸入 + 兩側 −/+ stepper),RPE 選填、
+// 暖身組開關、休息秒數、自動計時收進預設收合的「進階選項」(對照 iOS
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Views/Workout/AddSetSheet.swift`)。
 // 也用來編輯既有組數(帶入 initial* 參數時,行為對照 iOS `EditSetSheet`——
 // iOS 那邊是獨立檔案,這裡刻意收斂成同一個表單少一份重複,呼叫端
@@ -6,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_text_styles.dart';
+import '../../core/theme/app_tokens.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'workout_ui_shared.dart';
 
@@ -44,6 +47,12 @@ class AddSetResult {
   final bool autoStartRestTimer;
 }
 
+/// 重量 stepper 的單次步進(依顯示單位):kg 2.5、lb 5。
+double addSetWeightStep(WeightUnit unit) => unit == WeightUnit.lb ? 5 : 2.5;
+
+/// 次數 stepper 的單次步進。
+const int kAddSetRepsStep = 1;
+
 /// 開啟記組 sheet。使用者取消回傳 `null`。
 ///
 /// [previousWeight]/[previousReps] 是「上一組」的資料,只在新增組數
@@ -71,6 +80,7 @@ Future<AddSetResult?> showAddSetSheet(
 }) {
   return showModalBottomSheet<AddSetResult>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (_) => _AddSetForm(
@@ -136,12 +146,14 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
     // 當前顯示單位(kgToDisplay),編輯既有組數時才不會顯示錯的數字。
     final unit = ref.read(weightUnitProvider);
     final weight = widget.initialWeight ?? widget.previousWeight;
-    _weightController =
-        TextEditingController(text: weight != null ? trimZeros(kgToDisplay(weight, unit)) : '');
+    _weightController = TextEditingController(
+      text: weight != null ? trimZeros(kgToDisplay(weight, unit)) : '',
+    );
     final reps = widget.initialReps ?? widget.previousReps;
     _repsController = TextEditingController(text: reps != null ? '$reps' : '');
-    _rpeController =
-        TextEditingController(text: widget.initialRpe != null ? trimZeros(widget.initialRpe!) : '');
+    _rpeController = TextEditingController(
+      text: widget.initialRpe != null ? trimZeros(widget.initialRpe!) : '',
+    );
     _isWarmup = widget.initialIsWarmup;
     _restSeconds = widget.initialRestSeconds;
   }
@@ -162,7 +174,26 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
   }
 
   bool get _canSave =>
-      double.tryParse(_weightController.text) != null && int.tryParse(_repsController.text) != null;
+      double.tryParse(_weightController.text) != null &&
+      int.tryParse(_repsController.text) != null;
+
+  /// 重量 −/+:輸入框為空或不是數字時視為 0;下限 0;結果四捨五入到
+  /// 小數 2 位避免浮點尾數(例如 102.60000000000001)。
+  void _stepWeight(int direction, WeightUnit unit) {
+    final current = double.tryParse(_weightController.text) ?? 0;
+    final next = current + direction * addSetWeightStep(unit);
+    final rounded = (next * 100).round() / 100;
+    setState(
+      () => _weightController.text = trimZeros(rounded < 0 ? 0 : rounded),
+    );
+  }
+
+  /// 次數 −/+:輸入框為空或不是整數時視為 0;下限 0。
+  void _stepReps(int direction) {
+    final current = int.tryParse(_repsController.text) ?? 0;
+    final next = current + direction * kAddSetRepsStep;
+    setState(() => _repsController.text = '${next < 0 ? 0 : next}');
+  }
 
   void _save() {
     final enteredWeight = double.tryParse(_weightController.text);
@@ -174,117 +205,252 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
     // 契約值(儲存一律 kg)。
     final unit = ref.read(weightUnitProvider);
     final weightKg = displayToKg(enteredWeight, unit);
-    Navigator.of(context).pop(AddSetResult(
-      weight: weightKg,
-      reps: reps,
-      rpe: rpe,
-      isWarmup: _isWarmup,
-      restSeconds: _restSeconds,
-      autoStartRestTimer: _autoStartRestTimer,
-    ));
+    Navigator.of(context).pop(
+      AddSetResult(
+        weight: weightKg,
+        reps: reps,
+        rpe: rpe,
+        isWarmup: _isWarmup,
+        restSeconds: _restSeconds,
+        autoStartRestTimer: _autoStartRestTimer,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final unit = ref.watch(weightUnitProvider);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    // 編輯既有組且該組帶有進階欄位的值(RPE/暖身)時預設展開,否則使用者
+    // 看不到這些已設定的值;新增組一律收合。
+    final startExpanded = widget.initialRpe != null || widget.initialIsWarmup;
+
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppSpacing.lg,
+        right: AppSpacing.lg,
+        top: AppSpacing.sm,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(widget.exerciseName, style: Theme.of(context).textTheme.titleMedium),
-          Text('第 ${widget.setNumber} 組', style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('addSetWeightField'),
-            controller: _weightController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(labelText: '重量 (${unitSuffix(unit)})'),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            key: const Key('addSetRepsField'),
-            controller: _repsController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '次數'),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 8),
-          if (_calculatedVolume > 0)
-            Text('容量:${_calculatedVolume.toStringAsFixed(0)}', key: const Key('addSetVolumePreview')),
-          const SizedBox(height: 8),
-          TextField(
-            key: const Key('addSetRpeField'),
-            controller: _rpeController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'RPE(選填)'),
-          ),
-          SwitchListTile(
-            key: const Key('addSetWarmupSwitch'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('暖身組'),
-            value: _isWarmup,
-            onChanged: (value) => setState(() => _isWarmup = value),
-          ),
-          if (!_isWarmup)
-            Row(
-              children: [
-                const Text('休息時間'),
-                const Spacer(),
-                IconButton(
-                  key: const Key('addSetRestMinusButton'),
-                  icon: const Icon(Icons.remove),
-                  onPressed: _restSeconds <= 0
-                      ? null
-                      : () => setState(() => _restSeconds = (_restSeconds - 15).clamp(0, 300)),
-                ),
-                Text('$_restSeconds 秒', key: const Key('addSetRestSecondsValue')),
-                IconButton(
-                  key: const Key('addSetRestPlusButton'),
-                  icon: const Icon(Icons.add),
-                  onPressed: _restSeconds >= 300
-                      ? null
-                      : () => setState(() => _restSeconds = (_restSeconds + 15).clamp(0, 300)),
-                ),
-              ],
-            ),
-          if (!_isWarmup && widget.showAutoStartRestTimer)
-            SwitchListTile(
-              key: const Key('addSetAutoStartRestTimerSwitch'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('自動開始休息計時'),
-              value: _autoStartRestTimer,
-              onChanged: (value) => setState(() => _autoStartRestTimer = value),
-            ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton(
-                  key: const Key('addSetCancelButton'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('取消'),
-                ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(widget.exerciseName, style: theme.textTheme.titleMedium),
+            Text(
+              '第 ${widget.setNumber} 組',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  key: const Key('addSetSaveButton'),
-                  onPressed: _canSave ? _save : null,
-                  child: const Text('儲存'),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _NumberStepper(
+              label: '重量 (${unitSuffix(unit)})',
+              controller: _weightController,
+              fieldKey: const Key('addSetWeightField'),
+              minusKey: const Key('addSetWeightMinusButton'),
+              plusKey: const Key('addSetWeightPlusButton'),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: () => setState(() {}),
+              onMinus: () => _stepWeight(-1, unit),
+              onPlus: () => _stepWeight(1, unit),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _NumberStepper(
+              label: '次數',
+              controller: _repsController,
+              fieldKey: const Key('addSetRepsField'),
+              minusKey: const Key('addSetRepsMinusButton'),
+              plusKey: const Key('addSetRepsPlusButton'),
+              keyboardType: TextInputType.number,
+              onChanged: () => setState(() {}),
+              onMinus: () => _stepReps(-1),
+              onPlus: () => _stepReps(1),
+            ),
+            if (_calculatedVolume > 0) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                '容量:${_calculatedVolume.toStringAsFixed(0)}',
+                key: const Key('addSetVolumePreview'),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
                 ),
               ),
             ],
-          ),
-        ],
+            ExpansionTile(
+              key: const Key('addSetAdvancedTile'),
+              initiallyExpanded: startExpanded,
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              title: Text('進階選項', style: theme.textTheme.titleSmall),
+              children: [
+                TextField(
+                  key: const Key('addSetRpeField'),
+                  controller: _rpeController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'RPE(選填)'),
+                ),
+                SwitchListTile(
+                  key: const Key('addSetWarmupSwitch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('暖身組'),
+                  value: _isWarmup,
+                  onChanged: (value) => setState(() => _isWarmup = value),
+                ),
+                if (!_isWarmup)
+                  Row(
+                    children: [
+                      const Text('休息時間'),
+                      const Spacer(),
+                      IconButton(
+                        key: const Key('addSetRestMinusButton'),
+                        icon: const Icon(Icons.remove),
+                        onPressed: _restSeconds <= 0
+                            ? null
+                            : () => setState(
+                                () => _restSeconds = (_restSeconds - 15).clamp(
+                                  0,
+                                  300,
+                                ),
+                              ),
+                      ),
+                      Text(
+                        '$_restSeconds 秒',
+                        key: const Key('addSetRestSecondsValue'),
+                      ),
+                      IconButton(
+                        key: const Key('addSetRestPlusButton'),
+                        icon: const Icon(Icons.add),
+                        onPressed: _restSeconds >= 300
+                            ? null
+                            : () => setState(
+                                () => _restSeconds = (_restSeconds + 15).clamp(
+                                  0,
+                                  300,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                if (!_isWarmup && widget.showAutoStartRestTimer)
+                  SwitchListTile(
+                    key: const Key('addSetAutoStartRestTimerSwitch'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('自動開始休息計時'),
+                    value: _autoStartRestTimer,
+                    onChanged: (value) =>
+                        setState(() => _autoStartRestTimer = value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    key: const Key('addSetCancelButton'),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    key: const Key('addSetSaveButton'),
+                    onPressed: _canSave ? _save : null,
+                    child: const Text('儲存'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// 大字輸入 + 兩側 −/+ 的數值 stepper(重量、次數共用)。
+class _NumberStepper extends StatelessWidget {
+  const _NumberStepper({
+    required this.label,
+    required this.controller,
+    required this.fieldKey,
+    required this.minusKey,
+    required this.plusKey,
+    required this.keyboardType,
+    required this.onChanged,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final Key fieldKey;
+  final Key minusKey;
+  final Key plusKey;
+  final TextInputType keyboardType;
+  final VoidCallback onChanged;
+  final VoidCallback onMinus;
+  final VoidCallback onPlus;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const buttonStyleSize = Size(56, 56);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Row(
+          children: [
+            IconButton.filledTonal(
+              key: minusKey,
+              tooltip: '減少$label',
+              style: IconButton.styleFrom(minimumSize: buttonStyleSize),
+              icon: const Icon(Icons.remove),
+              onPressed: onMinus,
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: TextField(
+                key: fieldKey,
+                controller: controller,
+                keyboardType: keyboardType,
+                textAlign: TextAlign.center,
+                style: AppNumberStyles.display(context),
+                decoration: const InputDecoration(hintText: '0'),
+                onChanged: (_) => onChanged(),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            IconButton.filledTonal(
+              key: plusKey,
+              tooltip: '增加$label',
+              style: IconButton.styleFrom(minimumSize: buttonStyleSize),
+              icon: const Icon(Icons.add),
+              onPressed: onPlus,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

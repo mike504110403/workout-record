@@ -14,6 +14,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_semantic_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/exercise.dart';
 import 'exercise_picker_categories.dart';
 import 'exercise_picker_controller.dart';
@@ -30,6 +32,7 @@ Future<List<Exercise>?> showExercisePicker(
 }) {
   return showModalBottomSheet<List<Exercise>?>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (_) => ExercisePickerSheet(multiSelect: multiSelect),
@@ -129,7 +132,10 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
             children: [
             _Header(onCancel: () => Navigator.of(context).pop(null), onAdd: _openQuickAdd),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
               child: TextField(
                 key: const Key('exercise_picker_search_field'),
                 controller: _searchController,
@@ -147,7 +153,6 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
                             setState(() {});
                           },
                         ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 onChanged: (value) {
                   ref.read(exercisePickerControllerProvider.notifier).setSearchQuery(value);
@@ -191,7 +196,10 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xs,
+      ),
       child: Row(
         children: [
           TextButton(
@@ -199,8 +207,12 @@ class _Header extends StatelessWidget {
             onPressed: onCancel,
             child: const Text('取消'),
           ),
-          const Expanded(
-            child: Text('選擇動作', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w600)),
+          Expanded(
+            child: Text(
+              '選擇動作',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ),
           IconButton(
             key: const Key('exercise_picker_add_button'),
@@ -260,7 +272,10 @@ class _Body extends StatelessWidget {
           Container(
             key: const Key('exercise_picker_category_error'),
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm,
+            ),
             color: Theme.of(context).colorScheme.errorContainer,
             child: Text(
               state.categoryError!,
@@ -300,7 +315,7 @@ class _CategoryTabs extends ConsumerWidget {
       height: 44,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
         children: [
           _CategoryChip(
             key: const Key('category_chip_all'),
@@ -336,7 +351,10 @@ class _CategoryChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xs + 2,
+      ),
       child: ChoiceChip(
         label: Text(label),
         selected: isSelected,
@@ -413,14 +431,34 @@ class _ExerciseTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitleParts = <String>[
-      if (exercise.nameEn != null && exercise.nameEn!.isNotEmpty) exercise.nameEn!,
-      if (exercise.primaryMuscleGroup != null) exercise.primaryMuscleGroup!.displayName,
-    ];
-    // code review minor 4:原本寫死 `Colors.green`/`Colors.amber`,深色模式
-    // 下配色跟主題其他地方脫節、對比度也沒經過驗證。改用當前 `colorScheme`
-    // 的語意色階,亮/暗兩種主題都能自動取得對應的配色與可讀對比度。
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final muscle = exercise.primaryMuscleGroup?.displayName;
+    final nameEn = exercise.nameEn;
+    final hasNameEn = nameEn != null && nameEn.isNotEmpty;
+    // 英文名是次要資訊:小字、灰階,排在肌群之後。
+    final subtitle = (muscle == null && !hasNameEn)
+        ? null
+        : Text.rich(
+            TextSpan(
+              children: [
+                if (muscle != null)
+                  TextSpan(
+                    text: muscle,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                if (muscle != null && hasNameEn) const TextSpan(text: ' · '),
+                if (hasNameEn)
+                  TextSpan(
+                    text: nameEn,
+                    style: TextStyle(color: colorScheme.outline),
+                  ),
+              ],
+            ),
+            style: theme.textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
 
     return ListTile(
       key: Key('exercise_row_${exercise.id}'),
@@ -435,28 +473,33 @@ class _ExerciseTile extends StatelessWidget {
         children: [
           Flexible(child: Text(exercise.name, overflow: TextOverflow.ellipsis)),
           if (!exercise.isSystem) ...[
-            const SizedBox(width: 6),
+            const SizedBox(width: AppSpacing.sm),
             Container(
               key: Key('exercise_custom_badge_${exercise.id}'),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm - 2,
+                vertical: 2,
+              ),
               decoration: BoxDecoration(
                 color: colorScheme.tertiaryContainer,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: AppRadius.chipRadius,
               ),
               child: Text(
                 '自訂',
-                style: TextStyle(color: colorScheme.onTertiaryContainer, fontSize: 11),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onTertiaryContainer,
+                ),
               ),
             ),
           ],
         ],
       ),
-      subtitle: subtitleParts.isEmpty ? null : Text(subtitleParts.join(' · ')),
+      subtitle: subtitle,
       trailing: IconButton(
         key: Key('exercise_favorite_star_${exercise.id}'),
         icon: Icon(
           isFavorite ? Icons.star : Icons.star_border,
-          color: isFavorite ? colorScheme.tertiary : null,
+          color: isFavorite ? context.semanticColors.pr : null,
         ),
         onPressed: onToggleFavorite,
       ),
@@ -476,15 +519,15 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 48, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             if (subtitle != null) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
             ],
           ],
@@ -503,7 +546,7 @@ class _ConfirmBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: SizedBox(
         width: double.infinity,
         child: FilledButton(

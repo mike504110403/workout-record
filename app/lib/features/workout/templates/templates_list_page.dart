@@ -21,6 +21,7 @@ import 'applied_template.dart';
 import 'section_header.dart';
 import 'template_form_page.dart';
 import 'templates_controller.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class TemplatesListPage extends ConsumerStatefulWidget {
   const TemplatesListPage({super.key});
@@ -121,7 +122,7 @@ class _TemplatesListPageState extends ConsumerState<TemplatesListPage> {
           final systemTemplates = templates.systemTemplates;
           final personalTemplates = templates.personalTemplates;
           return ListView(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: AppSpacing.lg),
             children: [
               if (systemTemplates.isNotEmpty) ...[
                 const TemplateSectionHeader('系統模板'),
@@ -167,17 +168,17 @@ class _EmptyState extends StatelessWidget {
     return Center(
       key: const Key('templateListEmptyState'),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.description_outlined, size: 60, color: theme.colorScheme.primary),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.lg),
             Text(
               '尚未建立模板',
               style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.lg),
             Text(
               '建立訓練模板來快速開始訓練',
               textAlign: TextAlign.center,
@@ -185,7 +186,7 @@ class _EmptyState extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
               key: const Key('templateEmptyCreateButton'),
               onPressed: onCreate,
@@ -224,9 +225,9 @@ class _TemplateCard extends StatelessWidget {
 
     return Card(
       key: Key('templateListTile_${template.id}'),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 6),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -242,7 +243,7 @@ class _TemplateCard extends StatelessWidget {
                         style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       if (description != null && description.isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: AppSpacing.xs),
                         Text(
                           description,
                           key: Key('templateCardDescription_${template.id}'),
@@ -272,7 +273,7 @@ class _TemplateCard extends StatelessWidget {
             ),
             const Divider(height: 24),
             Text('動作', style: secondary),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpacing.xs),
             for (var i = 0; i < preview.length; i++)
               Padding(
                 key: Key('templateCardExercise_${template.id}_$i'),
@@ -287,7 +288,7 @@ class _TemplateCard extends StatelessWidget {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: AppSpacing.sm),
                     Flexible(
                       child: Text(
                         preview[i].exercise?.name ?? '',
@@ -296,7 +297,7 @@ class _TemplateCard extends StatelessWidget {
                       ),
                     ),
                     if (preview[i].suggestedSets != null && preview[i].suggestedReps != null) ...[
-                      const SizedBox(width: 8),
+                      const SizedBox(width: AppSpacing.sm),
                       Text(
                         '${preview[i].suggestedSets} 組 × ${preview[i].suggestedReps} 次',
                         style: secondary,
@@ -314,7 +315,7 @@ class _TemplateCard extends StatelessWidget {
                   style: secondary,
                 ),
               ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(

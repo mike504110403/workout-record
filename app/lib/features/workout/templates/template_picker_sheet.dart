@@ -14,11 +14,13 @@ import '../../../data/models/workout_template.dart';
 import 'applied_template.dart';
 import 'section_header.dart';
 import 'templates_controller.dart';
+import '../../../core/theme/app_tokens.dart';
 
 /// 見檔案開頭說明。使用者取消回傳 null。
 Future<AppliedTemplate?> showTemplatePicker(BuildContext context) {
   return showModalBottomSheet<AppliedTemplate>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (context) => const _TemplatePickerSheet(),
@@ -51,7 +53,7 @@ class _TemplatePickerSheet extends ConsumerWidget {
             final systemTemplates = templates.systemTemplates;
             final personalTemplates = templates.personalTemplates;
             return ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               children: [
                 if (systemTemplates.isNotEmpty) ...[
                   const TemplateSectionHeader('系統模板'),
@@ -93,18 +95,18 @@ class _TemplatePickerCard extends StatelessWidget {
 
     return Card(
       key: Key('templatePickerCard_${template.id}'),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 6),
       child: InkWell(
         key: Key('templatePickerCardTap_${template.id}'),
         onTap: onSelect,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(AppSpacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(template.name, style: const TextStyle(fontWeight: FontWeight.bold)),
               if (template.description != null) Text(template.description!),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               Text('${template.exercises.length} 個動作',
                   style: Theme.of(context).textTheme.bodySmall),
               for (final templateExercise in preview)

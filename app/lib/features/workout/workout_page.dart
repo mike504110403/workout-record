@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_tokens.dart';
 import 'start_workout_view.dart';
 import 'workout_controller.dart';
 import 'workout_in_progress_view.dart';
@@ -95,7 +96,7 @@ class _WorkoutPageState extends ConsumerState<WorkoutPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('載入失敗，請稍後再試'),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               FilledButton(
                 key: const Key('workoutErrorRetryButton'),
                 onPressed: () => ref.invalidate(workoutControllerProvider),
