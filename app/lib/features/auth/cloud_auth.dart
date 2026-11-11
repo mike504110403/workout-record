@@ -17,7 +17,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent, OAuthProvider, SupabaseClient;
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent, FunctionResponse, OAuthProvider, SupabaseClient;
 
 import '../../data/supabase_client.dart';
 
@@ -38,12 +38,18 @@ class CloudAppleSignInResult {
     this.givenName,
     this.familyName,
     this.appleEmail,
+    this.appleUserIdentifier,
   });
 
   final CloudAuthUser user;
   final String? givenName;
   final String? familyName;
   final String? appleEmail;
+
+  /// Apple 的 `credential.userIdentifier`(同 team、同 bundle 下,同一個 Apple ID
+  /// 永遠是同一個值,跟舊 iOS 版存的 `AppleIDUserID` 可直接比對)。拿來判斷
+  /// 「這個 Apple ID 是不是舊 iOS 資料的主人」,見 SessionController 首次登入比對。
+  final String? appleUserIdentifier;
 }
 
 /// 這個平台能不能走原生 Sign in with Apple(iOS/macOS)。Web/Android 沒有
@@ -70,6 +76,23 @@ abstract interface class CloudAuthService {
   /// 刪除目前登入者的帳號與全部雲端資料(RPC `delete_my_account`,刪
   /// auth.users 那一列,資料表全 cascade)。失敗拋例外,呼叫端不得清本機。
   Future<void> deleteAccount();
+}
+
+/// 刪帳號時撤銷 Sign in with Apple 授權(App Store 5.1.1(v))。
+///
+/// 刻意拆成獨立介面而不塞進 [CloudAuthService]:兩者生命週期與替身不同
+/// (登入 seam 的假件不必知道撤銷),且不用改動每個測試裡的 CloudAuthService 假件。
+abstract interface class AppleRevocationService {
+  /// 刪帳號前重新跑一次 Apple 授權,取得一次性 `authorizationCode`(給
+  /// [revokeAppleAuthorization] 用)。使用者取消時讓
+  /// [SignInWithAppleAuthorizationException](code = canceled)原樣拋出,呼叫端
+  /// 據此整個中止刪除。
+  Future<String> requestAppleAuthorizationCode();
+
+  /// 呼叫 Edge Function `apple-revoke` 撤銷 Sign in with Apple 授權(App Store
+  /// 5.1.1(v))。**必須在 [CloudAuthService.deleteAccount] 之前呼叫**——之後使用者 JWT 就失效了。
+  /// 任何失敗都拋例外,由呼叫端決定(刪帳號流程選擇不擋)。
+  Future<void> revokeAppleAuthorization(String authorizationCode);
 }
 
 class SupabaseCloudAuthService implements CloudAuthService {
@@ -115,6 +138,7 @@ class SupabaseCloudAuthService implements CloudAuthService {
       givenName: credential.givenName,
       familyName: credential.familyName,
       appleEmail: credential.email,
+      appleUserIdentifier: credential.userIdentifier,
     );
   }
 
@@ -129,6 +153,55 @@ class SupabaseCloudAuthService implements CloudAuthService {
   @override
   Future<void> deleteAccount() async {
     await _client.rpc<void>('delete_my_account');
+  }
+}
+
+/// 呼叫 Edge Function 的等待上限。撤銷只是盡力而為(失敗不擋刪帳號),網路卡住時
+/// 不能讓使用者停在轉圈畫面;逾時視同撤銷失敗,由刪帳號流程走 deletedRevokeFailed。
+/// (比 Edge Function 對 Apple 的 10 秒上限稍長,正常失敗會先由伺服器回應。)
+const kAppleRevokeInvokeTimeout = Duration(seconds: 15);
+
+/// 呼叫 Edge Function 的函式型別(預設 `client.functions.invoke`;測試可注入假件)。
+typedef EdgeFunctionInvoker = Future<FunctionResponse> Function(String name, Map<String, dynamic> body);
+
+class SupabaseAppleRevocationService implements AppleRevocationService {
+  SupabaseAppleRevocationService(
+    this._client, {
+    EdgeFunctionInvoker? invoker,
+    Duration timeout = kAppleRevokeInvokeTimeout,
+  })  : _invoker = invoker,
+        _timeout = timeout;
+
+  final SupabaseClient _client;
+  final EdgeFunctionInvoker? _invoker;
+  final Duration _timeout;
+
+  @override
+  Future<String> requestAppleAuthorizationCode() async {
+    if (!isNativeAppleSignInAvailable) {
+      throw UnsupportedError('此平台沒有原生 Sign in with Apple');
+    }
+    // 不需要姓名/信箱,也不需要 nonce(不拿去換 Supabase session)。
+    final credential = await SignInWithApple.getAppleIDCredential(scopes: const []);
+    final code = credential.authorizationCode;
+    if (code.isEmpty) {
+      throw StateError('Apple 授權沒有回傳 authorizationCode');
+    }
+    return code;
+  }
+
+  @override
+  Future<void> revokeAppleAuthorization(String authorizationCode) async {
+    final body = {'authorizationCode': authorizationCode};
+    // 逾時拋 TimeoutException,呼叫端(SessionController.deleteAccount)視同撤銷失敗。
+    final response = await (_invoker?.call('apple-revoke', body) ??
+            _client.functions.invoke('apple-revoke', body: body))
+        .timeout(_timeout);
+    final data = response.data;
+    // 不在這裡印 response:Edge Function 已保證不回 Apple 內容,但維持不記錄的習慣。
+    if (response.status != 200 || data is! Map || data['ok'] != true) {
+      throw StateError('apple-revoke 回應失敗(status ${response.status})');
+    }
   }
 }
 
@@ -149,4 +222,10 @@ final cloudSessionEndedProvider = StreamProvider<DateTime>((ref) {
   return client.auth.onAuthStateChange
       .where((s) => s.event == AuthChangeEvent.signedOut)
       .map((_) => DateTime.now());
+});
+
+/// 刪帳號撤銷 Apple 授權用;null = 非雲端模式。測試可 override 成假件。
+final appleRevocationServiceProvider = Provider<AppleRevocationService?>((ref) {
+  final client = ref.watch(supabaseClientProvider);
+  return client == null ? null : SupabaseAppleRevocationService(client);
 });

@@ -789,6 +789,121 @@ void main() {
       expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue);
     });
 
+    test('alreadyLanded 命中且血緣 key 沒寫(commit 後、寫 key 前被殺)→ '
+        '從 Drift users 補寫,與正常路徑同值', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'already_landed_backfill'))
+        ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      final prefs = await SharedPreferences.getInstance();
+      final normalPathValue = prefs.getString(kCoreDataImportedUserIdKey);
+      expect(normalPathValue, isNotNull, reason: '正常路徑本來就會寫血緣 key');
+
+      // 模擬 commit 之後、完成旗標與血緣 key 都還沒寫就被殺。
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+      await prefs.remove(kCoreDataImportedUserIdKey);
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      expect(prefs.getString(kCoreDataImportedUserIdKey), normalPathValue);
+    });
+
+    test('alreadyLanded 命中、血緣 key 沒寫,但舊庫使用者都不在 Drift users → 交集為空,不寫 key',
+        () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'already_landed_empty_intersection'))
+        ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+      await prefs.remove(kCoreDataImportedUserIdKey);
+      // Drift users 只剩一個與舊庫無關的使用者(使用者自建的別人);其餘表仍在,
+      // 所以 alreadyLanded 照樣命中。
+      await db.customStatement('PRAGMA foreign_keys = OFF');
+      await db.delete(db.users).go();
+      await db.into(db.users).insert(UsersCompanion.insert(
+          id: 'unrelated-user',
+          createdAt: DateTime(2025),
+          updatedAt: DateTime(2025),
+        ));
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      expect(prefs.containsKey(kCoreDataImportedUserIdKey), isFalse);
+    });
+
+    test('alreadyLanded 命中、血緣 key 沒寫,舊庫兩個使用者:第一個不在 Drift、第二個在 → '
+        '補寫第二個(依舊庫順序取第一筆「已落在 Drift」的)', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'already_landed_second_user'))
+        ..createSync(recursive: true);
+      final dbPath = p.join(supportDir.path, 'WorkoutRecord.sqlite');
+      _buildSyntheticOldDb(dbPath);
+      // 舊庫再加第二個使用者(ZUSERENTITY 讀出順序:Synthetic User 在前、Second User 在後)。
+      final oldDb = sqlite3lib.sqlite3.open(dbPath);
+      try {
+        oldDb.execute(
+          'INSERT INTO ZUSERENTITY (ZID, ZNAME, ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?)',
+          [_fakeUuidBytes(90), 'Second User', 0.0, 0.0],
+        );
+      } finally {
+        oldDb.dispose();
+      }
+      final importer = importerWithSupportDir(supportDir);
+
+      final first = await importer.importIfNeeded(db);
+      expect(first.success, isTrue, reason: first.errorMessage);
+      final users = await db.select(db.users).get();
+      expect(users, hasLength(2));
+      final firstUser = users.firstWhere((u) => u.name == 'Synthetic User');
+      final secondUser = users.firstWhere((u) => u.name == 'Second User');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(kCoreDataImportedUserIdKey), firstUser.id, reason: '正常路徑取第一個');
+
+      // 模擬 commit 之後、完成旗標與血緣 key 都還沒寫就被殺;且第一個使用者已不在 Drift。
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+      await prefs.remove(kCoreDataImportedUserIdKey);
+      await db.customStatement('PRAGMA foreign_keys = OFF');
+      await (db.delete(db.users)..where((u) => u.id.equals(firstUser.id))).go();
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      expect(prefs.getString(kCoreDataImportedUserIdKey), secondUser.id);
+    });
+
+    test('alreadyLanded 命中但血緣 key 已存在 → 不覆寫', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final supportDir = Directory(p.join(tempDir.path, 'already_landed_keep_key'))
+        ..createSync(recursive: true);
+      _buildSyntheticOldDb(p.join(supportDir.path, 'WorkoutRecord.sqlite'));
+      final importer = importerWithSupportDir(supportDir);
+
+      await importer.importIfNeeded(db);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCoreDataImportCompletedKey, false);
+      await prefs.setString(kCoreDataImportedUserIdKey, 'already-there');
+
+      final second = await importer.importIfNeeded(db);
+
+      expect(second.skipReason, ImportSkipReason.alreadyLanded);
+      expect(prefs.getString(kCoreDataImportedUserIdKey), 'already-there');
+    });
+
     test('Drift 有使用者自建資料,但沒有任何舊庫 id 存在其中 → 不誤判成'
         '已落地,照常跑一次正常匯入', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());

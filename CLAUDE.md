@@ -1,6 +1,4 @@
-stage: mvp
-
-> 2026-11-10 Mike 裁示覆寫入選條件:iOS 版已上架,但 Flutter 版未發布即視為 MVP;Flutter 版首次發布＝畢業,畢業總審必含 CoreData 匯入與 schema migration
+> 2026-11-11 /mvp 畢業:Flutter 版連 workout-prod 發 TestFlight(真實資料),畢業總審完成(B1/M1/M2 已修),之後工程走 quick/solo/feature/bug/mega。
 
 # WorkoutRecord — 健身紀錄 App
 
@@ -8,10 +6,12 @@ SwiftUI 健身紀錄 app,已上架 App Store。
 
 **專案方向(2026-07-22 定 Flutter 改寫;2026-07-24 擴為 iOS/Android/Web 三平台 + 跨裝置同步):現有 iOS 版進入維護模式——只修 bug、不加新功能、不做重構美化。** 重大決策見 `.claude/decisions/`;領域語言見 `CONTEXT.md`,技術術語見 `docs/GLOSSARY.md`。
 
-## Flutter 版(app/,開發中)
+## Flutter 版(app/,TestFlight 內測中)
 
 - 選型:Riverpod + Drift(SQLite)+ fl_chart + go_router;三平台(iOS/Android/Web)一起首發
-- **同步與後端(2026-11-10 改 Supabase,同記帳 app;取代 07-24 的自建 Go REST API + SQLite + Litestream)**;同步協定 = updatedAt 增量拉推 + LWW + 刪除墓碑;帳號 = Apple + Google 雙登入。**開發順序鐵律:UI 依使用者操作順序垂直切片先行、每波可在模擬器/瀏覽器驗看,後端/同步排最後(掛同步波),之前一律純本機 Drift**
+- **後端:Supabase 直連(2026-11-10 改,同記帳 app;取代 07-24 的自建 Go 後端與 updatedAt/LWW/墓碑同步協定)**。資料讀寫直接走 Supabase(RLS 守權限),沒網路不能記訓練(進行中訓練草稿例外:存本機、完成時一次上傳)。舊 iOS CoreData 首啟先匯入本機 Drift,登入後一次性上傳(`app/lib/data/migration/cloud_upload.dart`)。帳號:Apple 登入(Google 暫緩,Web/Android 雲端模式暫無登入入口)。決策見 `.claude/decisions/2026-11-11-supabase直連與正式環境.md`
+- **環境**:`workout-dev`(ap-south-1,連線資訊 repo 根 `.env`)給開發與 debug build;`workout-prod`(ap-northeast-1,`.env.prod`)給 TestFlight/App Store。兩檔皆 gitignore、權限 600。release build 不帶連線設定就拒絕啟動,打包一律 `app/tool/build_ios_prod.sh`(`--upload` 自動 build 號 +1 並上傳 TestFlight,金鑰在 `~/mike/asc/asc.env`)。migration 跑 dev 與 prod 都要先問 Mike;prod 走 `aws-1-ap-northeast-1.pooler.supabase.com`(直連會被拒)
+- 本機開發:`flutter run -d chrome --dart-define=USE_MOCK=true` 不連任何雲端
 - 升 Flutter 至最新 stable(Dart ≥3.11)已拍板未執行;升完重訂依賴 pin(現況因 meta 1.17.0 牆釘 drift 2.31 等)
 - Bundle ID / applicationId:`com.mikelin.workitout`(接手現有 App Store app,自 1.1(5) 之後)
 - 硬性驗收:首次啟動須把舊 CoreData SQLite 資料無縫匯入 Drift,升級不得遺失訓練歷史
@@ -40,7 +40,7 @@ cd ios/WorkoutRecord && xcodebuild -project WorkoutRecord.xcodeproj -scheme Work
 
 - **禁止未經 Firebase Auth 驗證的 Firestore 個資寫入**(users collection)——v1.2 曾引入、已因安全問題移除,見 decisions
 - `UserPreferencesSyncService`、`CloudKitSyncService` 是半成品死碼,勿當現行功能參考
-- 隱私文案(Onboarding / About / PrivacyConsent)必須與「資料存裝置本機」的現狀一致
+- iOS 版隱私文案(Onboarding / About / PrivacyConsent)必須與「資料存裝置本機」的現狀一致;Flutter 版資料在 Supabase,`docs/privacy.html` 要在 Flutter 版送審時改寫(現行 iOS 版仍在用,之前勿動)
 - App Store 的隱私政策網頁由 `docs/privacy.html` + GitHub Pages 供應,勿刪勿移
 
 ## 文檔地圖

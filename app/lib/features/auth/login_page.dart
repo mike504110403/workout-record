@@ -47,6 +47,32 @@ final showTestLoginProvider = Provider<bool>((ref) {
   return !kReleaseMode || kIsWeb || Platform.isAndroid;
 });
 
+/// build 期間不能直接 showDialog,等這一幀結束;彈之前先清掉通知(一次性事件),
+/// 重建或重複排程時第二次讀到 null 就不會重複彈。
+void _showPostDeleteNoticeAfterFrame(BuildContext context, WidgetRef ref) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!context.mounted) return;
+    final message = ref.read(postDeleteNoticeProvider);
+    if (message == null) return;
+    ref.read(postDeleteNoticeProvider.notifier).clear();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('帳號已刪除'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            key: const Key('postDeleteNoticeAck'),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  });
+}
+
 class LoginPage extends ConsumerWidget {
   const LoginPage({super.key});
 
@@ -58,6 +84,15 @@ class LoginPage extends ConsumerWidget {
     final showTestLogin = !cloudMode && ref.watch(showTestLoginProvider);
     final showRealAppleSignIn = cloudMode ? nativeAppleAvailable : !showTestLogin;
     final showAppleUnavailableNotice = cloudMode && !nativeAppleAvailable;
+
+    // 刪帳號後留下的一次性通知(撤銷 Apple 授權失敗)。刪帳號登出後登入頁才新建,
+    // 通知在它出現之前就已設好,只靠「值改變」的監聽會漏接,所以 build 時先看一次現值。
+    if (ref.read(postDeleteNoticeProvider) != null) {
+      _showPostDeleteNoticeAfterFrame(context, ref);
+    }
+    ref.listen<String?>(postDeleteNoticeProvider, (previous, next) {
+      if (next != null) _showPostDeleteNoticeAfterFrame(context, ref);
+    });
 
     ref.listen<SessionState>(sessionControllerProvider, (previous, next) {
       if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {

@@ -257,8 +257,9 @@ class SettingsPage extends ConsumerWidget {
     }
   }
 
-  /// 刪除帳號:兩段確認(App Store 5.1.1(v))→ 呼叫雲端刪除。成功後
-  /// session 清空,路由自動回登入頁;失敗只提示,本機不動。
+  /// 刪除帳號:兩段確認(App Store 5.1.1(v))→ 撤銷 Apple 授權(iOS,需重新
+  /// 授權,取消則整個中止)→ 呼叫雲端刪除。成功後 session 清空,路由自動回登入頁;
+  /// 失敗只提示,本機不動。
   Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
     final first = await showDialog<bool>(
       context: context,
@@ -304,12 +305,23 @@ class SettingsPage extends ConsumerWidget {
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
-    final ok = await ref.read(sessionControllerProvider.notifier).deleteAccount();
+    final result = await ref.read(sessionControllerProvider.notifier).deleteAccount();
     if (navigator.mounted) navigator.pop();
-    if (!ok) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('刪除帳號失敗,請確認網路後再試一次')),
-      );
+    switch (result) {
+      case DeleteAccountResult.cancelled:
+        // 使用者在 Apple 重新授權時取消:整個刪除中止,不提示。
+        break;
+      case DeleteAccountResult.failed:
+        messenger.showSnackBar(
+          const SnackBar(content: Text('刪除帳號失敗,請確認網路後再試一次')),
+        );
+      case DeleteAccountResult.deleted:
+        break;
+      case DeleteAccountResult.deletedRevokeFailed:
+        // 帳號已刪;Apple 授權沒撤銷成功的提示不在這裡彈:登出後設定頁隨 redirect 離場,
+        // 疊在上面的 SnackBar/Dialog 會一起消失。deleteAccount 已把提示記進
+        // postDeleteNoticeProvider,由登入頁以 AlertDialog 顯示(按「知道了」才關)。
+        break;
     }
   }
 

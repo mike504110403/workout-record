@@ -490,9 +490,9 @@ void main() {
       await seedTestUser(container.read(appDatabaseProvider), id: 'auth-uid-1');
       expect(await userRows(container), 1);
 
-      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+      final result = await container.read(sessionControllerProvider.notifier).deleteAccount();
 
-      expect(ok, isTrue);
+      expect(result, DeleteAccountResult.deleted);
       expect(cloud.deleteCalls, 1);
       expect(container.read(sessionControllerProvider).isLoggedIn, isFalse);
       expect(await userRows(container), 0);
@@ -506,7 +506,7 @@ void main() {
           reason: '離線草稿與快取一併清除');
     });
 
-    test('雲端刪除失敗:回 false,本機登入態與資料都不動', () async {
+    test('雲端刪除失敗:回 failed,本機登入態與資料都不動', () async {
       final cloud = _FakeCloudAuth(current: const CloudAuthUser(id: 'auth-uid-1'))
         ..deleteError = Exception('network');
       final container = await _container(
@@ -519,9 +519,9 @@ void main() {
       );
       await seedTestUser(container.read(appDatabaseProvider), id: 'auth-uid-1');
 
-      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+      final result = await container.read(sessionControllerProvider.notifier).deleteAccount();
 
-      expect(ok, isFalse);
+      expect(result, DeleteAccountResult.failed);
       expect(container.read(sessionControllerProvider).isLoggedIn, isTrue);
       expect(await userRows(container), 1);
       final prefs = container.read(sharedPreferencesProvider);
@@ -533,9 +533,9 @@ void main() {
       final cloud = _FakeCloudAuth();
       final container = await _container({}, cloud: cloud);
 
-      final ok = await container.read(sessionControllerProvider.notifier).deleteAccount();
+      final result = await container.read(sessionControllerProvider.notifier).deleteAccount();
 
-      expect(ok, isFalse);
+      expect(result, DeleteAccountResult.failed);
       expect(cloud.deleteCalls, 0);
     });
   });

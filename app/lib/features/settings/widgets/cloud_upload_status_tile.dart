@@ -1,6 +1,6 @@
 // 登入後「本機舊資料 → 雲端」一次性上傳的使用者可見狀態(設定頁列表尾,
 // ImportRetryTile 旁)。idle(沒在上傳、或不需要上傳)不渲染;上傳中顯示進度;
-// 成功顯示筆數;失敗顯示錯誤與「重試上傳」按鈕(下次啟動也會自動重試)。
+// 成功顯示筆數(有屬於其他帳號而略過的資料時加註);失敗顯示錯誤與「重試上傳」按鈕(下次啟動也會自動重試)。
 // 狀態來源與觸發見 features/cloud_upload/cloud_upload_controller.dart。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,7 +34,11 @@ class CloudUploadStatusTile extends ConsumerWidget {
           key: const Key('cloudUploadSucceeded'),
           leading: Icon(Icons.cloud_done_outlined, color: context.semanticColors.success),
           title: const Text('舊資料已上傳到雲端'),
-          subtitle: Text('共 ${status.uploadedRows} 筆'),
+          subtitle: Text(
+            status.unownedRows > 0
+                ? '共 ${status.uploadedRows} 筆\n有 ${status.unownedRows} 筆資料屬於其他帳號,未上傳'
+                : '共 ${status.uploadedRows} 筆',
+          ),
         );
       case CloudUploadPhase.failed:
         return ListTile(

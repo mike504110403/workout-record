@@ -384,6 +384,15 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# 刪帳號時撤銷 Sign in with Apple 授權(App Store 5.1.1(v))。
+# verify_jwt 關閉:閘道的 JWT 檢查 anon key 也過得了,改由函式內用請求的
+# Authorization 呼叫 auth.getUser() 自己驗呼叫者(未登入回 401)。
+# secrets 由部署時另外設定:APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_CLIENT_ID / APPLE_PRIVATE_KEY。
+[functions.apple-revoke]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/apple-revoke/index.ts"
+
 [analytics]
 enabled = true
 port = 55427

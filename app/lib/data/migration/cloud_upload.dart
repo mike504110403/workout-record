@@ -23,7 +23,27 @@
 // 冪等:一律以本機 id 當雲端 id,`INSERT ... ON CONFLICT (id) DO NOTHING`
 // (PostgREST upsert ignoreDuplicates)——重跑不重複、也不覆寫雲端已有列;
 // 先父後子,分批送出。全部成功才寫 [cloudUploadCompletedKey](依 auth uid 區分),
-// 中途失敗不寫旗標,下次啟動或設定頁重試會從頭再跑一次(已上傳的列被忽略)。
+// 中途失敗不寫旗標,下次啟動或設定頁重試。
+//
+// 核對:`ON CONFLICT DO NOTHING` 遇到「id 已存在但屬於別的使用者」(RLS 下本人
+// 看不到)會默默略過。所以每張表送完後,用本人身分回查剛送出的 id 有幾筆可見
+// (不加 user_id 過濾:與雲端系統動作 id 相同的列靠 RLS 可見即算存在)。看不見的
+// id 已被別的帳號佔用(例如裝置從別人的 iCloud 備份還原),那些資料本來就屬於
+// 另一個帳號——計入各表略過筆數([CloudUploadResult.unownedCounts]),不算失敗,
+// 上傳照常完成並寫旗標。回查本身失敗(網路等)才是失敗、不寫旗標。
+//
+// 子列連帶略過:被佔用的若是父列(整批 workouts 都屬於別的帳號),子列送出會撞
+// FK/RLS(父 workout 不存在/不是本人;引用的動作須是系統或本人的,見 migration
+// 20261111000600),重試也永遠失敗。所以每張表送完回查拿到「不可見 id 集合」後,
+// 後面的子表送出前先剔除引用到不可見(或已被剔除)父 id 的列,同樣計入該子表的略過
+// 筆數、不送、不算失敗。引用關係見 [CloudUploadTable.refs]。
+//
+// 已知殘餘風險:重試從頭再送,兩次嘗試之間使用者在雲端刪掉的已上傳資料會被補回
+// (沒有墓碑)。不做逐表檢查點——跳過已完成的父表後,雲端被刪的父列不會補回,
+// 子表重送會撞 RLS/FK 永久失敗。
+import 'dart:async' show TimeoutException;
+import 'dart:io' show HandshakeException, SocketException, TlsException;
+
 import 'package:drift/drift.dart' show Expression, Insertable, Variable;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -33,6 +53,35 @@ import '../db/app_database.dart';
 /// 依 auth uid 區分的「已上傳完成」旗標 key。
 String cloudUploadCompletedKey(String uid) => 'cloud_upload_completed_$uid';
 
+/// 失敗的粗分類,UI 依此挑使用者看得懂的文案(原始例外不外露)。
+enum CloudUploadFailureKind {
+  /// 網路中斷、逾時、連線錯誤。
+  network,
+
+  /// 其餘。
+  other,
+}
+
+/// 把上傳過程的例外粗分成 [CloudUploadFailureKind]。
+CloudUploadFailureKind classifyCloudUploadError(Object e) {
+  if (e is SocketException ||
+      e is TimeoutException ||
+      e is HandshakeException ||
+      e is TlsException) {
+    return CloudUploadFailureKind.network;
+  }
+  if (e is PostgrestException) {
+    // 非 JSON 的 HTTP 錯誤,PostgREST 把狀態碼當 code。
+    final code = e.code ?? '';
+    if (const {'408', '502', '503', '504'}.contains(code)) return CloudUploadFailureKind.network;
+    return CloudUploadFailureKind.other;
+  }
+  // package:http 的 ClientException(連線被重置、DNS 失敗等)沒有直接依賴可引用,
+  // 以型別名判斷。
+  if (e.runtimeType.toString() == 'ClientException') return CloudUploadFailureKind.network;
+  return CloudUploadFailureKind.other;
+}
+
 /// 一次性上傳的結果。
 class CloudUploadResult {
   const CloudUploadResult({
@@ -41,7 +90,9 @@ class CloudUploadResult {
     this.uploadedRows = 0,
     this.tableCounts = const {},
     this.skippedCounts = const {},
+    this.unownedCounts = const {},
     this.errorMessage,
+    this.failureKind,
   });
 
   final bool success;
@@ -58,7 +109,18 @@ class CloudUploadResult {
   /// 依規則刻意不上傳的列數(例如 `drafts`、`user_goals`)。
   final Map<String, int> skippedCounts;
 
+  /// 各表「id 已被別的帳號佔用、本人看不見而未上傳」的筆數(只列大於 0 的表)。
+  /// 這些資料本來就屬於另一個帳號,不算失敗;UI 只顯示總數,明細進 debugPrint。
+  final Map<String, int> unownedCounts;
+
+  /// [unownedCounts] 總和。
+  int get unownedTotal => unownedCounts.values.fold(0, (a, b) => a + b);
+
+  /// 原始錯誤訊息(給 log 用,不直接顯示給使用者)。
   final String? errorMessage;
+
+  /// 失敗時的分類(成功為 null)。
+  final CloudUploadFailureKind? failureKind;
 }
 
 /// 上傳時要 ensure 的 users 列資料(id 一律是 auth uid)。
@@ -91,6 +153,12 @@ abstract interface class CloudUploadSink {
 
   /// 以 id 為衝突鍵批次插入,已存在的列忽略(ON CONFLICT (id) DO NOTHING)。
   Future<void> insertIgnoringDuplicates(String table, List<Map<String, dynamic>> rows);
+
+  /// 用本人身分回查 [table] 裡 [ids] 哪些「可見」,回傳可見的 id 集合。刻意不加
+  /// user_id 過濾:RLS 下別人的同 id 列看不到(不在集合內),但與系統動作/模板 id
+  /// 相同的列看得到(算存在)。要拿集合而不只是數量,是因為子表要靠它剔除引用到
+  /// 不可見父列的列。呼叫端負責分批,單次 [ids] 不宜過長。
+  Future<Set<String>> fetchVisibleIds(String table, List<String> ids);
 }
 
 class SupabaseCloudUploadSink implements CloudUploadSink {
@@ -141,6 +209,13 @@ class SupabaseCloudUploadSink implements CloudUploadSink {
     if (rows.isEmpty) return;
     await _client.from(table).upsert(rows, onConflict: 'id', ignoreDuplicates: true);
   }
+
+  @override
+  Future<Set<String>> fetchVisibleIds(String table, List<String> ids) async {
+    if (ids.isEmpty) return const {};
+    final rows = await _client.from(table).select('id').inFilter('id', ids);
+    return {for (final r in rows) r['id'] as String};
+  }
 }
 
 /// 本機 Drift 資料一次性上傳到 Supabase(登入後呼叫)。
@@ -179,14 +254,23 @@ Map<String, dynamic> _rowJson(Insertable<dynamic> row) {
 }
 
 class DriftToSupabaseUploader implements LocalToCloudUploader {
-  DriftToSupabaseUploader({required SharedPreferences prefs, this.batchSize = 500})
-      : _prefs = prefs,
-        assert(batchSize > 0);
+  DriftToSupabaseUploader({
+    required SharedPreferences prefs,
+    this.batchSize = 500,
+    this.verifyBatchSize = 100,
+  })  : _prefs = prefs,
+        assert(batchSize > 0),
+        assert(verifyBatchSize > 0);
 
   final SharedPreferences _prefs;
 
   /// 每次 PostgREST 請求最多送幾列。
   final int batchSize;
+
+  /// 核對時每次 `id in (...)` 查詢最多帶幾個 id。id 是 36 字元 UUID,加分隔符約
+  /// 37 字元;100 個 ≈ 3.7KB 的 query string,低於常見閘道/代理 8KB 的 URL 與
+  /// header 上限並留有編碼膨脹餘裕(500 個會逼近 20KB 而被 414/431 擋掉)。
+  final int verifyBatchSize;
 
   @override
   bool isCompleted(String uid) => _prefs.getBool(cloudUploadCompletedKey(uid)) ?? false;
@@ -218,7 +302,11 @@ class DriftToSupabaseUploader implements LocalToCloudUploader {
     try {
       final uid = sink.currentUid;
       if (uid == null) {
-        return const CloudUploadResult(success: false, errorMessage: '尚未登入,無法上傳');
+        return const CloudUploadResult(
+          success: false,
+          errorMessage: '尚未登入,無法上傳',
+          failureKind: CloudUploadFailureKind.other,
+        );
       }
       if (isCompleted(uid)) {
         return const CloudUploadResult(success: true, skipped: true);
@@ -232,13 +320,36 @@ class DriftToSupabaseUploader implements LocalToCloudUploader {
 
       final plan = await buildCloudUploadPlan(local, sink, uid);
       final counts = <String, int>{};
+      final unownedCounts = <String, int>{};
+      // 表名 → 該表「雲端上沒有本人可用的列」的 id(一律小寫,與回查比對同口徑):
+      // 回查看不見的,加上因父列不可用而被剔除沒送的。子表依 [CloudUploadTable.refs]
+      // 查這裡決定要不要剔除。
+      final unusable = <String, Set<String>>{};
       for (final entry in plan.tables) {
-        final rows = entry.rows;
+        final rows = <Map<String, dynamic>>[];
+        final droppedIds = <String>{};
+        var dropped = 0;
+        for (final row in entry.rows) {
+          final parentGone = entry.refs.any(
+            (ref) => unusable[ref.parentTable]?.contains(_idKey(row[ref.column])) ?? false,
+          );
+          if (parentGone) {
+            dropped++;
+            droppedIds.add(_idKey(row['id']));
+          } else {
+            rows.add(row);
+          }
+        }
         for (var i = 0; i < rows.length; i += batchSize) {
           final end = i + batchSize < rows.length ? i + batchSize : rows.length;
           await sink.insertIgnoringDuplicates(entry.table, rows.sublist(i, end));
         }
-        counts[entry.table] = rows.length;
+        final invisible = await _findInvisible(sink, entry.table, rows);
+        // 「共 N 筆」只算本人確實可用的:送出後才發現不可見的列已計入略過,不重複算。
+        counts[entry.table] = rows.length - invisible.length;
+        unusable[entry.table] = {...droppedIds, for (final id in invisible) _idKey(id)};
+        final unowned = dropped + invisible.length;
+        if (unowned > 0) unownedCounts[entry.table] = unowned;
       }
 
       await _prefs.setBool(cloudUploadCompletedKey(uid), true);
@@ -247,19 +358,57 @@ class DriftToSupabaseUploader implements LocalToCloudUploader {
         uploadedRows: counts.values.fold(0, (a, b) => a + b),
         tableCounts: counts,
         skippedCounts: plan.skippedCounts,
+        unownedCounts: unownedCounts,
       );
     } catch (e) {
-      return CloudUploadResult(success: false, errorMessage: '$e');
+      return CloudUploadResult(
+        success: false,
+        errorMessage: '$e',
+        failureKind: classifyCloudUploadError(e),
+      );
     }
   }
+
+  /// id 比對一律轉小寫:Postgres uuid 型別回傳小寫,本機日後若有大寫 id 來源,
+  /// 不轉的話本人資料會被全判成不可見。
+  /// 非字串(例如可為空的引用欄位是 null)回空字串,不會命中任何 id。
+  static String _idKey(Object? id) => id is String ? id.toLowerCase() : '';
+
+  /// 回查 [sent] 剛送出的 id 在雲端(本人身分)哪些看不見(id 已被別的帳號佔用),
+  /// 回傳看不見的 id 集合(保留本機原樣的大小寫)。查詢失敗直接拋出,由呼叫端當成上傳失敗。
+  Future<Set<String>> _findInvisible(
+    CloudUploadSink sink,
+    String table,
+    List<Map<String, dynamic>> sent,
+  ) async {
+    final ids = {for (final r in sent) r['id'] as String}.toList();
+    final visible = <String>{};
+    for (var i = 0; i < ids.length; i += verifyBatchSize) {
+      final end = i + verifyBatchSize < ids.length ? i + verifyBatchSize : ids.length;
+      visible.addAll([for (final id in await sink.fetchVisibleIds(table, ids.sublist(i, end))) _idKey(id)]);
+    }
+    return {for (final id in ids) if (!visible.contains(_idKey(id))) id};
+  }
+}
+
+/// 子表的一條外鍵引用:[column] 的值是 [parentTable] 的 id。
+class CloudUploadRef {
+  const CloudUploadRef(this.column, this.parentTable);
+
+  final String column;
+  final String parentTable;
 }
 
 /// 一張表要送出的列(已套用對應規則)。
 class CloudUploadTable {
-  const CloudUploadTable(this.table, this.rows);
+  const CloudUploadTable(this.table, this.rows, {this.refs = const []});
 
   final String table;
   final List<Map<String, dynamic>> rows;
+
+  /// 這張表的 FK/RLS 引用(只列要求父列「本人可用」的,見 schema 與 RLS)。
+  /// workouts.template_id、personal_records.workout_id 沒有 FK,不列。
+  final List<CloudUploadRef> refs;
 }
 
 /// 上傳計畫:[tables] 依父子順序排列。
@@ -406,6 +555,9 @@ Future<CloudUploadPlan> buildCloudUploadPlan(
     ]),
     CloudUploadTable('template_exercises', [
       for (final te in uploadTemplateExercises) owned(te)..['exercise_id'] = mapExercise(te.exerciseId),
+    ], refs: const [
+      CloudUploadRef('template_id', 'templates'),
+      CloudUploadRef('exercise_id', 'exercises'),
     ]),
     CloudUploadTable('workouts', [
       for (final w in uploadWorkouts)
@@ -413,12 +565,17 @@ Future<CloudUploadPlan> buildCloudUploadPlan(
     ]),
     CloudUploadTable('workout_exercises', [
       for (final we in uploadWorkoutExercises) owned(we)..['exercise_id'] = mapExercise(we.exerciseId),
+    ], refs: const [
+      CloudUploadRef('workout_id', 'workouts'),
+      CloudUploadRef('exercise_id', 'exercises'),
     ]),
-    CloudUploadTable('workout_sets', [for (final s in uploadWorkoutSets) owned(s)]),
+    CloudUploadTable('workout_sets', [
+      for (final s in uploadWorkoutSets) owned(s),
+    ], refs: const [CloudUploadRef('workout_exercise_id', 'workout_exercises')]),
     CloudUploadTable('body_weights', [for (final b in bodyWeights) owned(b)]),
     CloudUploadTable('personal_records', [
       for (final pr in personalRecords) owned(pr)..['exercise_id'] = mapExercise(pr.exerciseId),
-    ]),
+    ], refs: const [CloudUploadRef('exercise_id', 'exercises')]),
     CloudUploadTable('user_goals', [for (final g in uploadGoals) owned(g)]),
     CloudUploadTable('power_lift_records', [for (final p in powerLifts) owned(p)]),
   ];

@@ -1,6 +1,8 @@
 // CloudUploadController + startCloudUploadTrigger + 升級用戶判斷(雲端模式)+
 // CloudUploadStatusTile。Supabase 端以 [cloudUploadSinkProvider] /
 // [cloudAuthServiceProvider] / [userRepositoryProvider] override 成假件。
+import 'dart:io' show SocketException;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -163,7 +165,8 @@ void main() {
       final failed = await h.controller.runIfNeeded();
       expect(failed!.success, isFalse);
       expect(h.status.phase, CloudUploadPhase.failed);
-      expect(h.status.errorMessage, contains('injected failure'));
+      expect(h.status.errorMessage, cloudUploadFailureMessage(CloudUploadFailureKind.other));
+      expect(h.status.errorMessage, isNot(contains('injected failure')), reason: '原始例外不給使用者看');
       expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isNull);
 
       final retried = await h.controller.runIfNeeded();
@@ -171,6 +174,78 @@ void main() {
       expect(h.status.phase, CloudUploadPhase.succeeded);
       expect(h.sink!.count('workout_sets'), 3);
       expect(h.sink!.count('personal_records'), 1);
+    });
+  });
+
+  group('失敗文案(使用者看得懂的中文,原始例外只進 debugPrint)', () {
+    Future<void> expectFailure(
+      Object error,
+      CloudUploadFailureKind kind,
+      String rawFragment,
+    ) async {
+      final h = await _harness();
+      h.sink!
+        ..failOnTable = 'workouts'
+        ..failWith = error;
+      final logs = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) => logs.add(message ?? '');
+      addTearDown(() => debugPrint = originalDebugPrint);
+
+      await h.controller.runIfNeeded();
+
+      expect(h.status.phase, CloudUploadPhase.failed);
+      expect(h.status.errorMessage, cloudUploadFailureMessage(kind));
+      expect(h.status.errorMessage, isNot(contains(rawFragment)));
+      expect(logs.join('\n'), contains(rawFragment), reason: '原始例外進 debugPrint');
+    }
+
+    test('網路類', () => expectFailure(
+          const SocketException('Failed host lookup'),
+          CloudUploadFailureKind.network,
+          'Failed host lookup',
+        ));
+
+    test('其他', () => expectFailure(StateError('weird'), CloudUploadFailureKind.other, 'weird'));
+
+    test('兩類文案互不相同且不含英文例外字樣', () {
+      final msgs = {for (final k in CloudUploadFailureKind.values) k: cloudUploadFailureMessage(k)};
+      expect(msgs.values.toSet(), hasLength(CloudUploadFailureKind.values.length));
+      for (final m in msgs.values) {
+        expect(RegExp(r'Exception|Error|StateError').hasMatch(m), isFalse, reason: m);
+      }
+    });
+
+    test('核對查詢失敗(網路)→ 網路類文案,旗標不寫', () async {
+      final h = await _harness();
+      h.sink!
+        ..failOnCount = true
+        ..failCountWith = const SocketException('Connection reset');
+
+      await h.controller.runIfNeeded();
+
+      expect(h.status.phase, CloudUploadPhase.failed);
+      expect(h.status.errorMessage, cloudUploadFailureMessage(CloudUploadFailureKind.network));
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isNull);
+    });
+  });
+
+  group('有資料屬於其他帳號', () {
+    test('成功、帶略過總數、旗標寫入;明細只進 debugPrint', () async {
+      final h = await _harness();
+      h.sink!.table('body_weights')['bw-1'] = {'id': 'bw-1', 'user_id': 'someone-else'};
+      final logs = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) => logs.add(message ?? '');
+      addTearDown(() => debugPrint = originalDebugPrint);
+
+      final result = await h.controller.runIfNeeded();
+
+      expect(result!.success, isTrue);
+      expect(h.status.phase, CloudUploadPhase.succeeded);
+      expect(h.status.unownedRows, 1);
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isTrue);
+      expect(logs.join('\n'), contains('body_weights'));
     });
   });
 
@@ -258,6 +333,7 @@ void main() {
       await tester.pump();
       expect(find.byKey(const Key('cloudUploadFailed')), findsOneWidget);
       expect(find.text('舊資料上傳雲端失敗'), findsOneWidget);
+      expect(find.text(cloudUploadFailureMessage(CloudUploadFailureKind.other)), findsOneWidget);
 
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('cloudUploadRetryButton')));
@@ -269,6 +345,21 @@ void main() {
       await tester.pump();
       expect(find.byKey(const Key('cloudUploadSucceeded')), findsOneWidget);
       expect(find.textContaining('共 '), findsOneWidget);
+    });
+
+    testWidgets('成功但有資料屬於其他帳號 → 多一句白話說明筆數;沒有則不顯示', (tester) async {
+      final h = await tester.runAsync(() => _harness());
+      await pumpTile(tester, h!);
+      final notifier = h.container.read(cloudUploadControllerProvider.notifier);
+
+      notifier.state = const CloudUploadStatus(CloudUploadPhase.succeeded, uploadedRows: 10);
+      await tester.pump();
+      expect(find.textContaining('屬於其他帳號'), findsNothing);
+
+      notifier.state =
+          const CloudUploadStatus(CloudUploadPhase.succeeded, uploadedRows: 10, unownedRows: 3);
+      await tester.pump();
+      expect(find.textContaining('有 3 筆資料屬於其他帳號,未上傳'), findsOneWidget);
     });
 
     testWidgets('上傳中顯示進度', (tester) async {

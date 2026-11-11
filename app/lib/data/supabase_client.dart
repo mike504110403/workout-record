@@ -17,6 +17,8 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'secure_session_storage.dart';
+
 // debug/profile 的 defaultValue 是雲端 workout-dev 專案的位址與 **publishable**
 // key——本來就會打包進 App 的公開資訊,可進版控(同 accounting);權限由 RLS
 // 把關。要連別的專案用 --dart-define 覆寫;純本機帶 USE_MOCK=true。
@@ -47,8 +49,21 @@ const kUseSupabase = !kUseMock && kSupabaseConfigured;
 /// main.dart 遇到時只顯示錯誤畫面,不跑匯入、不啟動資料層。
 const kReleaseMisconfigured = kReleaseMode && !kUseMock && !kSupabaseConfigured;
 
-Future<void> initSupabase() =>
-    Supabase.initialize(url: kSupabaseUrl, publishableKey: kSupabaseAnonKey);
+/// 組 Supabase auth 選項:session 改存 Keychain/Keystore(見
+/// `secure_session_storage.dart`);Web 的 localStorage 為 null,沿用套件預設。
+/// 其餘 auth 選項維持套件預設值,只換 localStorage。抽成函式是為了能測「非 Web 時
+/// 真的接上 SecureSessionStorage」,免得有人改動時悄悄退回明文儲存。
+FlutterAuthClientOptions buildAuthOptions({required String supabaseUrl, bool? isWeb}) {
+  return FlutterAuthClientOptions(localStorage: createSessionLocalStorage(supabaseUrl: supabaseUrl, isWeb: isWeb));
+}
+
+Future<void> initSupabase() {
+  return Supabase.initialize(
+    url: kSupabaseUrl,
+    publishableKey: kSupabaseAnonKey,
+    authOptions: buildAuthOptions(supabaseUrl: kSupabaseUrl),
+  );
+}
 
 /// 由 `main.dart` override 成 `Supabase.instance.client`;預設 null = 沒有連線
 /// (測試/USE_MOCK/未設定),repository 走 Drift。

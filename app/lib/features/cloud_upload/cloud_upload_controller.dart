@@ -31,15 +31,29 @@ final localToCloudUploaderProvider = Provider<LocalToCloudUploader>(
   (ref) => DriftToSupabaseUploader(prefs: ref.watch(sharedPreferencesProvider)),
 );
 
+/// 失敗文案(使用者看得懂的一句話;原始例外只進 debugPrint)。
+String cloudUploadFailureMessage(CloudUploadFailureKind kind) => switch (kind) {
+      CloudUploadFailureKind.network => '網路連線不穩或中斷,請確認網路後再按「重試上傳」。',
+      CloudUploadFailureKind.other => '上傳時發生問題,請稍後再按「重試上傳」。',
+    };
+
 enum CloudUploadPhase { idle, uploading, succeeded, failed }
 
 class CloudUploadStatus {
-  const CloudUploadStatus(this.phase, {this.uploadedRows = 0, this.errorMessage});
+  const CloudUploadStatus(
+    this.phase, {
+    this.uploadedRows = 0,
+    this.unownedRows = 0,
+    this.errorMessage,
+  });
 
   const CloudUploadStatus.idle() : this(CloudUploadPhase.idle);
 
   final CloudUploadPhase phase;
   final int uploadedRows;
+
+  /// 因 id 已被其他帳號佔用而未上傳的筆數(成功時才有意義)。
+  final int unownedRows;
   final String? errorMessage;
 }
 
@@ -76,14 +90,25 @@ class CloudUploadController extends Notifier<CloudUploadStatus> {
             : null,
       );
       state = result.success
-          ? CloudUploadStatus(CloudUploadPhase.succeeded, uploadedRows: result.uploadedRows)
-          : CloudUploadStatus(CloudUploadPhase.failed, errorMessage: result.errorMessage);
+          ? CloudUploadStatus(
+              CloudUploadPhase.succeeded,
+              uploadedRows: result.uploadedRows,
+              unownedRows: result.unownedTotal,
+            )
+          : CloudUploadStatus(
+              CloudUploadPhase.failed,
+              errorMessage: cloudUploadFailureMessage(result.failureKind ?? CloudUploadFailureKind.other),
+            );
       if (!result.success) debugPrint('cloud upload failed: ${result.errorMessage}');
+      if (result.unownedCounts.isNotEmpty) {
+        debugPrint('cloud upload: 屬於其他帳號、未上傳的筆數 ${result.unownedCounts}');
+      }
       return result;
     } catch (e) {
-      state = CloudUploadStatus(CloudUploadPhase.failed, errorMessage: '$e');
+      final kind = classifyCloudUploadError(e);
+      state = CloudUploadStatus(CloudUploadPhase.failed, errorMessage: cloudUploadFailureMessage(kind));
       debugPrint('cloud upload crashed: $e');
-      return CloudUploadResult(success: false, errorMessage: '$e');
+      return CloudUploadResult(success: false, errorMessage: '$e', failureKind: kind);
     }
   }
 }

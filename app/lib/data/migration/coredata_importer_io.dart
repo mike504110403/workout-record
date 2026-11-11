@@ -334,6 +334,10 @@ class CoreDataImporter {
     try {
       currentStep.value = '偵測「已 commit 未標旗」窗口';
       if (await _detectAlreadyLanded(db, oldDb)) {
+        // 資料已 commit 但完成旗標沒寫(App 在 commit 後被殺):血緣 key 也是
+        // 在 commit 之後才寫的,同一個窗口會一起漏掉——不補的話升級用戶會被
+        // 當成全新用戶強制走 Onboarding。補寫失敗不影響 alreadyLanded 結果。
+        await _backfillImportedUserIdIfMissing(db, oldDb, prefs);
         // 順手記錄舊庫(CoreData)各表 COUNT(*)——alreadyLanded 命中時沒有
         // 本次的 tableCounts 可存,這份舊庫側快照補上「命中當下舊庫原本
         // 有多少」的數字,供核帳與日後診斷這類窗口時比對(見
@@ -592,6 +596,35 @@ class CoreDataImporter {
     // 所有抽樣表都是空的,或抽到的樣本 Drift 裡都沒有,沒有更多樣本可查,
     // 視為未偵測到,照常往下跑正常匯入流程。
     return false;
+  }
+
+  /// alreadyLanded 命中時補寫 [kCoreDataImportedUserIdKey](key 已存在就不動)。
+  ///
+  /// 正常路徑取 [_importUsers] 依舊庫 `ZUSERENTITY` 讀出順序累積的第一個 id。
+  /// 這裡舊庫仍開著:取舊庫 ZUSERENTITY 的 id 與 Drift users 的交集,依舊庫順序
+  /// 第一筆——只認確實已落在 Drift 的舊庫使用者,避免把 Drift 裡使用者自建的別人
+  /// 當成血緣。交集為空(含舊庫讀不到 ZUSERENTITY)就不寫,維持修正前行為。
+  Future<void> _backfillImportedUserIdIfMissing(
+    AppDatabase db,
+    sqlite3lib.Database oldDb,
+    SharedPreferences prefs,
+  ) async {
+    if (prefs.containsKey(kCoreDataImportedUserIdKey)) return;
+    try {
+      final driftIds = {
+        for (final u in await db.select(db.users).get()) u.id,
+      };
+      if (driftIds.isEmpty) return;
+      for (final row in oldDb.select('SELECT * FROM ZUSERENTITY')) {
+        final id = _uuidFromBlob(row['ZID']);
+        if (driftIds.contains(id)) {
+          await prefs.setString(kCoreDataImportedUserIdKey, id);
+          return;
+        }
+      }
+    } catch (_) {
+      // 補寫是旁路修補,失敗(例如舊庫缺 ZUSERENTITY 表)就維持現狀。
+    }
   }
 
   /// [_detectAlreadyLanded] 的共用檢查邏輯:[candidateIds] 任一筆存在於

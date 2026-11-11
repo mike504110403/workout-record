@@ -16,3 +16,4 @@ resize_screenshots.sh
 # graft code graph 本機快取——可重建、不進 git(見 README「Code graph(graft)」段)
 /graft/
 .playwright-cli/
+*.p8

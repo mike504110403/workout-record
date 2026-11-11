@@ -5,6 +5,8 @@
 // (workout_exercises→workouts/exercises、workout_sets→workout_exercises、
 // template_exercises→templates/exercises、personal_records→exercises)、
 // exercises/templates 不可寫 is_system = true、各表 user_id 必須是登入者(RLS)。
+// 父列必須「是本人的」才能被子列引用(對應 RLS 的 exists(... user_id = auth.uid())
+// 與 20261111000600 的動作引用限「系統或本人」);別的帳號佔用的父 id 會讓子列被拒。
 import 'package:drift/drift.dart' show Value;
 import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/migration/cloud_upload.dart';
@@ -27,6 +29,22 @@ class FakeCloudUploadSink implements CloudUploadSink {
 
   /// 非 null:對這張表的下一次 insert 拋錯(拋一次後清除)。
   String? failOnTable;
+
+  /// [failOnTable] 命中時拋的例外;預設 StateError('injected failure ...')。
+  Object? failWith;
+
+  /// true:[fetchVisibleIds] 拋 [failCountWith](預設 StateError),模擬核對查詢失敗。
+  bool failOnCount = false;
+  Object? failCountWith;
+
+  /// true:模擬 Postgres uuid 型別——存入與回查時 id 一律轉小寫(本機若有大寫 id,
+  /// 伺服器回的是小寫)。
+  bool lowercaseIds = false;
+
+  String _norm(String id) => lowercaseIds ? id.toLowerCase() : id;
+
+  /// 每次 [fetchVisibleIds] 呼叫的表與送查 id 數(驗證分批用)。
+  final countCalls = <({String table, int ids})>[];
 
   Map<String, Map<String, dynamic>> table(String name) => tables.putIfAbsent(name, () => {});
 
@@ -59,14 +77,18 @@ class FakeCloudUploadSink implements CloudUploadSink {
     table('users').putIfAbsent(uid, () => {'id': uid, 'name': profile.name});
   }
 
+  /// 動作可被引用:系統動作,或本人的自建動作。
   bool _exerciseExists(Object? id) =>
-      table('exercises').containsKey(id) || systemExercises.any((e) => e['id'] == id);
+      table('exercises')[id]?['user_id'] == uid || systemExercises.any((e) => e['id'] == id);
+
+  /// 父列存在且屬於本人(RLS 的 exists 子查詢)。
+  bool _ownParent(String parentTable, Object? id) => table(parentTable)[id]?['user_id'] == uid;
 
   @override
   Future<void> insertIgnoringDuplicates(String name, List<Map<String, dynamic>> rows) async {
     if (failOnTable == name) {
       failOnTable = null;
-      throw StateError('injected failure on $name');
+      throw failWith ?? StateError('injected failure on $name');
     }
     insertCalls.add((table: name, rows: rows.length));
     final t = table(name);
@@ -77,14 +99,14 @@ class FakeCloudUploadSink implements CloudUploadSink {
       }
       switch (name) {
         case 'workout_exercises':
-          if (!table('workouts').containsKey(row['workout_id'])) throw StateError('FK workout_id');
+          if (!_ownParent('workouts', row['workout_id'])) throw StateError('FK workout_id');
           if (!_exerciseExists(row['exercise_id'])) throw StateError('FK exercise_id');
         case 'workout_sets':
-          if (!table('workout_exercises').containsKey(row['workout_exercise_id'])) {
+          if (!_ownParent('workout_exercises', row['workout_exercise_id'])) {
             throw StateError('FK workout_exercise_id');
           }
         case 'template_exercises':
-          if (!table('templates').containsKey(row['template_id'])) throw StateError('FK template_id');
+          if (!_ownParent('templates', row['template_id'])) throw StateError('FK template_id');
           if (!_exerciseExists(row['exercise_id'])) throw StateError('FK exercise_id');
         case 'personal_records':
           if (!_exerciseExists(row['exercise_id'])) throw StateError('FK exercise_id');
@@ -92,8 +114,29 @@ class FakeCloudUploadSink implements CloudUploadSink {
           final clash = t.values.any((r) => r['user_id'] == row['user_id'] && r['id'] != row['id']);
           if (clash) throw StateError('unique user_goals.user_id');
       }
-      t.putIfAbsent(row['id'] as String, () => Map.of(row));
+      // 與雲端系統動作/模板同 id:ON CONFLICT (id) DO NOTHING,不新增列。
+      final isSystemId = (name == 'exercises' && systemExercises.any((e) => e['id'] == row['id'])) ||
+          (name == 'templates' && systemTemplates.any((e) => e['id'] == row['id']));
+      if (!isSystemId) t.putIfAbsent(_norm(row['id'] as String), () => Map.of(row));
     }
+  }
+
+  /// 模擬 RLS 可見性:本人的列、以及系統動作/模板(is_system 對所有人可讀)看得到;
+  /// 別人的同 id 列看不到。
+  @override
+  Future<Set<String>> fetchVisibleIds(String name, List<String> ids) async {
+    countCalls.add((table: name, ids: ids.length));
+    if (failOnCount) throw failCountWith ?? StateError('injected count failure on $name');
+    final t = table(name);
+    final systemIds = switch (name) {
+      'exercises' => {for (final e in systemExercises) e['id']},
+      'templates' => {for (final e in systemTemplates) e['id']},
+      _ => const <Object?>{},
+    };
+    return {
+      for (final id in ids)
+        if (t[_norm(id)]?['user_id'] == uid || systemIds.contains(_norm(id))) _norm(id),
+    };
   }
 
   int count(String name) => table(name).length;

@@ -13,6 +13,7 @@
 // 匯入(legacy_prefs_importer.dart)刻意不搬登入身分,見該檔案開頭註解。
 import 'dart:async' show unawaited;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -24,6 +25,11 @@ import '../../data/migration/coredata_importer_result.dart'
         kCoreDataImportFailedPermanentlyKey,
         kCoreDataImportStatsKeys,
         kCoreDataImportedUserIdKey;
+import '../../data/migration/legacy_coredata_files.dart'
+    show
+        legacyAppleUserIdReaderProvider,
+        legacyCoreDataFilesProvider,
+        legacyUserDefaultsClearerProvider;
 import '../../data/migration/legacy_prefs_importer.dart'
     show kLegacyPrefsImportCompletedKey, kLegacyPrefsPersonalDataKeys;
 import '../../data/providers.dart' show appDatabaseProvider, userRepositoryProvider;
@@ -56,6 +62,29 @@ const kTestLoginUserEmail = 'test@example.com';
 const kTestLoginUserIdPrefsKey = 'test_login_user_id';
 
 const _genericLoginErrorMessage = '登入失敗,請稍後再試';
+
+/// 刪帳號時 Apple 授權沒能撤銷(帳號本身已刪成功)的提示——撤銷失敗不擋刪帳號,
+/// 但要讓使用者知道還有一步可以手動做。
+const kAppleRevokeFailedMessage =
+    'Apple 授權未能撤銷,可到 iPhone 設定 > Apple ID > 使用 Apple 登入 手動移除';
+
+/// 刪帳號成功後、登出之前由 [SessionController.deleteAccount] 設定的「登入頁要顯示的
+/// 一次性通知」(目前只有 [kAppleRevokeFailedMessage])。
+///
+/// 為什麼不在設定頁彈:登出會讓 GoRouter redirect 回登入頁,設定頁的 route 被移除,
+/// 疊在它上面的 SnackBar/Dialog 會一起消失(實測 root navigator 上的 dialog 也會被帶走),
+/// 使用者就看不到「還要手動移除 Apple 授權」。所以改在刪帳號流程裡先記下,由登入頁
+/// 顯示、使用者按「知道了」才關。
+class PostDeleteNotice extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void show(String message) => state = message;
+
+  void clear() => state = null;
+}
+
+final postDeleteNoticeProvider = NotifierProvider<PostDeleteNotice, String?>(PostDeleteNotice.new);
 
 /// 雲端模式在沒有原生 Apple 登入的平台(Web/Android)按下 Apple 登入時的文案。
 const kAppleSignInUnsupportedMessage = '此平台暫不支援 Apple 登入,請改用 iPhone 登入';
@@ -109,6 +138,23 @@ class LoginOwnerConflict extends LoginOutcome {
 /// 呼叫端能用 switch 窮舉所有結果。
 class LoginFailure extends LoginOutcome {
   const LoginFailure();
+}
+
+/// [SessionController.deleteAccount] 的結果。
+enum DeleteAccountResult {
+  /// 雲端帳號已刪、Apple 授權已撤銷(或本來就不需要撤銷:非 iOS)、本機已清、已登出。
+  deleted,
+
+  /// 帳號已刪、本機已清、已登出,但 Apple 授權沒撤銷成功——提示
+  /// [kAppleRevokeFailedMessage] 已由 deleteAccount 記進 [postDeleteNoticeProvider],
+  /// 登入頁會顯示(設定頁隨登出離場,在那裡彈會看不到)。
+  deletedRevokeFailed,
+
+  /// 使用者在 Apple 重新授權時取消——整個刪除中止,什麼都沒動,UI 不顯示錯誤。
+  cancelled,
+
+  /// 雲端刪除失敗(或不在雲端模式/未登入),本機什麼都沒動,可重試。
+  failed,
 }
 
 class SessionState {
@@ -226,6 +272,7 @@ class SessionController extends Notifier<SessionState> {
         userId: userId,
         userName: userName,
         userEmail: userEmail,
+        appleUserIdentifier: userId,
       );
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) {
@@ -279,6 +326,7 @@ class SessionController extends Notifier<SessionState> {
         userId: result.user.id,
         userName: userName,
         userEmail: userEmail,
+        appleUserIdentifier: result.appleUserIdentifier,
       );
     } catch (e) {
       await _cloudSignOutQuietly();
@@ -327,7 +375,10 @@ class SessionController extends Notifier<SessionState> {
   /// 帳號隔離核心邏輯(見 `.claude/decisions/2026-08-04-帳號隔離採換帳號清本機資料.md`
   /// 行為規格 1-3),兩條登入路(Apple / 測試登入)拿到身分後都走這裡:
   /// - 本機還沒有 owner → 認領(寫入 [kLocalDataOwnerUserIdKey] = 這次登入的
-  ///   身分),照常完成登入。血緣 key([kCoreDataImportedUserIdKey])在這個
+  ///   身分),照常完成登入;**例外**:本機有 CoreData 匯入的舊資料、舊 iOS
+  ///   留下的 `AppleIDUserID` 存在、且跟這次的 [appleUserIdentifier] 不同
+  ///   (共用裝置,舊資料屬於另一個 Apple ID)→ 走 owner 衝突流程,不直接認領
+  ///   (見 [_legacyDataBelongsToAnotherAppleId])。血緣 key([kCoreDataImportedUserIdKey])在這個
   ///   分支刻意不動——第一個認領的帳號要完整享有既有血緣行為(見
   ///   [confirmClearAndContinueLogin] 的一次性消耗說明)。
   /// - owner 就是自己 → 資料不動,照常完成登入。
@@ -337,13 +388,15 @@ class SessionController extends Notifier<SessionState> {
     required String userId,
     required String userName,
     required String userEmail,
+    String? appleUserIdentifier,
   }) async {
     final prefs = ref.read(sharedPreferencesProvider);
     final ownerId = prefs.getString(kLocalDataOwnerUserIdKey);
 
-    if (ownerId == null || ownerId.isEmpty) {
-      await prefs.setString(kLocalDataOwnerUserIdKey, userId);
-    } else if (ownerId != userId) {
+    final noOwnerYet = ownerId == null || ownerId.isEmpty;
+    final conflictsWithOwner = !noOwnerYet && ownerId != userId;
+    if (conflictsWithOwner ||
+        (noOwnerYet && await _legacyDataBelongsToAnotherAppleId(appleUserIdentifier))) {
       final conflict = LoginOwnerConflict(
         pendingUserId: userId,
         pendingUserName: userName,
@@ -352,10 +405,51 @@ class SessionController extends Notifier<SessionState> {
       state = state.copyWith(isLoading: false, ownerConflict: conflict);
       return conflict;
     }
+    if (noOwnerYet) {
+      await prefs.setString(kLocalDataOwnerUserIdKey, userId);
+    }
 
     await _ensureCloudUserRowIfOnboarded(userId: userId, userName: userName, userEmail: userEmail);
     await _persistSession(userId: userId, userName: userName, userEmail: userEmail);
     return const LoginSuccess();
+  }
+
+  /// 本機的舊 iOS 資料是不是屬於「別的 Apple ID」。四個條件同時成立才算:
+  /// 有 Apple identifier、本機有舊資料、舊 iOS 的 `AppleIDUserID` 讀得到、且兩者
+  /// 不同。「有舊資料」= [kCoreDataImportedUserIdKey] 非空(匯入成功時才會寫),
+  /// **或**舊 `WorkoutRecord.sqlite` 還在(匯入尚未完成或失敗——這時資料還沒進
+  /// Drift,但之後的重試會把它匯進來並被這次登入的人認領,所以同樣要比對)。
+  /// 同 team 同 bundle 下同一個 Apple ID 的 identifier 恆等,所以不同 = 不同人。
+  ///
+  /// 任何一項缺(包含讀舊值失敗)都回 false,維持原本「第一個登入者認領」——
+  /// 這是 fail-open,不能因為讀不到舊值就把正牌用戶擋在自己的資料外。
+  ///
+  /// **注意:identifier 為 null(Apple 沒回,或未來非 Apple 的登入方式如 Google)
+  /// 目前同樣 fail-open 直接認領。** 加 Google 登入時必須改成:本機有舊資料、卻拿
+  /// 不到可比對的 identifier → 走 owner conflict,否則 Google 登入者能認領別人的
+  /// 舊資料。
+  Future<bool> _legacyDataBelongsToAnotherAppleId(String? currentAppleUserId) async {
+    if (currentAppleUserId == null || currentAppleUserId.isEmpty) return false;
+    final imported = ref.read(sharedPreferencesProvider).getString(kCoreDataImportedUserIdKey);
+    final hasImportedData = imported != null && imported.isNotEmpty;
+    if (!hasImportedData && !await _legacySqliteExists()) return false;
+    final String? legacyAppleId;
+    try {
+      legacyAppleId = await ref.read(legacyAppleUserIdReaderProvider)();
+    } catch (_) {
+      return false;
+    }
+    if (legacyAppleId == null || legacyAppleId.isEmpty) return false;
+    return legacyAppleId != currentAppleUserId;
+  }
+
+  /// 舊 `WorkoutRecord.sqlite` 是否存在;查詢失敗視為不存在(fail-open,同上)。
+  Future<bool> _legacySqliteExists() async {
+    try {
+      return await ref.read(legacyCoreDataFilesProvider).exists();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 雲端模式且 Onboarding 已完成時,確保 Supabase `public.users` 有登入者
@@ -492,19 +586,60 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
-  /// 刪除帳號(只在雲端模式且已登入時有效)。
+  /// 刪除帳號(只在雲端模式且已登入時有效)。順序:
+  /// 1. iOS 才做:重新跑 Apple 授權取得 authorizationCode。使用者取消 → 回
+  ///    [DeleteAccountResult.cancelled],整個刪除中止、什麼都不動。其他授權錯誤
+  ///    視同撤銷失敗(下一步跳過、不擋刪帳號)。
+  /// 2. 呼叫 `apple-revoke` 撤銷 Apple 授權——**必須在雲端刪帳號之前**,之後
+  ///    使用者 JWT 就失效了。失敗不擋刪帳號,只記 debugPrint 並回
+  ///    [DeleteAccountResult.deletedRevokeFailed] 讓 UI 提示手動移除。
+  /// 3. 雲端刪除;失敗回 [DeleteAccountResult.failed],本機什麼都不動(使用者可重試;
+  ///    Apple 授權若已撤銷不會復原——可接受:帳號還在,下次登入會重新同意授權,Apple
+  ///    的 sub 不變、資料不失;重試時會再走一次 1、2,對已撤銷的授權無害)。
+  /// 4. 成功後雲端帳號與資料已不可回復,本機接著:清空 Drift 並退休舊 iOS 匯入
+  ///    (否則同裝置再登入會把舊資料重新上傳)、移除 owner key、刪舊 CoreData 的
+  ///    三個檔與舊 UserDefaults(Mike 裁示:帳號都刪了,舊資料不該留在裝置上)、
+  ///    撤銷失敗時記下登入頁要顯示的提示([postDeleteNoticeProvider])、登出。本機清除失敗不改變
+  ///    結果(雲端已刪),仍照常登出。
   ///
-  /// 先呼叫雲端刪除;失敗回 false,本機什麼都不動(使用者可重試)。
-  /// 成功後雲端帳號與資料已不可回復,本機接著:清空 Drift 並退休舊 iOS 匯入
-  /// (否則同裝置再登入會把舊資料重新上傳)、移除 owner key、登出。本機清除
-  /// 失敗不改變結果(雲端已刪),仍照常登出並回 true。
-  Future<bool> deleteAccount() async {
+  /// 非雲端模式、非 iOS(沒有原生 Apple 登入)略過 Apple 那段。
+  Future<DeleteAccountResult> deleteAccount() async {
     final cloud = ref.read(cloudAuthServiceProvider);
-    if (cloud == null || !state.isLoggedIn) return false;
+    if (cloud == null || !state.isLoggedIn) {
+      return DeleteAccountResult.failed;
+    }
+
+    var appleRevokeFailed = false;
+    final revocation = ref.read(appleRevocationServiceProvider);
+    if (revocation != null && ref.read(nativeAppleSignInAvailableProvider)) {
+      String? code;
+      try {
+        code = await revocation.requestAppleAuthorizationCode();
+      } on SignInWithAppleAuthorizationException catch (e) {
+        if (e.code == AuthorizationErrorCode.canceled) {
+          return DeleteAccountResult.cancelled;
+        }
+        debugPrint('刪帳號:Apple 重新授權失敗(${e.code}),略過撤銷');
+        appleRevokeFailed = true;
+      } catch (e) {
+        debugPrint('刪帳號:Apple 重新授權失敗(${e.runtimeType}),略過撤銷');
+        appleRevokeFailed = true;
+      }
+      if (code != null) {
+        try {
+          await revocation.revokeAppleAuthorization(code);
+        } catch (e) {
+          // 只印例外型別,不印內容(避免把 Apple/Edge Function 的回應寫進 log)。
+          debugPrint('刪帳號:Apple 授權撤銷失敗(${e.runtimeType})');
+          appleRevokeFailed = true;
+        }
+      }
+    }
+
     try {
       await cloud.deleteAccount();
     } catch (_) {
-      return false;
+      return DeleteAccountResult.failed;
     }
     try {
       await _wipeLocalDataAndRetireImports();
@@ -512,9 +647,20 @@ class SessionController extends Notifier<SessionState> {
     } catch (_) {
       // 雲端已刪,本機清除盡力而為;下一步登出照做。
     }
+    try {
+      await ref.read(legacyCoreDataFilesProvider).deleteAll();
+      // 舊 iOS 留在 UserDefaults 的個資與 AppleIDUserID 一併清(Mike 裁示「刪帳號資料全沒」)。
+      await ref.read(legacyUserDefaultsClearerProvider)();
+    } catch (_) {
+      // 同上:舊檔/舊偏好刪不掉不影響結果(匯入已被退休旗標擋住,不會再讀)。
+    }
+    // 雲端已刪成功才通知;必須在登出(會觸發 redirect 離開設定頁)之前記下。
+    if (appleRevokeFailed) {
+      ref.read(postDeleteNoticeProvider.notifier).show(kAppleRevokeFailedMessage);
+    }
     await _cloudSignOutQuietly();
     await _clearLocalSession();
-    return true;
+    return appleRevokeFailed ? DeleteAccountResult.deletedRevokeFailed : DeleteAccountResult.deleted;
   }
 
   /// 警告對話框「取消」後呼叫:不清除任何東西、不認領、不建立 session,
