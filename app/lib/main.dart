@@ -16,6 +16,13 @@ import 'features/onboarding/onboarding_status.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // release 包漏帶 SUPABASE_URL/SUPABASE_ANON_KEY:不跑匯入、不退回本機 Drift,
+  // 直接擋下(見 data/supabase_client.dart 的 kReleaseMisconfigured)。
+  if (kReleaseMisconfigured) {
+    runApp(const _MisconfiguredBuildApp());
+    return;
+  }
+
   // SessionController / OnboardingController / PrivacyConsentController 都要
   // 同步讀 SharedPreferences,先在這裡 await 拿到實例,用 override 塞進
   // ProviderContainer(見 features/auth/shared_preferences_provider.dart)。
@@ -94,4 +101,25 @@ Future<void> main() async {
       child: const WorkItOutApp(),
     ),
   );
+}
+
+class _MisconfiguredBuildApp extends StatelessWidget {
+  const _MisconfiguredBuildApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              '此版本設定不完整,無法啟動。\n請更新至最新版本。',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/auth/login_page.dart';
+import 'features/cloud_upload/cloud_upload_controller.dart';
 import 'features/auth/session_controller.dart';
 import 'features/dashboard/dashboard_controller.dart';
 import 'features/dashboard/dashboard_page.dart';
+import 'features/goals/goal_settings_controller.dart';
 import 'features/history/history_calendar_controller.dart';
 import 'features/history/history_list_controller.dart';
 import 'features/history/history_page.dart';
@@ -13,9 +15,11 @@ import 'features/onboarding/onboarding_page.dart';
 import 'features/onboarding/onboarding_status.dart';
 import 'features/settings/settings_page.dart';
 import 'features/stats/body_weight/body_weight_controller.dart';
+import 'features/stats/pr/pr_list_controller.dart';
 import 'features/stats/powerlifting/powerlifting_controller.dart';
 import 'features/stats/stats_page.dart';
 import 'features/stats/workout_stats/workout_stats_controller.dart';
+import 'features/workout/templates/templates_controller.dart';
 import 'features/workout/workout_page.dart';
 
 /// 5-tab 導航殼的路由。分頁對應現行 iOS 版 `MainTabView`:
@@ -261,8 +265,41 @@ class _AppShellState extends ConsumerState<_AppShell> {
     }
   }
 
+  /// 登入後的舊資料一次性上傳(cloud_upload)在背景跑,各分頁可能已經先查過
+  /// 一次雲端、拿到空結果;這些 provider 都不是 autoDispose,不主動失效就會
+  /// 一直顯示「沒有紀錄」直到重開 App(畢業總審 M2)。上傳成功時全部失效重查,
+  /// 並用 SnackBar 告知進度與結果。
+  void _onCloudUploadChanged(CloudUploadStatus? previous, CloudUploadStatus next) {
+    if (previous?.phase == next.phase) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    switch (next.phase) {
+      case CloudUploadPhase.uploading:
+        messenger?.showSnackBar(const SnackBar(content: Text('正在把舊紀錄同步到雲端…')));
+      case CloudUploadPhase.succeeded:
+        ref.invalidate(dashboardControllerProvider);
+        ref.invalidate(workoutStatsControllerProvider);
+        ref.invalidate(bodyWeightTabControllerProvider);
+        ref.invalidate(powerliftingControllerProvider);
+        ref.invalidate(prListControllerProvider);
+        ref.invalidate(historyListControllerProvider);
+        ref.invalidate(historyCalendarControllerProvider);
+        ref.invalidate(templatesControllerProvider);
+        ref.invalidate(goalSettingsControllerProvider);
+        messenger
+          ?..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('舊紀錄已同步完成')));
+      case CloudUploadPhase.failed:
+        messenger
+          ?..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('舊紀錄同步失敗,可到「設定」重試')));
+      case CloudUploadPhase.idle:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(cloudUploadControllerProvider, _onCloudUploadChanged);
     return Scaffold(
       body: widget.navigationShell,
       bottomNavigationBar: NavigationBar(

@@ -13,20 +13,25 @@
 /// 就改走 `Supabase*Repository`。
 library;
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// defaultValue 是雲端 workout-dev 專案的位址與 **publishable** key——本來就會
-// 打包進 App 的公開資訊,可進版控(同 accounting);權限由 RLS 把關。要連別
-// 的專案用 --dart-define 覆寫;純本機帶 USE_MOCK=true。
+// debug/profile 的 defaultValue 是雲端 workout-dev 專案的位址與 **publishable**
+// key——本來就會打包進 App 的公開資訊,可進版控(同 accounting);權限由 RLS
+// 把關。要連別的專案用 --dart-define 覆寫;純本機帶 USE_MOCK=true。
+// release build **沒有預設值**:漏帶 define 時不可默默連 dev(畢業總審 B1——
+// 真實用戶的舊歷史會被傳到 dev,改發 prod 版後還會撞 owner conflict 而清掉
+// 本機資料)。release 一律用 `tool/build_ios_prod.sh` 打包;設定不齊時 main.dart
+// 顯示錯誤畫面,不啟動資料層。
 const kSupabaseUrl = String.fromEnvironment(
   'SUPABASE_URL',
-  defaultValue: 'https://imudkbxvkefzafptqhae.supabase.co',
+  defaultValue: kReleaseMode ? '' : 'https://imudkbxvkefzafptqhae.supabase.co',
 );
 
 const kSupabaseAnonKey = String.fromEnvironment(
   'SUPABASE_ANON_KEY',
-  defaultValue: 'sb_publishable_oAQnLRCuCjxS7fLAArEoxw_S-WKUK4h',
+  defaultValue: kReleaseMode ? '' : 'sb_publishable_oAQnLRCuCjxS7fLAArEoxw_S-WKUK4h',
 );
 
 /// 純本機模式:不初始化 Supabase,資料層維持 Drift。
@@ -37,6 +42,10 @@ const kSupabaseConfigured = kSupabaseUrl != '' && kSupabaseAnonKey != '';
 
 /// 是否要連 Supabase:非 USE_MOCK 且設定齊全。
 const kUseSupabase = !kUseMock && kSupabaseConfigured;
+
+/// release build 既非 USE_MOCK 又沒帶 Supabase 設定 = 打包流程漏帶 define。
+/// main.dart 遇到時只顯示錯誤畫面,不跑匯入、不啟動資料層。
+const kReleaseMisconfigured = kReleaseMode && !kUseMock && !kSupabaseConfigured;
 
 Future<void> initSupabase() =>
     Supabase.initialize(url: kSupabaseUrl, publishableKey: kSupabaseAnonKey);
