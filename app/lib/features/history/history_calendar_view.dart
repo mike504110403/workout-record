@@ -16,14 +16,21 @@ import 'widgets/workout_history_card.dart';
 import 'workout_detail_page.dart';
 
 class HistoryCalendarView extends ConsumerWidget {
-  const HistoryCalendarView({super.key});
+  const HistoryCalendarView({super.key, required this.modeToggle});
+
+  /// 列表／日曆切換鈕,由 history_page.dart 提供。資料就緒時放進月份列右側;
+  /// 載入中/錯誤時沒有月份列,改放精簡頂列,確保任何狀態都能切回列表。
+  final Widget modeToggle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(historyCalendarControllerProvider);
     return async.when(
-      data: (state) => _CalendarBody(state: state),
-      loading: () => const Center(child: CircularProgressIndicator()),
+      data: (state) => _CalendarBody(state: state, modeToggle: modeToggle),
+      loading: () => _ToggleOnlyLayout(
+        modeToggle: modeToggle,
+        child: const Center(child: CircularProgressIndicator()),
+      ),
       // review 打回 MINOR-6:錯誤重試不能用 `ref.invalidate`——那會整個重跑
       // build(),把月份跳回「本月」,跟 history_calendar_controller.dart
       // `refresh()` 文件注解的設計意圖(保留 displayedMonth/selectedDate)
@@ -33,76 +40,161 @@ class HistoryCalendarView extends ConsumerWidget {
       // `AsyncError`,`state.value` 仍讀得到上一次成功載入的
       // `displayedMonth`,`refresh()` 才能真的重新查詢「原本在看的那個
       // 月份」,不是悄悄跳回本月。
-      error: (error, stackTrace) => HistoryErrorView(
-        retryButtonKey: const Key('historyCalendarErrorRetryButton'),
-        onRetry: () => ref.read(historyCalendarControllerProvider.notifier).refresh(),
+      error: (error, stackTrace) => _ToggleOnlyLayout(
+        modeToggle: modeToggle,
+        child: HistoryErrorView(
+          retryButtonKey: const Key('historyCalendarErrorRetryButton'),
+          onRetry: () => ref.read(historyCalendarControllerProvider.notifier).refresh(),
+        ),
       ),
     );
   }
 }
 
+/// 載入中/錯誤時的版面:右上一顆切換鈕 + 下方內容(沒有月份列可併入)。
+class _ToggleOnlyLayout extends StatelessWidget {
+  const _ToggleOnlyLayout({required this.modeToggle, required this.child});
+
+  final Widget modeToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: AppSpacing.sm),
+          child: Align(alignment: Alignment.centerRight, child: modeToggle),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
 class _CalendarBody extends ConsumerWidget {
-  const _CalendarBody({required this.state});
+  const _CalendarBody({required this.state, required this.modeToggle});
 
   final HistoryCalendarState state;
+  final Widget modeToggle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(historyCalendarControllerProvider.notifier);
-    final today = DateTime.now();
-    final workoutDates = {for (final w in state.workouts) dateOnly(w.startedAt)};
-    final days = buildCalendarGrid(state.displayedMonth);
+    // 格線、有訓練的日期集合、選取日訓練都在 controller state 建構時算好,
+    // build 只取用。
+    final selectedWorkouts = state.selectedWorkouts;
 
-    return SingleChildScrollView(
-      padding: AppSpacing.pagePadding.copyWith(bottom: AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                key: const Key('historyCalendarPrevMonthButton'),
-                icon: const Icon(Icons.chevron_left),
-                onPressed: () => notifier.changeMonth(-1),
-              ),
-              Text(
-                formatMonthLabel(state.displayedMonth),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              IconButton(
-                key: const Key('historyCalendarNextMonthButton'),
-                icon: const Icon(Icons.chevron_right),
-                onPressed: () => notifier.changeMonth(1),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          const _WeekdayHeader(),
-          GridView.count(
-            crossAxisCount: 7,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (final day in days)
-                if (day == null)
-                  const SizedBox.shrink()
-                else
-                  CalendarDayCell(
-                    day: day,
-                    hasWorkout: workoutDates.contains(day),
-                    isSelected: state.selectedDate != null && isSameDate(state.selectedDate!, day),
-                    isToday: isSameDate(today, day),
-                    onTap: () => notifier.selectDate(day),
+    // 月曆區塊固定在頂端、下方當天訓練用 SliverList 懶建置,整頁一條捲動軸。
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: AppSpacing.pagePadding,
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 月份導覽靠左、切換鈕靠右,同一列(日曆模式不另佔頂列)。
+                Row(
+                  children: [
+                    IconButton(
+                      key: const Key('historyCalendarPrevMonthButton'),
+                      icon: const Icon(Icons.chevron_left),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => notifier.changeMonth(-1),
+                    ),
+                    Text(
+                      formatMonthLabel(state.displayedMonth),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      key: const Key('historyCalendarNextMonthButton'),
+                      icon: const Icon(Icons.chevron_right),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => notifier.changeMonth(1),
+                    ),
+                    const Spacer(),
+                    modeToggle,
+                  ],
+                ),
+                const _WeekdayHeader(),
+                // RepaintBoundary:選日期時只有格線重畫,不連帶重畫下方卡片。
+                RepaintBoundary(child: _MonthGrid(state: state, onSelect: notifier.selectDate)),
+                const SizedBox(height: AppSpacing.lg),
+                if (state.selectedDate != null)
+                  _SelectedDateHeader(
+                    selected: state.selectedDate!,
+                    isEmpty: selectedWorkouts.isEmpty,
                   ),
+              ],
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageHorizontal,
+            0,
+            AppSpacing.pageHorizontal,
+            AppSpacing.lg,
+          ),
+          sliver: SliverList.builder(
+            itemCount: selectedWorkouts.length,
+            itemBuilder: (context, index) {
+              final workout = selectedWorkouts[index];
+              return WorkoutHistoryCard(
+                workout: workout,
+                onTap: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => WorkoutDetailPage(workout: workout))),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 月曆格線:固定列高的 [Table](取代巢狀 `GridView shrinkWrap`——後者在父層
+/// 捲動容器裡要求自己量出全部子項,又得關掉自身捲動)。7 欄等寬,與
+/// [_WeekdayHeader] 的 7 個 `Expanded` 對齊。
+class _MonthGrid extends StatelessWidget {
+  const _MonthGrid({required this.state, required this.onSelect});
+
+  final HistoryCalendarState state;
+  final void Function(DateTime day) onSelect;
+
+  /// 一列的高度:數字 + 標記點 + 格內邊距放得下,比正方形格(約 51)更緊湊。
+  static const double _rowHeight = 46;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final days = state.days;
+    return Table(
+      key: const Key('historyCalendarGrid'),
+      children: [
+        for (var start = 0; start < days.length; start += 7)
+          TableRow(
+            children: [
+              for (final day in days.sublist(start, start + 7))
+                SizedBox(
+                  height: _rowHeight,
+                  child: day == null
+                      ? null
+                      : CalendarDayCell(
+                          day: day,
+                          hasWorkout: state.workoutDates.contains(day),
+                          isSelected: state.selectedDate != null && isSameDate(state.selectedDate!, day),
+                          isToday: isSameDate(today, day),
+                          onTap: () => onSelect(day),
+                        ),
+                ),
             ],
           ),
-          const SizedBox(height: AppSpacing.xl),
-          if (state.selectedDate != null) _SelectedDateWorkouts(state: state),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -137,37 +229,28 @@ class _WeekdayHeader extends StatelessWidget {
   }
 }
 
-class _SelectedDateWorkouts extends StatelessWidget {
-  const _SelectedDateWorkouts({required this.state});
+/// 選取日標題(+ 當天沒有訓練時的提示)。當天的訓練卡片在外層 SliverList。
+class _SelectedDateHeader extends StatelessWidget {
+  const _SelectedDateHeader({required this.selected, required this.isEmpty});
 
-  final HistoryCalendarState state;
+  final DateTime selected;
+  final bool isEmpty;
 
   @override
   Widget build(BuildContext context) {
-    final selected = state.selectedDate!;
-    final dayWorkouts = state.workouts.where((w) => isSameDate(w.startedAt, selected)).toList();
-
     return Column(
       key: const Key('historyCalendarSelectedDateSection'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHeader(
           title: '${formatHistoryDate(selected)} ${formatHistoryWeekday(selected)}',
-          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
         ),
-        if (dayWorkouts.isEmpty)
+        if (isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: Center(child: Text('當天無訓練記錄')),
-          )
-        else
-          for (final workout in dayWorkouts)
-            WorkoutHistoryCard(
-              workout: workout,
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => WorkoutDetailPage(workout: workout))),
-            ),
+          ),
       ],
     );
   }

@@ -1,6 +1,7 @@
-// Smoke test for the 5-tab navigation shell: verifies all five tabs are
-// present in the bottom NavigationBar and that switching tabs shows the
-// corresponding placeholder page.
+// Smoke test for the 4-tab navigation shell(ui-polish 2026-11-11 拿掉「訓練」
+// 分頁,訓練改成從首頁進入的全螢幕路由): verifies the four tabs are present in
+// the bottom NavigationBar and that switching tabs shows the corresponding page.
+// 切分頁只驗頁面型別;起始首頁另驗無頁名標題與主 CTA(首頁版面斷言)。
 //
 // Since wave 1 (login/onboarding/privacy gate) landed, reaching the tab
 // shell requires a logged-in + onboarded + privacy-agreed SharedPreferences
@@ -19,6 +20,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/app.dart';
 import 'package:workout_record/data/providers.dart';
+import 'package:workout_record/features/dashboard/dashboard_page.dart';
+import 'package:workout_record/features/history/history_page.dart';
+import 'package:workout_record/features/settings/settings_page.dart';
+import 'package:workout_record/features/stats/stats_page.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
@@ -27,7 +32,7 @@ import 'package:workout_record/features/privacy/privacy_consent_controller.dart'
 import 'data/test_helpers.dart';
 
 void main() {
-  testWidgets('5-tab shell shows all tabs and switches pages', (
+  testWidgets('4-tab shell shows all tabs and switches pages', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -54,20 +59,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    const tabLabels = ['首頁', '訓練', '數據', '歷史', '設定'];
-    for (final label in tabLabels) {
-      expect(find.text(label), findsWidgets);
-    }
+    final navBar = find.byType(NavigationBar);
+    expect(find.descendant(of: navBar, matching: find.byType(NavigationDestination)), findsNWidgets(4));
+    // 「訓練」不再是分頁。
+    expect(find.widgetWithText(NavigationDestination, '訓練'), findsNothing);
 
-    // Starts on the dashboard tab. 首頁/設定改成 M3 large title(SliverAppBar.large),
-    // 標題在展開與收合兩處各有一份 Text,所以用 findsWidgets。
-    expect(find.widgetWithText(AppBar, '首頁'), findsWidgets);
+    // Starts on the dashboard tab. 首頁不放頁名標題(底部導覽已標示所在分頁),
+    // 以主 CTA 確認停在首頁。
+    expect(find.byType(DashboardPage), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '首頁'), findsNothing);
+    expect(find.byKey(const Key('quickActionStartWorkout')), findsOneWidget);
 
-    // Switch to each remaining tab and verify its page becomes visible.
-    for (final label in tabLabels.skip(1)) {
-      await tester.tap(find.widgetWithText(NavigationDestination, label));
+    const tabs = <String, Type>{
+      '數據': StatsPage,
+      '歷史': HistoryPage,
+      '設定': SettingsPage,
+      '首頁': DashboardPage,
+    };
+    for (final entry in tabs.entries) {
+      await tester.tap(find.widgetWithText(NavigationDestination, entry.key));
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, label), findsWidgets);
+      // IndexedStack 讓其他分頁保持掛載,用 hitTestable 只認畫面上可見那一頁。
+      expect(find.byType(entry.value).hitTestable(), findsOneWidget, reason: '切到「${entry.key}」');
     }
   });
 }

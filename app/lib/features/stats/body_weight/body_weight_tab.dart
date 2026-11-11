@@ -76,61 +76,90 @@ class _BodyWeightError extends StatelessWidget {
   }
 }
 
-class _BodyWeightContent extends ConsumerWidget {
+class _BodyWeightContent extends ConsumerStatefulWidget {
   const _BodyWeightContent({required this.state});
 
   final BodyWeightTabState state;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_BodyWeightContent> createState() => _BodyWeightContentState();
+}
+
+class _BodyWeightContentState extends ConsumerState<_BodyWeightContent> {
+  // 統計彙總(平均/最高/最低/變化…)只在 state 換新時重算,不在每次 build
+  // 重跑。BodyWeightTabState 每次載入都是新物件,以 identity 當快取鍵。
+  BodyWeightTabState? _summarySource;
+  BodyWeightSummary? _summary;
+
+  BodyWeightSummary _summaryFor(BodyWeightTabState state) {
+    if (!identical(_summarySource, state)) {
+      _summarySource = state;
+      _summary = computeBodyWeightSummary(state.entriesDesc, targetWeight: state.targetWeight);
+    }
+    return _summary!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
     if (state.entriesDesc.isEmpty) {
       return EmptyBodyWeightView(onAdd: () => _openAddForm(context));
     }
 
-    final summary = computeBodyWeightSummary(state.entriesDesc, targetWeight: state.targetWeight);
+    final summary = _summaryFor(state);
 
-    // 內容固定幾個區塊、不會無限增長（列表筆數雖會隨紀錄增加，但不是
-    // 「數千筆」等級的量級），刻意用 SingleChildScrollView + Column 而不是
-    // ListView/ListView.builder 的 lazy 虛擬化——同 dashboard_page.dart 開頭
-    // 註解記錄過的理由：虛擬化會讓捲動範圍外的區塊不進 Element tree，
-    // widget test 用 find.byKey 找不到還沒被建置的下方項目（這裡也吃過同一
-    // 個虧：圖表+統計卡把列表往下推出視窗後，`find.byKey('bodyWeightRow-…')`
-    // 直接找不到，不是位置問題而是根本沒建置）。
-    return SingleChildScrollView(
+    // CustomScrollView + Sliver:歷史記錄會隨使用時間無限增長,清單改成
+    // SliverList.builder 懶建置(只建可見範圍),圖表與統計卡是固定的前段
+    // sliver。widget test 找下方的列要先 scrollUntilVisible。
+    return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.xl),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionHeader(
-            title: '體重紀錄',
-            trailing: FilledButton.tonalIcon(
-              key: const Key('addBodyWeightButton'),
-              onPressed: () => _openAddForm(context),
-              icon: const Icon(Icons.add),
-              label: const Text('新增'),
-            ),
+      slivers: [
+        SliverPadding(
+          padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm),
+          sliver: SliverList.list(
+            children: [
+              // 「新增」入口收進趨勢卡標題列的一顆小圖示鈕,不再獨佔一整列。
+              // 趨勢圖至少 2 筆才畫:單點畫不出趨勢,改顯示空狀態(統計與列表照常顯示)。
+              AppCard(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SectionHeader(
+                      title: '體重趨勢',
+                      padding: EdgeInsets.zero,
+                      trailing: IconButton.filledTonal(
+                        key: const Key('addBodyWeightButton'),
+                        onPressed: () => _openAddForm(context),
+                        icon: const Icon(Icons.add),
+                        tooltip: '新增體重',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    if (state.entriesDesc.length >= kMinTrendPoints)
+                      BodyWeightChart(entriesDesc: state.entriesDesc, targetWeight: state.targetWeight)
+                    else
+                      const SizedBox(
+                        height: 200,
+                        child: TrendNeedMoreData(key: Key('bodyWeightChartNeedMoreData')),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              BodyWeightStatsGrid(summary: summary),
+              const SizedBox(height: AppSpacing.lg),
+              const SectionHeader(title: '歷史記錄'),
+            ],
           ),
-          // 趨勢圖至少 2 筆才畫:單點畫不出趨勢,改顯示空狀態(統計與列表照常顯示)。
-          if (state.entriesDesc.length >= kMinTrendPoints)
-            AppCard(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: BodyWeightChart(entriesDesc: state.entriesDesc, targetWeight: state.targetWeight),
-            )
-          else
-            const AppCard(
-              child: SizedBox(height: 200, child: TrendNeedMoreData(key: Key('bodyWeightChartNeedMoreData'))),
-            ),
-          const SizedBox(height: AppSpacing.xl),
-          BodyWeightStatsGrid(summary: summary),
-          const SizedBox(height: AppSpacing.xl),
-          BodyWeightRecordList(
-            entriesDesc: state.entriesDesc,
-            onEdit: (entry) => _openEditForm(context, entry),
-            onDelete: (entry) => _deleteEntry(context, ref, entry),
-          ),
-        ],
-      ),
+        ),
+        BodyWeightRecordList(
+          entriesDesc: state.entriesDesc,
+          onEdit: (entry) => _openEditForm(context, entry),
+          onDelete: (entry) => _deleteEntry(context, ref, entry),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
+      ],
     );
   }
 

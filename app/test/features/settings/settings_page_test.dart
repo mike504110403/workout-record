@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:workout_record/core/widgets/app_card.dart';
 import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
@@ -78,7 +79,7 @@ Future<void> _pumpSettingsPage(WidgetTester tester, _Harness harness) async {
   await tester.pumpAndSettle();
 }
 
-/// 第 3 波起設定頁是 large title + 群組卡片,入口多半落在 800x600 預設視窗外,
+/// 設定頁是群組卡片長列表,入口多半落在 800x600 預設視窗外,
 /// 先捲到可見再點。
 Future<void> _tapEntry(WidgetTester tester, Key key) async {
   final finder = find.byKey(key);
@@ -190,15 +191,44 @@ void main() {
     expect(find.byKey(const Key('settingsAboutEntry')), findsOneWidget);
   });
 
-  testWidgets('頂部是 M3 large title(SliverAppBar.large),不是一條只重複分頁名稱的 AppBar',
-      (tester) async {
+  testWidgets('頂部不放「設定」頁名標題(導覽列已標示所在分頁),也沒有任何 AppBar', (tester) async {
     final harness = await _setUpHarness();
     await _pumpSettingsPage(tester, harness);
 
-    expect(find.byType(SliverAppBar), findsOneWidget);
-    expect(find.descendant(of: find.byType(SliverAppBar), matching: find.text('設定')), findsWidgets);
-    // Scaffold 本身沒有掛傳統 appBar。
+    expect(find.byType(SliverAppBar), findsNothing);
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('設定'), findsNothing);
     expect(tester.widget<Scaffold>(find.byType(Scaffold).first).appBar, isNull);
+  });
+
+  testWidgets('比照首頁:內容從狀態列安全區下方 8 起、群組之間 16、「我的模板」入口仍在', (tester) async {
+    final harness = await _setUpHarness();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: harness.container,
+        child: MaterialApp(
+          // 模擬 iPhone 狀態列安全區(47)。
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(padding: const EdgeInsets.only(top: 47)),
+            child: child!,
+          ),
+          home: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 第一個群組標題緊貼安全區下方 8(AppSpacing.sm)。
+    expect(tester.getTopLeft(find.text('個人')).dy, 47 + 8);
+
+    // 上一組卡片底 → 下一組標題頂 = 16(AppSpacing.lg)。
+    double cardBottom(Key entry) =>
+        tester.getBottomLeft(find.ancestor(of: find.byKey(entry), matching: find.byType(AppCard))).dy;
+    expect(tester.getTopLeft(find.text('訓練')).dy - cardBottom(const Key('settingsProfileEntry')), 16);
+    expect(tester.getTopLeft(find.text('應用程式')).dy - cardBottom(const Key('settingsTemplatesEntry')), 16);
+
+    // 訓練分頁拿掉後,這是模板管理的唯一入口。
+    expect(find.byKey(const Key('settingsTemplatesEntry')), findsOneWidget);
   });
 
   testWidgets('每個入口的圖示一律單色 onSurfaceVariant(登出也是;只有刪除帳號才用 error)',

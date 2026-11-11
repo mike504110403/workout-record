@@ -71,7 +71,8 @@ void main() {
     final countAfterFirstVisit = repo.fetchByDateRangeCallCount;
 
     // 切走再切回——這是本測試要驗證的「單次 revisit 只觸發一次查詢」場景。
-    await tester.tap(find.widgetWithText(NavigationDestination, '訓練'));
+    // (ui-polish:訓練分頁拿掉,改切去「設定」當「切走」的目的地。)
+    await tester.tap(find.widgetWithText(NavigationDestination, '設定'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(NavigationDestination, '數據'));
     await tester.pumpAndSettle();

@@ -14,6 +14,7 @@ import 'package:workout_record/features/cloud_upload/cloud_upload_controller.dar
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_status.dart';
 import 'package:workout_record/features/privacy/privacy_consent_controller.dart';
+import 'package:workout_record/features/workout/exercise_history.dart';
 
 import '../../data/test_helpers.dart';
 
@@ -82,5 +83,83 @@ void main() {
     expect(find.byKey(const Key('historyEmptyState')), findsNothing);
     expect(find.byKey(const Key('historyWorkoutCard-uploaded-legacy')), findsOneWidget);
     expect(find.text('舊紀錄已同步完成'), findsOneWidget);
+  });
+
+  testWidgets('舊紀錄上傳成功 → 訓練用的「最近用過/上次數字」快照也重查(flow-fix 8)', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      kAppleUserIdKey: testUserId,
+      kAppleUserNameKey: 'Test User',
+      kAppleUserEmailKey: 'test@example.com',
+      kHasCompletedOnboardingKey: true,
+      kHasAgreedToAnalyticsKey: true,
+      kHasAgreedToPrivacyKey: true,
+      kPrivacyConsentDateKey: DateTime.now().millisecondsSinceEpoch,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    await seedTestUser(db);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          appDatabaseProvider.overrideWithValue(db),
+          cloudUploadControllerProvider.overrideWith(_FakeUploadController.new),
+        ],
+        child: const WorkItOutApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(tester.element(find.byType(WorkItOutApp)));
+    // 上傳前已查過一次(空的),成功結果會一直留著。
+    final before = await tester.runAsync(() => container.read(exerciseHistoryProvider.future));
+    expect(before!.recentExerciseIds, isEmpty);
+
+    final exercise = (await tester.runAsync(() => DriftExerciseRepository(db).fetchSystemExercises()))!.first;
+    final at = DateTime(2026, 11, 1, 9);
+    await tester.runAsync(
+      () => DriftWorkoutRepository(db, DriftExerciseRepository(db)).create(
+        Workout(
+          id: 'uploaded-legacy',
+          userId: testUserId,
+          startedAt: at,
+          endedAt: at.add(const Duration(minutes: 20)),
+          createdAt: at,
+          updatedAt: at,
+          exercises: [
+            WorkoutExercise(
+              id: 'uploaded-we',
+              workoutId: 'uploaded-legacy',
+              exerciseId: exercise.id,
+              exerciseName: exercise.name,
+              createdAt: at,
+              updatedAt: at,
+              sets: [
+                WorkoutSet(
+                  id: 'uploaded-s1',
+                  workoutExerciseId: 'uploaded-we',
+                  setNumber: 1,
+                  weight: 55,
+                  reps: 5,
+                  createdAt: at,
+                  updatedAt: at,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final upload = container.read(cloudUploadControllerProvider.notifier) as _FakeUploadController;
+    upload.emit(const CloudUploadStatus(CloudUploadPhase.uploading));
+    await tester.pump();
+    upload.emit(const CloudUploadStatus(CloudUploadPhase.succeeded, uploadedRows: 1));
+    await tester.pumpAndSettle();
+
+    final after = await tester.runAsync(() => container.read(exerciseHistoryProvider.future));
+    expect(after!.lastSetFor(exercise.id)?.weight, 55);
   });
 }

@@ -24,6 +24,8 @@ import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/history/calendar_grid.dart';
+import 'package:workout_record/features/history/history_calendar_controller.dart';
 import 'package:workout_record/features/history/history_format.dart';
 import 'package:workout_record/features/history/history_week_grouping.dart';
 import 'package:workout_record/features/history/edit/workout_edit_page.dart';
@@ -118,6 +120,38 @@ class _ThrowingDeleteWorkoutRepository extends DriftWorkoutRepository {
   }
 }
 
+/// 日曆預設選中/重試測試專用:可讓前 [failMonthLoads] 次 `fetchByDateRange`
+/// 失敗(模擬初次載入失敗再重試)、讓 `fetchRecent` 拋錯,並計數 `fetchRecent`
+/// 被呼叫幾次。其餘沿用真實實作。
+class _FlakyCalendarWorkoutRepository extends DriftWorkoutRepository {
+  _FlakyCalendarWorkoutRepository(
+    super.db,
+    super.exerciseRepository, {
+    this.failMonthLoads = 0,
+    this.recentThrows = false,
+  });
+
+  int failMonthLoads;
+  final bool recentThrows;
+  int fetchRecentCalls = 0;
+
+  @override
+  Future<List<Workout>> fetchByDateRange(DateTime from, DateTime to) async {
+    if (failMonthLoads > 0) {
+      failMonthLoads--;
+      throw Exception('模擬月份查詢失敗');
+    }
+    return super.fetchByDateRange(from, to);
+  }
+
+  @override
+  Future<List<Workout>> fetchRecent(int limit) async {
+    fetchRecentCalls++;
+    if (recentThrows) throw Exception('模擬 fetchRecent 失敗');
+    return super.fetchRecent(limit);
+  }
+}
+
 class _HistoryHarness {
   _HistoryHarness(this.db, this.container)
     : workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db)),
@@ -172,7 +206,7 @@ Future<void> _pumpHistory(WidgetTester tester, _HistoryHarness harness) async {
 }
 
 Future<void> _switchToCalendar(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('historyViewModeSegment-calendar')));
+  await tester.tap(find.byKey(const Key('historyViewModeToggleButton')));
   await tester.pumpAndSettle();
 }
 
@@ -316,6 +350,117 @@ void main() {
     });
   });
 
+  group('頂列與檢視切換', () {
+    testWidgets('沒有「歷史」標題、沒有 AppBar 與列表/日曆分段鈕,只有一個切換 icon', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpHistory(tester, harness);
+
+      expect(find.text('歷史'), findsNothing);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byType(SegmentedButton<HistoryViewMode>), findsNothing);
+      expect(find.byKey(const Key('historyViewModeToggleButton')), findsOneWidget);
+    });
+
+    testWidgets('切換 icon 在列表與日曆之間來回切換,icon 指向「下一個」檢視', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-toggle', startedAt: DateTime.now()));
+      await _pumpHistory(tester, harness);
+
+      // 起始是列表:有卡片、沒有月曆;icon 是日曆(按下去去日曆)。
+      expect(find.byKey(const Key('historyWorkoutDismissible-w-toggle')), findsOneWidget);
+      expect(find.byKey(const Key('historyCalendarGrid')), findsNothing);
+      expect(find.byIcon(Icons.calendar_month), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('historyViewModeToggleButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('historyCalendarGrid')), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutDismissible-w-toggle')), findsNothing);
+      expect(find.byIcon(Icons.view_list), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('historyViewModeToggleButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('historyCalendarGrid')), findsNothing);
+      expect(find.byKey(const Key('historyWorkoutDismissible-w-toggle')), findsOneWidget);
+    });
+
+    testWidgets('日曆模式:切換 icon 併進月份列,不另佔頂列', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      final toggleY = tester.getCenter(find.byKey(const Key('historyViewModeToggleButton'))).dy;
+      final prevY = tester.getCenter(find.byKey(const Key('historyCalendarPrevMonthButton'))).dy;
+      final nextY = tester.getCenter(find.byKey(const Key('historyCalendarNextMonthButton'))).dy;
+      expect(toggleY, prevY);
+      expect(toggleY, nextY);
+      // 切換鈕在月份導覽右側。
+      expect(
+        tester.getCenter(find.byKey(const Key('historyViewModeToggleButton'))).dx,
+        greaterThan(tester.getCenter(find.byKey(const Key('historyCalendarNextMonthButton'))).dx),
+      );
+    });
+
+    testWidgets('日曆載入失敗時切換 icon 仍在,可切回列表', (tester) async {
+      final harness = await _setUpHarness(
+        disableAutoRetry: true,
+        workoutRepoBuilder: (db) =>
+            _FlakyCalendarWorkoutRepository(db, DriftExerciseRepository(db), failMonthLoads: 1),
+      );
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.byKey(const Key('historyCalendarErrorRetryButton')), findsOneWidget);
+      expect(find.byKey(const Key('historyViewModeToggleButton')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('historyViewModeToggleButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('historyCalendarErrorRetryButton')), findsNothing);
+      expect(find.byKey(const Key('historyEmptyState')), findsOneWidget);
+    });
+
+    testWidgets('列表空狀態時切換 icon 仍在(日曆不會被鎖在外面)', (tester) async {
+      final harness = await _setUpHarness();
+      await _pumpHistory(tester, harness);
+
+      expect(find.byKey(const Key('historyEmptyState')), findsOneWidget);
+      await _switchToCalendar(tester);
+      expect(find.byKey(const Key('historyCalendarGrid')), findsOneWidget);
+    });
+  });
+
+  group('列表懶建置', () {
+    testWidgets('60 筆長清單:只建可視範圍的列,仍可捲到最底找到最後一筆', (tester) async {
+      final harness = await _setUpHarness();
+      // 每天一筆、往前推 60 天,newest 在最上面;最後一筆是 w-59。
+      final base = DateTime.now();
+      for (var i = 0; i < 60; i++) {
+        await harness.workoutRepo.create(
+          _buildWorkout(id: 'w-$i', startedAt: base.subtract(Duration(days: i)), totalVolume: 100.0 + i),
+        );
+      }
+
+      await _pumpHistory(tester, harness);
+
+      // 直接斷言結構:列表必須是 builder 式 delegate。`ListView(children:)` 的
+      // Element 本來就懶,光看「最後一筆還沒建出來」分不出它與 builder 清單,
+      // 但它的 delegate 是 SliverChildListDelegate(children 已全數建好 widget)。
+      final sliverList = tester.widget<SliverList>(find.byType(SliverList));
+      expect(sliverList.delegate, isA<SliverChildBuilderDelegate>());
+
+      // 行為面:最上面的在、最底下的還沒建。
+      expect(find.byKey(const Key('historyWorkoutCard-w-0')), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-59')), findsNothing);
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('historyWorkoutCard-w-59')),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('historyWorkoutCard-w-59')), findsOneWidget);
+      // 捲到底之後,最上面的已被回收。
+      expect(find.byKey(const Key('historyWorkoutCard-w-0')), findsNothing);
+    });
+  });
+
   group('刪除流程(列表滑動)', () {
     testWidgets('滑動 → 確認對話框 → 取消則不刪除', (tester) async {
       final harness = await _setUpHarness();
@@ -440,6 +585,158 @@ void main() {
     });
   });
 
+  group('日曆預設選中', () {
+    String headerOf(DateTime d) => '${formatHistoryDate(d)} ${formatHistoryWeekday(d)}';
+
+    testWidgets('今天有訓練 → 預設選今天,下方直接列出今天的訓練', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-today', startedAt: now));
+      // 同月另一天也有訓練(上月不會干擾):確認選的是今天而不是「最近有訓練的某天」。
+      await harness.workoutRepo.create(
+        _buildWorkout(id: 'w-earlier', startedAt: now.subtract(const Duration(hours: 30))),
+      );
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.byKey(const Key('historyCalendarSelectedDateSection')), findsOneWidget);
+      expect(find.text(headerOf(now)), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-today')), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-earlier')), findsNothing);
+    });
+
+    testWidgets('今天沒訓練 → 選最近一次有訓練的日子(同月)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      final earlier = DateTime(now.year, now.month, 1, 9);
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-first', startedAt: earlier));
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.text(headerOf(earlier)), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-first')), findsOneWidget);
+      expect(find.text('當天無訓練記錄'), findsNothing);
+    }, skip: DateTime.now().day == 1); // 1 號時「今天沒訓練」與「選 1 號」無法區分。
+
+    testWidgets('今天沒訓練且最近一次在上個月 → 顯示月份一併切到上個月並選中該日', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      final lastMonthDay = DateTime(now.year, now.month - 1, 10, 9);
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-old', startedAt: lastMonthDay));
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.text(formatMonthLabel(DateTime(lastMonthDay.year, lastMonthDay.month, 1))), findsOneWidget);
+      expect(find.text(headerOf(lastMonthDay)), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-old')), findsOneWidget);
+    });
+
+    testWidgets('完全沒有訓練 → 選今天,顯示「當天無訓練記錄」', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.text(headerOf(now)), findsOneWidget);
+      expect(find.text('當天無訓練記錄'), findsOneWidget);
+    });
+
+    testWidgets('本月有訓練時直接取本月最近一天,不呼叫 fetchRecent', (tester) async {
+      late _FlakyCalendarWorkoutRepository repo;
+      final harness = await _setUpHarness(
+        workoutRepoBuilder: (db) =>
+            repo = _FlakyCalendarWorkoutRepository(db, DriftExerciseRepository(db), recentThrows: true),
+      );
+      final now = DateTime.now();
+      final d1 = DateTime(now.year, now.month, 1, 9);
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-first', startedAt: d1));
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(find.byKey(const Key('historyWorkoutCard-w-first')), findsOneWidget);
+      expect(repo.fetchRecentCalls, 0);
+    });
+
+    testWidgets('本月沒資料且 fetchRecent 失敗 → 日曆照常顯示並選今天,不變錯誤頁', (tester) async {
+      late _FlakyCalendarWorkoutRepository repo;
+      final harness = await _setUpHarness(
+        disableAutoRetry: true,
+        workoutRepoBuilder: (db) =>
+            repo = _FlakyCalendarWorkoutRepository(db, DriftExerciseRepository(db), recentThrows: true),
+      );
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+
+      expect(repo.fetchRecentCalls, 1);
+      expect(find.byKey(const Key('historyCalendarErrorRetryButton')), findsNothing);
+      expect(find.byKey(const Key('historyCalendarGrid')), findsOneWidget);
+      expect(find.text(headerOf(DateTime.now())), findsOneWidget);
+      expect(find.text('當天無訓練記錄'), findsOneWidget);
+    });
+
+    testWidgets('初次載入失敗後按重試 → 套用預設選中(今天有訓練就選今天)', (tester) async {
+      final harness = await _setUpHarness(
+        disableAutoRetry: true,
+        workoutRepoBuilder: (db) =>
+            _FlakyCalendarWorkoutRepository(db, DriftExerciseRepository(db), failMonthLoads: 1),
+      );
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-today', startedAt: DateTime.now()));
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+      expect(find.byKey(const Key('historyCalendarErrorRetryButton')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('historyCalendarErrorRetryButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('historyCalendarGrid')), findsOneWidget);
+      expect(find.byKey(const Key('historyCalendarSelectedDateSection')), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-today')), findsOneWidget);
+    });
+
+    testWidgets('日曆沒開過就被列表刪除觸發 refresh → 套用預設選中', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-today', startedAt: DateTime.now()));
+
+      await _pumpHistory(tester, harness);
+      // 日曆從未顯示過:直接叫 refresh(列表刪除成功後就是這樣呼叫)。
+      await harness.container.read(historyCalendarControllerProvider.notifier).refresh();
+      final state = harness.container.read(historyCalendarControllerProvider).requireValue;
+      expect(state.selectedDate, dateOnly(DateTime.now()));
+      expect(state.selectedWorkouts.map((w) => w.id), ['w-today']);
+    });
+
+    testWidgets('切月份:有訓練的月份選該月最近一天,沒有訓練的月份不選(下方不留空白區塊)', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      final d10 = DateTime(now.year, now.month - 1, 10, 9);
+      final d20 = DateTime(now.year, now.month - 1, 20, 9);
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-10', startedAt: d10));
+      await harness.workoutRepo.create(_buildWorkout(id: 'w-20', startedAt: d20));
+
+      await _pumpHistory(tester, harness);
+      await _switchToCalendar(tester);
+      expect(find.text(headerOf(d20)), findsOneWidget);
+
+      // 下個月(本月)沒有訓練 → 不選。
+      await tester.tap(find.byKey(const Key('historyCalendarNextMonthButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('historyCalendarSelectedDateSection')), findsNothing);
+
+      // 回上個月 → 選該月最近一天(20 號)。
+      await tester.tap(find.byKey(const Key('historyCalendarPrevMonthButton')));
+      await tester.pumpAndSettle();
+      expect(find.text(headerOf(d20)), findsOneWidget);
+      expect(find.byKey(const Key('historyWorkoutCard-w-20')), findsOneWidget);
+    });
+  });
+
   group('日曆星期列', () {
     testWidgets('顯示一二三四五六日標題,且日期格落在對應星期欄(週一起算)', (tester) async {
       final harness = await _setUpHarness();
@@ -561,6 +858,43 @@ void main() {
       await tester.tap(find.byKey(const Key('workoutDetailEditButton')));
       await tester.pumpAndSettle();
       expect(find.byType(WorkoutEditPage), findsOneWidget);
+    });
+
+    testWidgets('動作明細懶建置:很多個動作時最後一個要捲動才建出來', (tester) async {
+      final harness = await _setUpHarness();
+      final exerciseId = (await harness.exerciseRepo.fetchSystemExercises()).first.id;
+      const count = 15;
+      await harness.workoutRepo.create(
+        _buildWorkout(
+          id: 'w-many',
+          startedAt: DateTime.now(),
+          totalExercises: count,
+          exercises: [
+            for (var i = 0; i < count; i++)
+              _buildExercise(
+                id: 'we-$i',
+                workoutId: 'w-many',
+                exerciseId: exerciseId,
+                orderIndex: i,
+                sets: [_buildSet(id: 'set-$i', workoutExerciseId: 'we-$i', setNumber: 1, weight: 50, reps: 5)],
+              ),
+          ],
+        ),
+      );
+
+      await _pumpHistory(tester, harness);
+      await tester.tap(find.byKey(const Key('historyWorkoutCard-w-many')));
+      await tester.pumpAndSettle();
+
+      // 前面還有摘要卡與容量分布卡,動作明細尾端不在可視範圍 → 沒建出來。
+      expect(find.byKey(const Key('workoutDetailExercise-we-14')), findsNothing);
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('workoutDetailExercise-we-14')),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('workoutDetailExercise-we-14')), findsOneWidget);
     });
 
     testWidgets('容量分布卡:動作數 < 2 隱藏、>= 2 顯示', (tester) async {

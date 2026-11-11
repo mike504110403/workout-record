@@ -27,34 +27,37 @@ class HistoryListView extends ConsumerWidget {
         if (state.workouts.isEmpty) {
           return const HistoryEmptyState();
         }
-        final groups = groupWorkoutsByWeek(state.workouts);
-        return ListView(
-          // 段數/筆數不是無限增長的懶載入資料流(單一使用者本機 SQLite),
-          // 刻意用 ListView 而非 ListView.builder——widget test 用
-          // find.byKey 需要所有卡片都已建置進 Element tree,對照
-          // pr_list_page.dart 同一個理由。
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageHorizontal,
-            0,
-            AppSpacing.pageHorizontal,
-            AppSpacing.lg,
-          ),
-          children: [
-            for (final (index, group) in groups.indexed) ...[
-              SectionHeader(
-                // key 用週起日而非標題:跨年時「M/D – M/D」標題可能重複。
-                key: Key(
-                  'historyWeekHeader-${group.weekStart.year}-${group.weekStart.month}-${group.weekStart.day}',
-                ),
-                title: group.label,
-                padding: EdgeInsets.only(
-                  top: index == 0 ? AppSpacing.sm : AppSpacing.lg,
-                  bottom: AppSpacing.sm,
-                ),
+        final items = state.items;
+        // 懶建置:只建可視範圍附近的列。分組已在 controller 載入時算好並攤平。
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageHorizontal,
+                0,
+                AppSpacing.pageHorizontal,
+                AppSpacing.lg,
               ),
-              for (final workout in group.workouts)
-                _HistoryListRow(workout: workout, isDeleting: state.deletingIds.contains(workout.id)),
-            ],
+              sliver: SliverList.builder(
+                itemCount: items.length,
+                itemBuilder: (context, index) => switch (items[index]) {
+                  HistoryWeekHeaderItem(:final group, :final isFirst) => SectionHeader(
+                    // key 用週起日而非標題:跨年時「M/D – M/D」標題可能重複。
+                    key: Key(
+                      'historyWeekHeader-${group.weekStart.year}-${group.weekStart.month}-${group.weekStart.day}',
+                    ),
+                    title: group.label,
+                    // 上一張卡片自帶 md 的下距,這裡補 xs 湊成區段間距 lg;
+                    // 第一個標頭貼齊頂端。
+                    padding: EdgeInsets.only(top: isFirst ? 0 : AppSpacing.xs, bottom: AppSpacing.sm),
+                  ),
+                  HistoryWorkoutItem(:final workout) => _HistoryListRow(
+                    workout: workout,
+                    isDeleting: state.deletingIds.contains(workout.id),
+                  ),
+                },
+              ),
+            ),
           ],
         );
       },

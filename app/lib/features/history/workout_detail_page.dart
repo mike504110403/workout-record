@@ -82,21 +82,41 @@ class _WorkoutDetailPageState extends ConsumerState<WorkoutDetailPage> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _SummaryCard(workout: workout),
-            // 只有 1 個動作時,分布永遠是 100%,卡片沒有資訊量 → 至少 2 個動作才顯示。
-            if (workout.exercises.length >= 2) ...[
-              const SizedBox(height: AppSpacing.lg),
-              _VolumeBreakdownCard(workout: workout),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            _ExerciseDetailList(workout: workout),
-          ],
-        ),
+      // 動作明細可能很長,整頁用 CustomScrollView,明細走 SliverList.builder
+      // 懶建置(摘要卡、容量分布卡數量固定,放 SliverToBoxAdapter)。
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SummaryCard(workout: workout),
+                  // 只有 1 個動作時,分布永遠是 100%,卡片沒有資訊量 → 至少 2 個動作才顯示。
+                  // 卡片之間 md;卡片與下方「動作明細」區段之間 lg。
+                  if (workout.exercises.length >= 2) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _VolumeBreakdownCard(workout: workout),
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  const SectionHeader(
+                    title: '動作明細',
+                    padding: EdgeInsets.only(bottom: AppSpacing.sm),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            key: const Key('workoutDetailExerciseList'),
+            padding: AppSpacing.pagePadding.copyWith(bottom: AppSpacing.lg),
+            sliver: SliverList.builder(
+              itemCount: workout.exercises.length,
+              itemBuilder: (context, index) => _ExerciseDetailCard(exercise: workout.exercises[index]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -154,7 +174,7 @@ class _SummaryCard extends ConsumerWidget {
               ),
             ],
           ),
-          const Divider(height: AppSpacing.xl),
+          const Divider(height: AppSpacing.lg),
           MetricRow(
             tiles: [
               MetricTile(
@@ -204,7 +224,7 @@ class _VolumeBreakdownCard extends ConsumerWidget {
         children: [
           SectionHeader(
             title: '容量分布',
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
           ),
           for (final exercise in workout.exercises)
             Padding(
@@ -231,107 +251,100 @@ class _VolumeBreakdownCard extends ConsumerWidget {
   }
 }
 
-/// 動作明細:每組的組號、重量、次數、容量。簡潔為先,直接平鋪不做展開/
-/// 摺疊(brief:「可展開摺疊或直接平鋪,簡潔為先」)。
-class _ExerciseDetailList extends ConsumerWidget {
-  const _ExerciseDetailList({required this.workout});
+/// 單一動作的明細卡:每組的組號、重量、次數、容量。簡潔為先,直接平鋪不做
+/// 展開/摺疊(brief:「可展開摺疊或直接平鋪,簡潔為先」)。卡片之間 md,
+/// 間距由卡片自己的下距補(SliverList 沒有 separator)。
+class _ExerciseDetailCard extends ConsumerWidget {
+  const _ExerciseDetailCard({required this.exercise});
 
-  final Workout workout;
+  final WorkoutExercise exercise;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Column(
-      key: const Key('workoutDetailExerciseList'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeader(title: '動作明細'),
-        for (final exercise in workout.exercises)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: AppCard(
-              key: Key('workoutDetailExercise-${exercise.id}'),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    workoutExerciseDisplayName(exercise),
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  // 表頭:對照 iOS WorkoutDetailView.swift:283-296(組/重量/次數/
-                  // 休息/容量),欄寬與下方每組列一致。
-                  Padding(
-                    key: Key('workoutDetailSetHeader-${exercise.id}'),
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: DefaultTextStyle.merge(
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                      child: const Row(
-                        children: [
-                          SizedBox(width: 56, child: Text('組')),
-                          SizedBox(width: AppSpacing.sm),
-                          Expanded(child: Text('重量')),
-                          Expanded(child: Text('次數')),
-                          Expanded(child: Text('休息')),
-                          Expanded(child: Text('容量', textAlign: TextAlign.end)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  for (final set in exercise.sets)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        children: [
-                          // review 打回 MINOR-4:暖身組不排進容量分布卡的加總
-                          // (`_VolumeBreakdownCard` 用 `nonWarmupExerciseVolume`
-                          // 排除暖身組),這裡平鋪列出每一組時如果不標記,使用者
-                          // 會拿這裡的各組容量手動加總、發現跟分布卡對不上——
-                          // 加「(暖身)」標記(照 workout_summary_sheet.dart:118
-                          // 既有慣例)。
-                          //
-                          // review 打回 r2 MINOR-A:這裡原本是裸 `Text`,暖身列
-                          // 的「(暖身)」讓這一格比其他列寬,後面的重量/次數/
-                          // 容量三欄跟著位移,整個表格對不齊。改回固定寬度容器
-                          // 包住(對照修復前 `SizedBox(width: 28)` 的做法,寬度
-                          // 加大到能放下「#10 (暖身)」不換行;超長內容用
-                          // ellipsis 兜底,不讓極端情況撐開欄寬)。
-                          SizedBox(
-                            width: 56,
-                            child: Text(
-                              '#${set.setNumber}${set.isWarmup ? ' (暖身)' : ''}',
-                              overflow: TextOverflow.ellipsis,
-                              softWrap: false,
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          // review 打回 MINOR-3:改用 formatWeightKg,不直印
-                          // double(避免「60.0 kg」這種不必要的浮點尾綴)。
-                          Expanded(child: Text(formatWeightKg(set.weight, unit))),
-                          Expanded(child: Text('${set.reps} 次')),
-                          // 休息時間:對照 iOS WorkoutDetailView.swift:328-340,
-                          // 有值顯示 formatRestSeconds、無值顯示「-」。
-                          Expanded(
-                            child: Text(
-                              set.restSeconds != null ? formatRestSeconds(set.restSeconds!) : '-',
-                              key: Key('workoutDetailRest_${set.id}'),
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          Expanded(child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end)),
-                        ],
-                      ),
-                    ),
-                ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: AppCard(
+        key: Key('workoutDetailExercise-${exercise.id}'),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              workoutExerciseDisplayName(exercise),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // 表頭:對照 iOS WorkoutDetailView.swift:283-296(組/重量/次數/
+            // 休息/容量),欄寬與下方每組列一致。
+            Padding(
+              key: Key('workoutDetailSetHeader-${exercise.id}'),
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: DefaultTextStyle.merge(
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                child: const Row(
+                  children: [
+                    SizedBox(width: 56, child: Text('組')),
+                    SizedBox(width: AppSpacing.sm),
+                    Expanded(child: Text('重量')),
+                    Expanded(child: Text('次數')),
+                    Expanded(child: Text('休息')),
+                    Expanded(child: Text('容量', textAlign: TextAlign.end)),
+                  ],
+                ),
               ),
             ),
-          ),
-      ],
+            for (final set in exercise.sets)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    // review 打回 MINOR-4:暖身組不排進容量分布卡的加總
+                    // (`_VolumeBreakdownCard` 用 `nonWarmupExerciseVolume`
+                    // 排除暖身組),這裡平鋪列出每一組時如果不標記,使用者
+                    // 會拿這裡的各組容量手動加總、發現跟分布卡對不上——
+                    // 加「(暖身)」標記(照 workout_summary_sheet.dart:118
+                    // 既有慣例)。
+                    //
+                    // review 打回 r2 MINOR-A:這裡原本是裸 `Text`,暖身列
+                    // 的「(暖身)」讓這一格比其他列寬,後面的重量/次數/
+                    // 容量三欄跟著位移,整個表格對不齊。改回固定寬度容器
+                    // 包住(對照修復前 `SizedBox(width: 28)` 的做法,寬度
+                    // 加大到能放下「#10 (暖身)」不換行;超長內容用
+                    // ellipsis 兜底,不讓極端情況撐開欄寬)。
+                    SizedBox(
+                      width: 56,
+                      child: Text(
+                        '#${set.setNumber}${set.isWarmup ? ' (暖身)' : ''}',
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    // review 打回 MINOR-3:改用 formatWeightKg,不直印
+                    // double(避免「60.0 kg」這種不必要的浮點尾綴)。
+                    Expanded(child: Text(formatWeightKg(set.weight, unit))),
+                    Expanded(child: Text('${set.reps} 次')),
+                    // 休息時間:對照 iOS WorkoutDetailView.swift:328-340,
+                    // 有值顯示 formatRestSeconds、無值顯示「-」。
+                    Expanded(
+                      child: Text(
+                        set.restSeconds != null ? formatRestSeconds(set.restSeconds!) : '-',
+                        key: Key('workoutDetailRest_${set.id}'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(child: Text(formatVolumeKg(set.volume, unit), textAlign: TextAlign.end)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_semantic_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../../data/models/exercise.dart';
+import '../exercise_history.dart';
 import 'exercise_picker_categories.dart';
 import 'exercise_picker_controller.dart';
 import 'quick_add_exercise_sheet.dart';
@@ -26,25 +27,33 @@ import 'quick_add_exercise_sheet.dart';
 /// - 單選(`multiSelect: false`,預設):點動作即回傳 `[exercise]` 並關閉。
 /// - 多選(`multiSelect: true`):可勾選多個,按下確認鈕回傳清單。
 /// - 取消(左上角按鈕或滑掉/點背景關閉):回傳 `null`。
+/// - [workoutMode](ui-polish,**預設關閉**,只有進行中訓練頁開):收掉標題列
+///   (靠拖曳把手/滑掉關閉)、搜尋框置頂、頂端加「最近用過」、「+ 自訂動作」
+///   改在搜尋無結果時出現。模板表單(多選)與歷史編輯頁維持舊版面與舊 key。
 Future<List<Exercise>?> showExercisePicker(
   BuildContext context, {
   bool multiSelect = false,
+  bool workoutMode = false,
 }) {
   return showModalBottomSheet<List<Exercise>?>(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => ExercisePickerSheet(multiSelect: multiSelect),
+    showDragHandle: workoutMode ? true : null,
+    builder: (_) => ExercisePickerSheet(multiSelect: multiSelect, workoutMode: workoutMode),
   );
 }
 
 /// 選動作器的畫面本體。刻意 public(不加底線)——widget 測試需要直接
 /// pump 它來驅動 [showExercisePicker] 觸發的 sheet 內容。
 class ExercisePickerSheet extends ConsumerStatefulWidget {
-  const ExercisePickerSheet({super.key, this.multiSelect = false});
+  const ExercisePickerSheet({super.key, this.multiSelect = false, this.workoutMode = false});
 
   final bool multiSelect;
+
+  /// 見 [showExercisePicker] 的 `workoutMode` 說明。
+  final bool workoutMode;
 
   @override
   ConsumerState<ExercisePickerSheet> createState() => _ExercisePickerSheetState();
@@ -126,15 +135,20 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: SizedBox(
-        height: mediaQuery.size.height * 0.9,
+        // workoutMode 多一條拖曳把手(在 builder 外、約 48px),內容高度讓一點,
+        // 不然加起來超過安全區高度。
+        height: mediaQuery.size.height * (widget.workoutMode ? 0.85 : 0.9),
         child: SafeArea(
           child: Column(
             children: [
-            _Header(onCancel: () => Navigator.of(context).pop(null), onAdd: _openQuickAdd),
+            if (!widget.workoutMode)
+              _Header(onCancel: () => Navigator.of(context).pop(null), onAdd: _openQuickAdd),
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.sm,
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                widget.workoutMode ? 0 : AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.sm,
               ),
               child: TextField(
                 key: const Key('exercise_picker_search_field'),
@@ -166,6 +180,15 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
                   state: state,
                   multiSelect: widget.multiSelect,
                   onSelectSingle: _selectSingle,
+                  topSection: widget.workoutMode ? _RecentSection(onSelect: _selectSingle) : null,
+                  emptySearchAction: widget.workoutMode
+                      ? FilledButton.tonalIcon(
+                          key: const Key('exercise_picker_add_custom_from_search'),
+                          onPressed: _openQuickAdd,
+                          icon: const Icon(Icons.add),
+                          label: const Text('自訂動作'),
+                        )
+                      : null,
                 ),
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => Center(child: Text('載入失敗:$error')),
@@ -226,11 +249,23 @@ class _Header extends StatelessWidget {
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.state, required this.multiSelect, required this.onSelectSingle});
+  const _Body({
+    required this.state,
+    required this.multiSelect,
+    required this.onSelectSingle,
+    this.topSection,
+    this.emptySearchAction,
+  });
 
   final ExercisePickerState state;
   final bool multiSelect;
   final void Function(Exercise exercise) onSelectSingle;
+
+  /// 未搜尋時放在分類 tab 上方(workoutMode 的「最近用過」)。
+  final Widget? topSection;
+
+  /// 搜尋無結果時顯示在空狀態下方(workoutMode 的「+ 自訂動作」)。
+  final Widget? emptySearchAction;
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +280,7 @@ class _Body extends StatelessWidget {
           // 顯示出來。
           title: '找不到「${state.searchQuery.trim()}」',
           subtitle: '試試其他關鍵字或新增自訂動作',
+          action: emptySearchAction,
         );
       }
       return _ExerciseListView(
@@ -282,6 +318,7 @@ class _Body extends StatelessWidget {
               style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
             ),
           ),
+        ?topSection,
         _CategoryTabs(selectedCategoryId: state.selectedCategoryId),
         Expanded(
           child: state.visibleExercises.isEmpty
@@ -521,11 +558,12 @@ class _ExerciseTile extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({super.key, required this.icon, required this.title, this.subtitle});
+  const _EmptyState({super.key, required this.icon, required this.title, this.subtitle, this.action});
 
   final IconData icon;
   final String title;
   final String? subtitle;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -541,6 +579,10 @@ class _EmptyState extends StatelessWidget {
             if (subtitle != null) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+            ],
+            if (action != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              action!,
             ],
           ],
         ),
@@ -567,6 +609,54 @@ class _ConfirmBar extends StatelessWidget {
           child: Text('確認 (${state.selectedIds.length})'),
         ),
       ),
+    );
+  }
+}
+
+/// workoutMode 頂端「最近用過」:一排可橫向捲動的 chip,點了直接選該動作。
+/// 資料來自獨立的 [recentExercisesProvider](best-effort:載入中、失敗、沒有
+/// 紀錄時整區不顯示,不擋選動作)。
+class _RecentSection extends ConsumerWidget {
+  const _RecentSection({required this.onSelect});
+
+  final void Function(Exercise exercise) onSelect;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recent = ref.watch(recentExercisesProvider).value ?? const <Exercise>[];
+    if (recent.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Column(
+      key: const Key('exercise_picker_recent_section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          child: Text(
+            '最近用過',
+            style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            itemCount: recent.length,
+            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+            itemBuilder: (context, index) {
+              final exercise = recent[index];
+              return Center(
+                child: ActionChip(
+                  key: Key('exercise_picker_recent_${exercise.id}'),
+                  label: Text(exercise.name),
+                  onPressed: () => onSelect(exercise),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

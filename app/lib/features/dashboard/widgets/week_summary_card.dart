@@ -1,5 +1,6 @@
-// 本週卡:把原本重複的「今日概覽」與「本週統計」合併成一張。
-// 由上而下:標題列(含「查看進度」次要入口)→ 本週次數/容量 → 目標進度 → 今日狀態。
+// 本週卡:本週次數/容量 → 目標進度。
+// 「今日狀態」與「查看進度」已移除:今天有沒有練從最近訓練就看得到,進度則由
+// 底部導覽的數據分頁負責,不在首頁重複。
 //
 // 次數與目標合在同一格:有設定週目標時顯示「1 / 4 次」(目前值為大數字、目標與
 // 單位為小字),沒有目標時顯示「1 次」,不再另外重複一份「訓練次數」。
@@ -19,7 +20,6 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/metric_tile.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../data/models/user_goal.dart';
-import '../../../data/models/workout.dart';
 import '../../settings/preferences/weight_unit.dart';
 import '../dashboard_format.dart';
 
@@ -31,8 +31,6 @@ class WeekSummaryCard extends ConsumerWidget {
     required this.userGoal,
     required this.goalPercentage,
     required this.motivationalMessage,
-    required this.todayWorkout,
-    required this.onViewProgress,
     required this.onOpenGoal,
   });
 
@@ -41,8 +39,6 @@ class WeekSummaryCard extends ConsumerWidget {
   final UserGoal? userGoal;
   final double? goalPercentage;
   final String motivationalMessage;
-  final Workout? todayWorkout;
-  final VoidCallback onViewProgress;
 
   /// 點擊目標區塊(進度或空狀態)時觸發,導去目標設定頁。
   final VoidCallback onOpenGoal;
@@ -59,17 +55,7 @@ class WeekSummaryCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader(
-            title: '本週',
-            padding: EdgeInsets.zero,
-            trailing: TextButton.icon(
-              key: const Key('quickActionViewProgress'),
-              onPressed: onViewProgress,
-              icon: const Icon(Icons.chevron_right),
-              iconAlignment: IconAlignment.end,
-              label: const Text('查看進度'),
-            ),
-          ),
+          const SectionHeader(title: '本週', padding: EdgeInsets.zero),
           const SizedBox(height: AppSpacing.sm),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,11 +92,6 @@ class WeekSummaryCard extends ConsumerWidget {
             )
           else
             _GoalEmpty(message: motivationalMessage, onTap: onOpenGoal),
-          const Divider(height: AppSpacing.xl),
-          if (todayWorkout != null)
-            _TodayDone(workout: todayWorkout!, unit: unit)
-          else
-            const _TodayEmpty(),
         ],
       ),
     );
@@ -232,70 +213,6 @@ class _GoalEmpty extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _TodayDone extends StatelessWidget {
-  const _TodayDone({required this.workout, required this.unit});
-
-  final Workout workout;
-  final WeightUnit unit;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Row(
-      key: const Key('todayWorkoutCard'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Icons.check_circle, size: 20, color: context.semanticColors.success),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '今日已完成訓練',
-                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                '${workout.duration ?? 0} 分鐘 · '
-                '${formatVolumeKg(workout.totalVolume, unit)} · '
-                '${workout.totalSets} 組 · '
-                '${workout.totalExercises} 個動作',
-                style: AppNumberStyles.body(context).copyWith(
-                  fontSize: theme.textTheme.bodySmall?.fontSize,
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TodayEmpty extends StatelessWidget {
-  const _TodayEmpty();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return Row(
-      key: const Key('noWorkoutTodayCard'),
-      children: [
-        Icon(Icons.radio_button_unchecked, size: 20, color: colors.onSurfaceVariant),
-        const SizedBox(width: AppSpacing.sm),
-        Text(
-          '今日尚未訓練',
-          style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
-        ),
-      ],
     );
   }
 }

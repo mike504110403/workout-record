@@ -28,12 +28,12 @@ String formatVolumeBare(double volume, WeightUnit unit) =>
 String formatWeightKg(double weight, WeightUnit unit) =>
     weight_format.formatWeight(weight, unit, decimals: 1);
 
-/// 體重變化(帶正負號)。輸入 kg 差值,依 [unit] 換算顯示;四捨五入到 0.1
-/// 後為 0 時不帶正負號。負號用真正的減號 U+2212,與等寬數字對齊。
-String formatWeightChange(double deltaKg, WeightUnit unit) {
+/// 體重卡單列用的變化量:▲ 上升、▼ 下降,不帶單位(單位已在前面的體重上)。
+/// 輸入 kg 差值,依 [unit] 換算;四捨五入到 0.1 後為 0 不帶箭頭。
+/// 箭頭只表方向、不套好壞色——減脂與增肌的人對漲跌的好壞相反。
+String formatWeightChangeArrow(double deltaKg, WeightUnit unit) {
   final shown = kgToDisplay(deltaKg, unit);
-  final rounded = double.parse(shown.abs().toStringAsFixed(1));
-  final text = weight_format.formatWeight(rounded == 0 ? 0 : deltaKg.abs(), unit, decimals: 1);
-  if (rounded == 0) return text;
-  return '${shown < 0 ? '\u2212' : '+'}$text';
+  final magnitude = shown.abs().toStringAsFixed(1);
+  if (double.parse(magnitude) == 0) return magnitude;
+  return '${shown < 0 ? '\u25BC' : '\u25B2'}$magnitude';
 }

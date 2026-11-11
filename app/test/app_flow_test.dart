@@ -1,7 +1,7 @@
 // WorkItOutApp 根 widget 的端到端流程測試,走真實接線(router + app.dart
 // 的隱私同意 gate + Onboarding + 5-tab 殼),不是個別 controller 的隔離
 // 測試。涵蓋三條路徑:
-// a. 冷啟 → 登入 → 隱私同意 → 完成 Onboarding → 進入 5-tab 殼。
+// a. 冷啟 → 登入 → 隱私同意 → 完成 Onboarding → 進入 4-tab 殼(落在首頁)。
 // b. 隱私同意 gate:勾滿兩框不按按鈕不放行、按下才放行且落地、同一份
 //    prefs 重新啟動不再重問。
 // c. 設定頁登出 → 回 /login,且 user_* 個資 prefs 與 Onboarding 完成旗標
@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/app.dart';
 import 'package:workout_record/data/providers.dart';
+import 'package:workout_record/features/dashboard/dashboard_page.dart';
 import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/onboarding/onboarding_controller.dart';
@@ -24,7 +25,7 @@ import 'data/test_helpers.dart';
 
 void main() {
   testWidgets(
-    '冷啟整個流程:登入 → 隱私同意 → 完成 Onboarding → 進入 5-tab 殼',
+    '冷啟整個流程:登入 → 隱私同意 → 完成 Onboarding → 進入 4-tab 殼',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
@@ -52,8 +53,7 @@ void main() {
       // 登入後、Onboarding 前,先擋在隱私同意頁。
       expect(find.text('隱私權同意'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('analyticsConsentCheckbox')));
-      await tester.pumpAndSettle();
+      // 單一「我已閱讀並同意」勾選框。
       await tester.tap(find.byKey(const Key('privacyConsentCheckbox')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('agreeAndContinueButton')));
@@ -65,10 +65,13 @@ void main() {
       await tester.tap(find.byKey(const Key('skipOnboardingButton')));
       await tester.pumpAndSettle();
 
-      // 最終進到 5-tab 殼。
+      // 最終進到 4-tab 殼、落在首頁。
       expect(find.byType(NavigationBar), findsOneWidget);
-      // 首頁改 large title(SliverAppBar.large),標題在展開/收合各有一份 Text。
-      expect(find.widgetWithText(AppBar, '首頁'), findsWidgets);
+      expect(find.byType(NavigationDestination), findsNWidgets(4));
+      expect(find.byType(DashboardPage), findsOneWidget);
+      // 首頁不放頁名標題(導覽列已標示),內容首項是主 CTA。
+      expect(find.widgetWithText(AppBar, '首頁'), findsNothing);
+      expect(find.byKey(const Key('quickActionStartWorkout')), findsOneWidget);
     },
   );
 
@@ -98,12 +101,10 @@ void main() {
 
       expect(find.text('隱私權同意'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('analyticsConsentCheckbox')));
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('privacyConsentCheckbox')));
       await tester.pumpAndSettle();
 
-      // 勾滿兩框但還沒按「同意並繼續」→ 仍停在同意頁,prefs 沒有任何同意 key。
+      // 勾了但還沒按「同意並繼續」→ 仍停在同意頁,prefs 沒有任何同意 key。
       expect(find.text('隱私權同意'), findsOneWidget);
       expect(prefs.containsKey(kPrivacyConsentDateKey), isFalse);
       expect(prefs.containsKey(kHasAgreedToAnalyticsKey), isFalse);
@@ -166,7 +167,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 三個 gate 都已滿足,直接落在 5-tab 殼。
+      // 三個 gate 都已滿足,直接落在 4-tab 殼。
       expect(find.byType(NavigationBar), findsOneWidget);
 
       await tester.tap(find.widgetWithText(NavigationDestination, '設定'));

@@ -19,7 +19,7 @@ import '../body_weight_stats.dart';
 /// 一天的毫秒數，X 軸標籤的最小刻度間隔——見 `_bottomTitleInterval`。
 const _oneDayMs = 24 * 60 * 60 * 1000;
 
-class BodyWeightChart extends ConsumerWidget {
+class BodyWeightChart extends ConsumerStatefulWidget {
   const BodyWeightChart({super.key, required this.entriesDesc, this.targetWeight});
 
   /// 新到舊排序（沿用 `BodyWeightTabState.entriesDesc` 既有順序）——本
@@ -31,30 +31,60 @@ class BodyWeightChart extends ConsumerWidget {
   final double? targetWeight;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BodyWeightChart> createState() => _BodyWeightChartState();
+}
+
+class _BodyWeightChartState extends ConsumerState<BodyWeightChart> {
+  // 排序/同日去重/單位換算只在 (entriesDesc, unit) 變動時重算,不在每次 build
+  // 重跑——先前每次 rebuild(切換單位、父層重建)都整份重排。以 entriesDesc 的
+  // identity 當快取鍵:controller 每次重新查詢都會產生新 list。
+  List<BodyWeight>? _cachedSource;
+  WeightUnit? _cachedUnit;
+  List<FlSpot> _spots = const [];
+
+  List<FlSpot> _spotsFor(WeightUnit unit) {
+    if (!identical(_cachedSource, widget.entriesDesc) || _cachedUnit != unit) {
+      _cachedSource = widget.entriesDesc;
+      _cachedUnit = unit;
+      // 畫圖前先轉成 measuredAt 由舊到新——`entriesDesc` 是新到舊(列表用的
+      // 既有順序),若這裡漏掉這一步、直接拿原始順序畫圖,折線的左右方向會
+      // 完全反過來(widget test 的「排序反轉必紅」變異案例就是在驗證這個
+      // 轉換確實發生)。
+      // 同一天多筆只畫當天最後一筆(只影響畫圖;列表/統計仍用完整資料)——
+      // 否則同日多點 x 值極近,曲線在右緣出現垂直斷崖。
+      final ascending = collapseBodyWeightsToDailyLast(sortBodyWeightsAscending(widget.entriesDesc));
+      // x 值用 `measuredAt` 的毫秒時間戳,不是陣列索引——對齊 iOS
+      // `BodyWeightChartView` 用 `Chart { LineMark(x: .value("日期",
+      // point.date), ...) }` 讓 X 軸真的是時間軸:兩筆紀錄間隔一天跟間隔一個
+      // 月在圖上要是不同的水平距離,用索引(0, 1, 2, …)會讓資料點永遠等距
+      // 排列,量測間隔失真(review 打回項目:「不等距種子 → spots x 值反映
+      // 真實間隔」測試就是在守這件事)。
+      // 資料點本身(entry.weight)恆 kg 不動,這裡只換算「畫進圖表的顯示
+      // y 值」——對照 volume_chart_section.dart 的同一套作法。
+      _spots = [
+        for (final entry in ascending)
+          FlSpot(entry.measuredAt.millisecondsSinceEpoch.toDouble(), kgToDisplay(entry.weight, unit)),
+      ];
+    }
+    return _spots;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // RepaintBoundary:圖表自成一層,外層清單捲動時不連帶重繪圖表。
+    return RepaintBoundary(
+      key: const Key('bodyWeightChartRepaintBoundary'),
+      child: _buildChart(context),
+    );
+  }
+
+  Widget _buildChart(BuildContext context) {
+    final targetWeight = widget.targetWeight;
     final unit = ref.watch(weightUnitProvider);
     final lineColor = Theme.of(context).colorScheme.primary;
     final targetColor = context.semanticColors.success;
     final axisStyle = Theme.of(context).textTheme.labelSmall;
-    // 畫圖前先轉成 measuredAt 由舊到新——`entriesDesc` 是新到舊（列表用的
-    // 既有順序），若這裡漏掉這一步、直接拿原始順序畫圖，折線的左右方向會
-    // 完全反過來（widget test 的「排序反轉必紅」變異案例就是在驗證這個
-    // 轉換確實發生）。
-    // 同一天多筆只畫當天最後一筆(只影響畫圖;列表/統計仍用完整資料)——
-    // 否則同日多點 x 值極近,曲線在右緣出現垂直斷崖。
-    final ascending = collapseBodyWeightsToDailyLast(sortBodyWeightsAscending(entriesDesc));
-    // x 值用 `measuredAt` 的毫秒時間戳，不是陣列索引——對齊 iOS
-    // `BodyWeightChartView` 用 `Chart { LineMark(x: .value("日期",
-    // point.date), ...) }` 讓 X 軸真的是時間軸：兩筆紀錄間隔一天跟間隔一個
-    // 月在圖上要是不同的水平距離，用索引（0, 1, 2, …）會讓資料點永遠等距
-    // 排列，量測間隔失真（review 打回項目：「不等距種子 → spots x 值反映
-    // 真實間隔」測試就是在守這件事）。
-    // 資料點本身（entry.weight）恆 kg 不動，這裡只換算「畫進圖表的顯示
-    // y 值」——對照 volume_chart_section.dart 的同一套作法。
-    final spots = [
-      for (final entry in ascending)
-        FlSpot(entry.measuredAt.millisecondsSinceEpoch.toDouble(), kgToDisplay(entry.weight, unit)),
-    ];
+    final spots = _spotsFor(unit);
 
     final rawTarget = targetWeight;
     final target = rawTarget == null ? null : kgToDisplay(rawTarget, unit);

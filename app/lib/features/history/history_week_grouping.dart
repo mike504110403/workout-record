@@ -52,3 +52,33 @@ String _labelFor(DateTime weekStart, {required DateTime thisWeek, required DateT
   final weekEnd = DateTime(weekStart.year, weekStart.month, weekStart.day + 6);
   return '${weekStart.month}/${weekStart.day} – ${weekEnd.month}/${weekEnd.day}';
 }
+
+/// 週分組攤平後的列表項:週標頭或單筆訓練。懶建置的 `SliverList.builder`
+/// 以 index 取項,所以分組結果要先攤平成一維(攤平在 controller 載入時做一次,
+/// 不在 build 裡算)。
+sealed class HistoryListItem {
+  const HistoryListItem();
+}
+
+class HistoryWeekHeaderItem extends HistoryListItem {
+  const HistoryWeekHeaderItem(this.group, {required this.isFirst});
+
+  final HistoryWeekGroup group;
+
+  /// 第一個標頭貼齊頂端,不補區段上距。
+  final bool isFirst;
+}
+
+class HistoryWorkoutItem extends HistoryListItem {
+  const HistoryWorkoutItem(this.workout);
+
+  final Workout workout;
+}
+
+/// 把 [groups] 攤平成「標頭、該週訓練...、下一個標頭...」的一維清單。
+List<HistoryListItem> flattenWeekGroups(List<HistoryWeekGroup> groups) => [
+  for (final (index, group) in groups.indexed) ...[
+    HistoryWeekHeaderItem(group, isFirst: index == 0),
+    for (final workout in group.workouts) HistoryWorkoutItem(workout),
+  ],
+];

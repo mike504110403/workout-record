@@ -9,9 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
+import 'package:workout_record/features/stats/body_weight/body_weight_controller.dart';
 import 'package:workout_record/features/stats/body_weight/body_weight_tab.dart';
+import 'package:workout_record/features/stats/powerlifting/powerlifting_controller.dart';
 import 'package:workout_record/features/stats/powerlifting/powerlifting_tab.dart';
 import 'package:workout_record/features/stats/stats_page.dart';
+import 'package:workout_record/features/stats/workout_stats/workout_stats_controller.dart';
 import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.dart';
 
 import '../../data/test_helpers.dart';
@@ -80,7 +83,39 @@ void main() {
     expect(find.byType(PowerliftingTab), findsOneWidget);
   });
 
-  testWidgets('IndexedStack 讓三個子頁都保持存活,不因切分頁被 dispose', (tester) async {
+  testWidgets('沒有「數據」標題列:不放 AppBar,分段鈕頂在最上面', (tester) async {
+    await _pump(tester);
+
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('數據'), findsNothing);
+    // 分段鈕緊貼狀態列安全區下方(測試環境安全區為 0,頂端只留 AppSpacing.sm 的內距)。
+    final controlTop = tester.getTopLeft(find.byKey(const Key('statsSegmentedControl'))).dy;
+    expect(controlTop, lessThan(24));
+  });
+
+  testWidgets('子頁懶建置:未選過的子頁不存在、provider 也沒被觸發;選過一次後才建置', (tester) async {
+    await _pump(tester);
+    final container = ProviderScope.containerOf(tester.element(find.byType(StatsPage)));
+
+    // 只有預設的「訓練」建置;體重/三項連 Element 都不存在(skipOffstage:false
+    // 連被 IndexedStack 蓋住的也找),背後的 provider 也沒被建立。
+    expect(find.byType(WorkoutStatsTab, skipOffstage: false), findsOneWidget);
+    expect(find.byType(BodyWeightTab, skipOffstage: false), findsNothing);
+    expect(find.byType(PowerliftingTab, skipOffstage: false), findsNothing);
+    expect(container.exists(workoutStatsControllerProvider), isTrue);
+    expect(container.exists(bodyWeightTabControllerProvider), isFalse);
+    expect(container.exists(powerliftingControllerProvider), isFalse);
+
+    await tester.tap(find.byKey(const Key('statsSegment-1')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BodyWeightTab, skipOffstage: false), findsOneWidget);
+    expect(container.exists(bodyWeightTabControllerProvider), isTrue);
+    // 三項仍沒被選過 → 仍未建置。
+    expect(find.byType(PowerliftingTab, skipOffstage: false), findsNothing);
+    expect(container.exists(powerliftingControllerProvider), isFalse);
+  });
+
+  testWidgets('已建過的子頁切走後仍保留(不 dispose、不重新查詢)', (tester) async {
     await _pump(tester);
 
     // 訓練統計預設就在畫面上;切到體重分頁後,訓練統計子頁應該還在
@@ -101,5 +136,10 @@ void main() {
       findsOneWidget,
       reason: '訓練統計子頁應該還活在 element tree 裡(只是被蓋住),不是被 dispose 重建',
     );
+
+    // 切回訓練後,體重子頁同樣保留。
+    await tester.tap(find.byKey(const Key('statsSegment-0')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BodyWeightTab, skipOffstage: false), findsOneWidget);
   });
 }

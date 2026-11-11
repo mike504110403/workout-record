@@ -202,6 +202,32 @@ void main() {
     });
   });
 
+  group('精簡版面', () {
+    testWidgets('沒有「經典三項」標題列;動作選擇是輕量 chip,「新增」收進同一列的圖示鈕', (tester) async {
+      final harness = await _setUpHarness();
+
+      await _pump(tester, harness);
+
+      expect(find.text('經典三項'), findsNothing);
+      // 不再是整條 SegmentedButton,三顆動作是 ChoiceChip。
+      expect(find.byType(SegmentedButton<PowerLift>), findsNothing);
+      expect(
+        find.descendant(of: find.byKey(const Key('liftPicker')), matching: find.byType(ChoiceChip)),
+        findsNWidgets(3),
+      );
+      // 「新增」入口只有一個,且在動作選擇列內(圖示鈕,不是整塊按鈕)。
+      expect(find.byKey(const Key('addPowerLiftRecordButton')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('liftPicker')),
+          matching: find.byKey(const Key('addPowerLiftRecordButton')),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(FilledButton), findsNothing);
+    });
+  });
+
   group('空狀態', () {
     testWidgets('選取動作沒有手動紀錄時顯示空狀態文案', (tester) async {
       final harness = await _setUpHarness();
@@ -210,7 +236,7 @@ void main() {
 
       expect(find.byKey(const Key('powerliftingEmptyState')), findsOneWidget);
       expect(find.text('尚無三項表記錄'), findsOneWidget);
-      expect(find.text('點擊右上角「新增」開始記錄'), findsOneWidget);
+      expect(find.text('點上方的「+」開始記錄'), findsOneWidget);
       expect(find.byKey(const Key('oneRmTrendChart')), findsNothing);
     });
 
@@ -261,6 +287,16 @@ void main() {
 
       expect(find.byKey(const Key('oneRmTrendChart')), findsOneWidget);
       expect(find.byKey(const Key('powerliftingNeedMoreData')), findsNothing);
+      // 1RM 趨勢圖外包 RepaintBoundary(捲動時不連帶重繪圖表)。
+      // 該 key 必須掛在真正的 RepaintBoundary 上(不是任意 widget),且圖表在它底下。
+      expect(tester.widget(find.byKey(const Key('oneRmTrendChartRepaintBoundary'))), isA<RepaintBoundary>());
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('oneRmTrendChartRepaintBoundary')),
+          matching: find.byType(LineChart),
+        ),
+        findsOneWidget,
+      );
     });
   });
 

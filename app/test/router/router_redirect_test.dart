@@ -111,8 +111,8 @@ void main() {
       expect(shouldRefreshDashboardOnBranchSwitch(0), isTrue);
     });
 
-    test('切到其他分頁(訓練/數據/歷史/設定)時回傳 false', () {
-      for (final index in [1, 2, 3, 4]) {
+    test('切到其他分頁(數據/歷史/設定)時回傳 false', () {
+      for (final index in [1, 2, 3]) {
         expect(
           shouldRefreshDashboardOnBranchSwitch(index),
           isFalse,
@@ -128,12 +128,13 @@ void main() {
   // shouldRefreshDashboardOnBranchSwitch 的檔頭註解:純函式測試守不住接線
   // 本身有沒有真的呼叫)。
   group('shouldRefreshStatsOnBranchSwitch', () {
-    test('切到數據分頁(index 2)時回傳 true', () {
-      expect(shouldRefreshStatsOnBranchSwitch(2), isTrue);
+    // 4-tab(ui-polish 拿掉訓練分頁):首頁 0 / 數據 1 / 歷史 2 / 設定 3。
+    test('切到數據分頁(index 1)時回傳 true', () {
+      expect(shouldRefreshStatsOnBranchSwitch(1), isTrue);
     });
 
-    test('切到其他分頁(首頁/訓練/歷史/設定)時回傳 false', () {
-      for (final index in [0, 1, 3, 4]) {
+    test('切到其他分頁(首頁/歷史/設定)時回傳 false', () {
+      for (final index in [0, 2, 3]) {
         expect(
           shouldRefreshStatsOnBranchSwitch(index),
           isFalse,
@@ -146,12 +147,12 @@ void main() {
   // 接線行為(切分頁真的 invalidate 歷史兩個 provider)測在
   // test/features/history/history_shell_revisit_test.dart,理由同上。
   group('shouldRefreshHistoryOnBranchSwitch', () {
-    test('切到歷史分頁(index 3)時回傳 true', () {
-      expect(shouldRefreshHistoryOnBranchSwitch(3), isTrue);
+    test('切到歷史分頁(index 2)時回傳 true', () {
+      expect(shouldRefreshHistoryOnBranchSwitch(2), isTrue);
     });
 
-    test('切到其他分頁(首頁/訓練/數據/設定)時回傳 false', () {
-      for (final index in [0, 1, 2, 4]) {
+    test('切到其他分頁(首頁/數據/設定)時回傳 false', () {
+      for (final index in [0, 1, 3]) {
         expect(
           shouldRefreshHistoryOnBranchSwitch(index),
           isFalse,

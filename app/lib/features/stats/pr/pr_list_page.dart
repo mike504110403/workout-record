@@ -64,13 +64,38 @@ class _PrListBodyState extends ConsumerState<_PrListBody> {
   final _searchController = TextEditingController();
   String _query = '';
 
+  // 篩選＋分組＋攤平的結果快取:只在查詢字串或來源資料變動時重算,不在每次
+  // build(例如鍵盤彈出、重繪)重跑。
+  late List<PRSummary> _filtered;
+  late List<_PrListItem> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _recompute();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PrListBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.summaries, widget.summaries)) _recompute();
+  }
+
+  void _recompute() {
+    _filtered = filterSummariesByName(widget.summaries, _query);
+    _items = _flatten(groupByMuscleGroup(_filtered));
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
-  void _setQuery(String value) => setState(() => _query = value);
+  void _setQuery(String value) => setState(() {
+    _query = value;
+    _recompute();
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -85,8 +110,7 @@ class _PrListBodyState extends ConsumerState<_PrListBody> {
       );
     }
 
-    final filtered = filterSummariesByName(summaries, _query);
-    final sections = groupByMuscleGroup(filtered);
+    final filtered = _filtered;
 
     return Column(
       children: [
@@ -133,14 +157,14 @@ class _PrListBodyState extends ConsumerState<_PrListBody> {
                       ),
                     ],
                   )
-                : ListView(
-                    // 段數固定(依實際肌群數量而定,不是無限增長的資料流),刻意不用
-                    // ListView.builder 的 lazy 虛擬化——理由同
-                    // dashboard_page.dart/powerlifting_tab.dart:widget test 用
-                    // find.byKey 需要所有卡片都已建置進 Element tree。
+                : ListView.builder(
+                    // 動作數量隨使用時間增長,卡片(含 Riverpod watch 與 1RM 計算)
+                    // 改成懶建置,只建可見範圍;分組標題與卡片攤平成同一條清單。
+                    // widget test 找下方的卡片要先 scrollUntilVisible。
                     padding: AppSpacing.pagePadding.copyWith(bottom: AppSpacing.xl),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    children: [for (final section in sections) _PrGroupSectionView(section: section)],
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) => _items[index].build(context),
                   ),
           ),
         ),
@@ -149,23 +173,48 @@ class _PrListBodyState extends ConsumerState<_PrListBody> {
   }
 }
 
-class _PrGroupSectionView extends StatelessWidget {
-  const _PrGroupSectionView({required this.section});
+/// 攤平後清單的一列:分組標題或單張 PR 卡。
+sealed class _PrListItem {
+  const _PrListItem();
 
-  final PrGroupSection section;
+  Widget build(BuildContext context);
+}
+
+class _PrHeaderItem extends _PrListItem {
+  const _PrHeaderItem({required this.label, required this.isFirst});
+
+  final String label;
+  final bool isFirst;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      key: Key('prGroupSection-${section.label}'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(title: section.label),
-        for (final summary in section.summaries) PrSummaryCard(summary: summary),
-        const SizedBox(height: AppSpacing.sm),
-      ],
+    // 區段之間 lg(16):上一張卡片自帶 bottom margin md(12),非首段標題的上緣
+    // 只補 xs(4)就是 16;首段維持 SectionHeader 預設 sm 上緣。標題與下方
+    // 卡片的距離維持 sm(8)。(先前非首段再多補 sm,實際間距 12+8+8=28。)
+    return SectionHeader(
+      key: Key('prGroupSection-$label'),
+      title: label,
+      padding: EdgeInsets.only(top: isFirst ? AppSpacing.sm : AppSpacing.xs, bottom: AppSpacing.sm),
     );
   }
+}
+
+class _PrCardItem extends _PrListItem {
+  const _PrCardItem(this.summary);
+
+  final PRSummary summary;
+
+  @override
+  Widget build(BuildContext context) => PrSummaryCard(summary: summary);
+}
+
+List<_PrListItem> _flatten(List<PrGroupSection> sections) {
+  return [
+    for (final (i, section) in sections.indexed) ...[
+      _PrHeaderItem(label: section.label, isFirst: i == 0),
+      for (final summary in section.summaries) _PrCardItem(summary),
+    ],
+  ];
 }
 
 class _EmptyPrListState extends StatelessWidget {

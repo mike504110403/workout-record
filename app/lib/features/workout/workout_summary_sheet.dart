@@ -17,8 +17,11 @@ import '../settings/preferences/weight_unit.dart';
 import 'workout_metric_row.dart';
 import 'workout_ui_shared.dart';
 
-/// 顯示結算報告。關閉後回到開始畫面(呼叫端不需要另外處理——訓練完成時
-/// [WorkoutController.completeWorkout] 已經把 state 收回 idle)。
+/// 顯示結算報告。按「完成」關閉後由呼叫端(進行中訓練頁)回首頁——訓練完成時
+/// [WorkoutController.completeWorkout] 已經把 state 收回 idle。
+///
+/// 高度依內容(ui-polish:拿掉固定 0.85,動作少時不留一大片空白),內容超過
+/// 螢幕時中間可捲、「完成」鈕固定在底部。
 Future<void> showWorkoutSummarySheet(
   BuildContext context,
   Workout workout,
@@ -51,27 +54,14 @@ class _WorkoutSummarySheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
     final theme = Theme.of(context);
-    return FractionallySizedBox(
-      heightFactor: 0.85,
-      child: Scaffold(
-        // 關閉入口只留底部主按鈕(頂部不再放「完成」);標題只留內文那一個
-        // 「訓練完成！」,不再另設 AppBar 重複一次。
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.pageHorizontal,
-              AppSpacing.sm,
-              AppSpacing.pageHorizontal,
-              AppSpacing.md,
-            ),
-            child: FilledButton(
-              key: const Key('workoutSummaryDoneButton'),
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('完成'),
-            ),
-          ),
-        ),
-        body: SingleChildScrollView(
+    // 關閉入口只留底部主按鈕(頂部不再放「完成」);標題只留內文那一個
+    // 「訓練完成！」,不再另設 AppBar 重複一次。
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Flexible(
+          child: SingleChildScrollView(
           padding: AppSpacing.pagePadding,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -168,11 +158,27 @@ class _WorkoutSummarySheet extends ConsumerWidget {
                 ),
                 const SizedBox(height: AppSpacing.sm),
               ],
-              const SizedBox(height: AppSpacing.sm),
             ],
           ),
+          ),
         ),
-      ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageHorizontal,
+              AppSpacing.sm,
+              AppSpacing.pageHorizontal,
+              AppSpacing.md,
+            ),
+            child: FilledButton(
+              key: const Key('workoutSummaryDoneButton'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('完成'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

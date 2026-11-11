@@ -19,11 +19,15 @@ import 'features/stats/pr/pr_list_controller.dart';
 import 'features/stats/powerlifting/powerlifting_controller.dart';
 import 'features/stats/stats_page.dart';
 import 'features/stats/workout_stats/workout_stats_controller.dart';
+import 'features/workout/exercise_history.dart';
+import 'features/workout/recoverable_draft_prompt.dart';
 import 'features/workout/templates/templates_controller.dart';
+import 'features/workout/workout_launcher.dart';
 import 'features/workout/workout_page.dart';
 
-/// 5-tab 導航殼的路由。分頁對應現行 iOS 版 `MainTabView`:
-/// 首頁 / 訓練 / 數據 / 歷史 / 設定。
+/// 4-tab 導航殼的路由(ui-polish 2026-11-11 Mike 裁示 4):首頁 / 數據 / 歷史 /
+/// 設定。原本的「訓練」分頁拿掉,訓練改成從首頁進入、shell 之外的全螢幕
+/// 路由 `/workout`(無導覽列,見 workout_launcher.dart)。
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// 入口流程守衛(對等 iOS `WorkoutRecordApp.body` 的三段式 if/else):
@@ -46,7 +50,7 @@ String? resolveAuthRedirect({
   return null;
 }
 
-/// 首頁在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序一致。
+/// 首頁在 4-tab shell 裡的 branch index——與下方 `branches:` 陣列順序一致。
 const _dashboardBranchIndex = 0;
 
 /// `StatefulShellRoute.indexedStack` 讓分頁切換不會 dispose 頁面,
@@ -61,6 +65,10 @@ const _dashboardBranchIndex = 0;
 /// 這條線的行為測在 test/features/dashboard/dashboard_shell_revisit_test.dart
 /// ——純函式測試只守「index 對應」,守不住接線本身有沒有真的呼叫)。
 ///
+/// 訓練頁移到 shell 之外後,「記完訓練回首頁」不再經過分頁切換(首頁 index
+/// 根本沒變),這裡接不到——改由訓練頁在完成/放棄/返回時自行 invalidate
+/// (workout_page.dart),啟動時放棄草稿由 recoverable_draft_prompt.dart 處理。
+///
 /// r2 review 打回記錄(major 2):這個判斷式原本只掛在 `_AppShell` 的
 /// `NavigationBar.onDestinationSelected` callback 裡——只有「點 bottom nav
 /// 分頁圖示」這條路徑會觸發。Dashboard 的「查看進度」快速操作走
@@ -71,9 +79,9 @@ const _dashboardBranchIndex = 0;
 /// 純函式,行為不變。
 bool shouldRefreshDashboardOnBranchSwitch(int targetIndex) => targetIndex == _dashboardBranchIndex;
 
-/// 「數據」在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
-/// 一致(首頁 0 / 訓練 1 / 數據 2 / 歷史 3 / 設定 4)。
-const _statsBranchIndex = 2;
+/// 「數據」在 4-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
+/// 一致(首頁 0 / 數據 1 / 歷史 2 / 設定 3)。
+const _statsBranchIndex = 1;
 
 /// 波 4 補上的第二個「回訪同一分頁需要 invalidate」案例,同一個理由:
 /// `StatefulShellRoute.indexedStack` 不 dispose 頁面,
@@ -83,9 +91,9 @@ const _statsBranchIndex = 2;
 /// [shouldRefreshDashboardOnBranchSwitch](含上面那則 major 2 打回記錄)。
 bool shouldRefreshStatsOnBranchSwitch(int targetIndex) => targetIndex == _statsBranchIndex;
 
-/// 「歷史」在 5-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
-/// 一致(首頁 0 / 訓練 1 / 數據 2 / 歷史 3 / 設定 4)。
-const _historyBranchIndex = 3;
+/// 「歷史」在 4-tab shell 裡的 branch index——與下方 `branches:` 陣列順序
+/// 一致(首頁 0 / 數據 1 / 歷史 2 / 設定 3)。
+const _historyBranchIndex = 2;
 
 /// 波 5 補上的第三個「回訪同一分頁需要 invalidate」案例,理由同上兩支:
 /// `StatefulShellRoute.indexedStack` 不 dispose 頁面,歷史列表/日曆的
@@ -129,6 +137,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/onboarding',
         builder: (context, state) => const OnboardingPage(),
       ),
+      // 全螢幕訓練頁:在 shell 之外(沒有導覽列),由 workout_launcher.dart
+      // push 進來;Web 直開或 `go('/workout')` 也能到(訓練頁自己找草稿)。
+      GoRoute(
+        path: kWorkoutRoutePath,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) {
+          final args = state.extra is WorkoutRouteArgs ? state.extra! as WorkoutRouteArgs : null;
+          return WorkoutPage(autoOpenPicker: args?.autoOpenPicker ?? false);
+        },
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return _AppShell(navigationShell: navigationShell);
@@ -139,14 +157,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/dashboard',
                 builder: (context, state) => const DashboardPage(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/workout',
-                builder: (context, state) => const WorkoutPage(),
               ),
             ],
           ),
@@ -202,11 +212,6 @@ class _AppShell extends ConsumerStatefulWidget {
       label: '首頁',
     ),
     NavigationDestination(
-      icon: Icon(Icons.fitness_center_outlined),
-      selectedIcon: Icon(Icons.fitness_center),
-      label: '訓練',
-    ),
-    NavigationDestination(
       icon: Icon(Icons.show_chart_outlined),
       selectedIcon: Icon(Icons.show_chart),
       label: '數據',
@@ -228,6 +233,18 @@ class _AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<_AppShell> {
+  @override
+  void initState() {
+    super.initState();
+    // 未完成草稿檢查(原本在訓練分頁首次進入時跳):訓練分頁拿掉後改由殼層
+    // 掛載時(登入/啟動完成進到首頁)檢查一次。等第一幀畫完才有可用的
+    // Navigator/Overlay 給對話框。殼層在登出時會被拆掉,下次登入重新掛載
+    // 再檢查一次——剛好對應「換帳號」。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) promptRecoverableDraft(context, ref);
+    });
+  }
+
   @override
   void didUpdateWidget(covariant _AppShell oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -285,6 +302,8 @@ class _AppShellState extends ConsumerState<_AppShell> {
         ref.invalidate(historyCalendarControllerProvider);
         ref.invalidate(templatesControllerProvider);
         ref.invalidate(goalSettingsControllerProvider);
+        // 訓練中「最近用過/上次數字」也是查雲端的快照(查成功會一直留著)。
+        ref.invalidate(exerciseHistoryProvider);
         messenger
           ?..hideCurrentSnackBar()
           ..showSnackBar(const SnackBar(content: Text('舊紀錄已同步完成')));

@@ -2,7 +2,7 @@
 // `PowerliftingView.manualRecordsSection` + `ManualRecordRow`。
 //
 // 空狀態文案沿用 iOS `emptyChartView(message: "尚無三項表記錄\n點擊右上角 +
-// 開始記錄")`(UI 優化波 2:右上角的 + 改成帶字的「新增」按鈕,文案跟著改)。
+// 開始記錄")`(介面改版:「新增」改成動作 chip 列右側的「+」鈕,文案跟著改)。
 // 圖表至少 2 筆才畫,只有 1 筆時顯示「再記錄一筆就能看到趨勢」。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,7 +65,7 @@ class ManualRecordsSection extends ConsumerWidget {
                 key: Key('powerliftingEmptyState'),
                 icon: Icons.show_chart,
                 title: '尚無三項表記錄',
-                message: '點擊右上角「新增」開始記錄',
+                message: '點上方的「+」開始記錄',
               ),
             )
           else if (chartRecords.length < kMinTrendPoints)

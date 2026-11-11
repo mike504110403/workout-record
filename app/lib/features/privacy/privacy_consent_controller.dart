@@ -2,11 +2,11 @@
 // `ios/WorkoutRecord/WorkoutRecord/Sources/Services/PrivacyConsentService.swift`
 // + `Views/Privacy/PrivacyConsentView.swift`。
 //
-// 兩個勾選框是 PrivacyConsentPage 的頁面本地狀態(StatefulWidget setState,
-// 對等 iOS `@State`),這裡的 controller 完全不追蹤勾選框目前勾了幾個——只
+// 勾選框是 PrivacyConsentPage 的頁面本地狀態(StatefulWidget setState,
+// 對等 iOS `@State`),這裡的 controller 完全不追蹤勾選框是否勾了——只
 // 負責「已經按下同意並繼續、真的寫進 SharedPreferences 的那個結果」。App 的
-// 隱私同意 gate(app.dart)看的是 [PrivacyConsentState.isAgreed],不是「兩個
-// 勾選框是否都勾了」,避免使用者勾滿兩框但還沒按按鈕時 gate 就提早放行——
+// 隱私同意 gate(app.dart)看的是 [PrivacyConsentState.isAgreed],不是「勾選框
+// 是否勾了」,避免使用者勾了但還沒按按鈕時 gate 就提早放行——
 // 勾選動作本身不該有任何持久化副作用。
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -37,8 +37,9 @@ class PrivacyConsentController extends Notifier<PrivacyConsentState> {
     );
   }
 
-  /// 「同意並繼續」——呼叫端(PrivacyConsentPage)已經用兩個勾選框的本地
-  /// 狀態擋住按鈕的 enabled 條件,這裡不重複檢查,直接落地三個 key。
+  /// 「同意並繼續」——呼叫端(PrivacyConsentPage)已經用勾選框的本地
+  /// 狀態擋住按鈕的 enabled 條件,這裡不重複檢查,直接落地三個 key
+  /// (頁面雖只剩一個勾選框,兩個既有同意 key 仍都寫,舊版讀取端不受影響)。
   Future<void> agreeAndContinue() async {
     final now = DateTime.now();
     final prefs = ref.read(sharedPreferencesProvider);

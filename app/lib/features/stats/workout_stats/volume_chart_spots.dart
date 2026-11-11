@@ -34,7 +34,12 @@ List<VolumeDataPoint> chartPointsForFilter(List<VolumeDataPoint> dataPoints, Mus
 /// 時間戳——用索引當 x 軸能讓折線均勻分布,不會因為訓練日之間有空檔(或
 /// 篩選跳過了沒練到的日子)在圖上出現長段空白。
 List<FlSpot> buildVolumeSpots(List<VolumeDataPoint> dataPoints, MuscleGroupFilter filter) {
-  final points = chartPointsForFilter(dataPoints, filter);
+  return buildVolumeSpotsFromPoints(chartPointsForFilter(dataPoints, filter), filter);
+}
+
+/// 同 [buildVolumeSpots],但吃「已篩選」的資料點——呼叫端(圖表)已經算過
+/// [chartPointsForFilter],不用再算第二次。
+List<FlSpot> buildVolumeSpotsFromPoints(List<VolumeDataPoint> points, MuscleGroupFilter filter) {
   return [
     for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), volumeForFilter(points[i], filter)),
   ];

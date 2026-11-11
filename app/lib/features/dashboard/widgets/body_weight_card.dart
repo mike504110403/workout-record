@@ -1,4 +1,4 @@
-// 體重卡:當前體重 + 近 7 天變化 + 「記錄體重」次要入口。
+// 體重卡:單列「75.0 kg · 近 7 天 ▲0.4」+ 右側新增 icon。
 //
 // 近 7 天變化由 DashboardController 以既有 BodyWeightRepository.fetchByDateRange
 // 算出(區間內最新一筆減最早一筆);不足兩筆算不出時顯示 —。變化只用中性色:
@@ -33,51 +33,47 @@ class BodyWeightCard extends ConsumerWidget {
     final colors = theme.colorScheme;
     final weight = currentWeight;
     final change = weekChange;
+    final secondary = AppNumberStyles.body(context).copyWith(color: colors.onSurfaceVariant);
 
     return AppCard(
       key: const Key('bodyWeightMiniCard'),
+      // 單列卡:上下留白收緊,右側 icon 鈕(48)撐出的高度就是列高。
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.xs, AppSpacing.xs),
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '當前體重',
-                  style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                if (weight != null)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(formatWeightKg(weight, unit), style: AppNumberStyles.large(context)),
+            // 大字級/窄螢幕放不下時等比縮小,不換行、不溢位。
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (weight != null)
+                      Text(
+                        formatWeightKg(weight, unit),
+                        key: const Key('bodyWeightValue'),
+                        style: AppNumberStyles.body(context).copyWith(fontWeight: FontWeight.w600),
+                      )
+                    else
+                      Text('尚未記錄', style: theme.textTheme.bodyLarge?.copyWith(color: colors.onSurfaceVariant)),
+                    Text('  \u00B7  ', style: secondary),
+                    Text(
+                      '近 7 天 ${change == null ? '\u2014' : formatWeightChangeArrow(change, unit)}',
+                      key: const Key('bodyWeightWeekChange'),
+                      style: secondary,
                     ),
-                  )
-                else
-                  Text(
-                    '尚未記錄',
-                    style: theme.textTheme.titleLarge?.copyWith(color: colors.onSurfaceVariant),
-                  ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '近 7 天 ${change == null ? '—' : formatWeightChange(change, unit)}',
-                  key: const Key('bodyWeightWeekChange'),
-                  style: AppNumberStyles.body(context).copyWith(
-                    fontSize: theme.textTheme.bodySmall?.fontSize,
-                    color: colors.onSurfaceVariant,
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
-          OutlinedButton.icon(
+          IconButton(
             key: const Key('quickActionRecordWeight'),
+            tooltip: '記錄體重',
             onPressed: onRecord,
             icon: const Icon(Icons.add),
-            label: const Text('記錄體重'),
           ),
         ],
       ),

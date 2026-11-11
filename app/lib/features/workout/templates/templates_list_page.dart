@@ -5,18 +5,18 @@
 // 卡片內容對照 iOS WorkoutTemplateView.swift 的 `TemplateCard`(:123 起):
 // 描述、前 3 個動作各自「N 組 × M 次」、超過 3 個顯示「還有 N 個動作...」、
 // 「使用此模板」按鈕(:209);空狀態「尚未建立模板」+「建立第一個模板」
-// (:43、:57)。「使用此模板」重用 WorkoutController.startFromTemplate
-// (與訓練 tab「從模板開始」同一個方法),開始後導到訓練 tab。
+// (:43、:57)。「使用此模板」走訓練入口契約 `openTemplateWorkout`
+// (workout_launcher.dart),開始後進全螢幕訓練頁。
 //
 // 狀態快取生命週期:直接 watch templatesControllerProvider——
 // create/update/delete 完成後 controller 內部一律呼叫 refresh(),Riverpod
 // 自動重建這個畫面,不需要手動管理任何列表快取或下拉刷新邏輯。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../data/models/workout_template.dart';
 import '../workout_controller.dart';
+import '../workout_launcher.dart';
 import 'applied_template.dart';
 import 'section_header.dart';
 import 'template_form_page.dart';
@@ -69,29 +69,29 @@ class _TemplatesListPageState extends ConsumerState<TemplatesListPage> {
     }
   }
 
-  /// 「使用此模板」:走與訓練 tab「從模板開始」相同的
-  /// `WorkoutController.startFromTemplate(applyTemplate(...))`,完成後收掉
-  /// 本頁堆疊並切到訓練 tab(對照 iOS MainTabView.swift:47-56 收到
-  /// startWorkoutFromTemplate 通知後 selectedTab = 1)。已有進行中訓練時
-  /// `startFromTemplate` 本身 no-op(既有行為),這裡不覆蓋它、只多提示一句
-  /// 並同樣導到訓練 tab 讓使用者看到進行中的訓練。
+  /// 「使用此模板」:走訓練入口契約 `openTemplateWorkout`(push 全螢幕訓練頁,
+  /// 對照 iOS MainTabView.swift:47-56 收到 startWorkoutFromTemplate 通知後
+  /// 切到訓練畫面)。已有進行中訓練時一律進入既有草稿、不另建,這裡只多提示
+  /// 一句。訓練頁 push 到最上層之後,才把本頁從它所在的 Navigator 移除(返回
+  /// 時回到進來前的畫面,不會又看到模板頁)——順序反過來的話本頁 context 會先
+  /// 被拆掉,launcher 拿不到可用的 context/ref。用 `removeRoute` 只移除本頁,
+  /// 不用 `popUntil`:本頁若跟訓練頁在同一個 Navigator,`popUntil` 會連剛
+  /// push 的訓練頁一起 pop 掉。
   Future<void> _useTemplate(WorkoutTemplate template) async {
     if (_isStarting) return;
     setState(() => _isStarting = true);
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final router = GoRouter.maybeOf(context);
+    final ownRoute = ModalRoute.of(context);
     try {
-      final controller = ref.read(workoutControllerProvider.notifier);
       final hadDraft = (await ref.read(workoutControllerProvider.future)).draft != null;
       if (hadDraft) {
         messenger.showSnackBar(const SnackBar(content: Text('已有進行中的訓練,未套用此模板')));
-      } else {
-        await controller.startFromTemplate(applyTemplate(template));
       }
       if (!mounted) return;
-      navigator.popUntil((route) => route.isFirst);
-      router?.go('/workout');
+      await openTemplateWorkout(context, ref, applyTemplate(template));
+      if (!mounted) return;
+      if (ownRoute != null && ownRoute.isActive && !ownRoute.isFirst) navigator.removeRoute(ownRoute);
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('開始訓練失敗:$e')));
     } finally {

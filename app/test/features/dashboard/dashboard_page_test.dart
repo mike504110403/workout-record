@@ -7,6 +7,8 @@
 // dashboard_controller.dart 裡的算式)算出的精確週一邊界,驗證邊界前後各一
 // 筆種子被正確排除/計入——週界算錯或範圍寫反時,這兩組測試都必須紅。
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +20,7 @@ import 'package:workout_record/data/db/app_database.dart'
     hide Workout, WorkoutExercise, WorkoutSet, BodyWeight, UserGoal;
 import 'package:workout_record/data/models/body_weight.dart';
 import 'package:workout_record/data/models/user_goal.dart';
+import 'package:workout_record/data/models/workout_template.dart';
 import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/body_weight_repository.dart';
@@ -28,6 +31,8 @@ import 'package:workout_record/features/auth/session_controller.dart';
 import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/dashboard/dashboard_controller.dart';
 import 'package:workout_record/features/dashboard/dashboard_page.dart';
+import 'package:workout_record/features/workout/templates/applied_template.dart';
+import 'package:workout_record/features/workout/workout_controller.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 
 import '../../data/test_helpers.dart';
@@ -114,6 +119,51 @@ class _FlakyBodyWeightRepository extends DriftBodyWeightRepository {
   }
 }
 
+/// 記錄首頁 CTA / chip 呼叫了哪個 launcher 入口,不真的寫 DB(launcher 的實作
+/// 由訓練流程切片負責,這裡只驗首頁「呼叫了誰、帶了什麼」)。
+class _RecordingWorkoutController extends WorkoutController {
+  final calls = <String>[];
+  AppliedTemplate? lastTemplate;
+
+  /// true 時 start 類入口拋錯,驗首頁的失敗提示。
+  bool throwOnStart = false;
+
+  @override
+  Future<void> startFreeWorkout() async {
+    calls.add('free');
+    if (throwOnStart) throw Exception('模擬開始訓練失敗');
+  }
+
+  @override
+  Future<void> startFromTemplate(AppliedTemplate template) async {
+    calls.add('template');
+    lastTemplate = template;
+    if (throwOnStart) throw Exception('模擬開始訓練失敗');
+  }
+}
+
+/// 模板 chip 彙整專用的 fetchRecent 攔截:首頁自己的「最近訓練」只取
+/// [kDashboardRecentWorkoutLimit] 筆,彙整模板 id 取更多筆,以此分辨兩種呼叫。
+/// [templateLookup] 非 null 時,彙整那一次呼叫改走它(可拋錯或卡住)。
+class _InterceptingWorkoutRepository extends DriftWorkoutRepository {
+  _InterceptingWorkoutRepository(AppDatabase db, this.templateLookup)
+      : super(db, DriftExerciseRepository(db));
+
+  final Future<List<Workout>> Function()? templateLookup;
+
+  /// 彙整模板 id 那類呼叫(筆數超過首頁「最近訓練」)帶的 limit。
+  final lookupLimits = <int>[];
+
+  @override
+  Future<List<Workout>> fetchRecent(int limit) {
+    if (limit > kDashboardRecentWorkoutLimit) lookupLimits.add(limit);
+    if (limit > kDashboardRecentWorkoutLimit && templateLookup != null) {
+      return templateLookup!();
+    }
+    return super.fetchRecent(limit);
+  }
+}
+
 class _DashboardHarness {
   _DashboardHarness(this.db, this.container)
       : workoutRepo = DriftWorkoutRepository(db, DriftExerciseRepository(db)),
@@ -153,6 +203,8 @@ Future<_DashboardHarness> _setUpHarness({
   BodyWeightRepository Function(AppDatabase db)? bodyWeightRepoBuilder,
   bool disableAutoRetry = false,
   WeightUnit? weightUnit,
+  WorkoutController? workoutController,
+  WorkoutRepository Function(AppDatabase db)? workoutRepoBuilder,
 }) async {
   SharedPreferences.setMockInitialValues({
     kAppleUserIdKey: testUserId,
@@ -170,7 +222,11 @@ Future<_DashboardHarness> _setUpHarness({
       appDatabaseProvider.overrideWithValue(db),
       if (bodyWeightRepoBuilder != null)
         bodyWeightRepositoryProvider.overrideWithValue(bodyWeightRepoBuilder(db)),
+      if (workoutRepoBuilder != null)
+        workoutRepositoryProvider.overrideWithValue(workoutRepoBuilder(db)),
       if (weightUnit != null) weightUnitProvider.overrideWithValue(weightUnit),
+      if (workoutController != null)
+        workoutControllerProvider.overrideWith(() => workoutController),
     ],
   );
   addTearDown(container.dispose);
@@ -194,7 +250,12 @@ Future<GoRouter> _pumpDashboardWithRouter(WidgetTester tester, _DashboardHarness
       GoRoute(path: '/dashboard', builder: (context, state) => const DashboardPage()),
       GoRoute(
         path: '/workout',
-        builder: (context, state) => const Scaffold(body: Text('workout-route-marker')),
+        // launcher 以 push('/workout') 進全螢幕訓練頁(「繼續訓練」的
+        // openCurrentWorkout 一定會 push;start 類入口在 recording controller 下
+        // 不建草稿,launcher 不 push),測試裡需要有這條路由才不會出錯。首頁測試
+        // 只守「呼叫了哪個入口、帶了哪個模板」,不斷言導到哪(導頁方式由訓練流程
+        // 切片決定),所以這頁刻意沒有任何標記文字。
+        builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
       ),
       GoRoute(
         path: '/stats',
@@ -218,46 +279,74 @@ Future<GoRouter> _pumpDashboardWithRouter(WidgetTester tester, _DashboardHarness
 }
 
 void main() {
-  group('今日概覽', () {
-    testWidgets('今日有訓練時顯示今日訓練卡,時長/總容量/組數/動作數正確', (tester) async {
+  group('本週卡不含今日狀態', () {
+    testWidgets('今日有訓練:不顯示「今日已完成訓練」那列(今天練過從最近訓練看得到)', (tester) async {
       final harness = await _setUpHarness();
       await harness.workoutRepo.create(
-        _buildWorkout(
-          id: 'today-1',
-          startedAt: DateTime.now(),
-          duration: 75,
-          totalVolume: 5230,
-          totalSets: 24,
-          totalExercises: 6,
-        ),
+        _buildWorkout(id: 'today-1', startedAt: DateTime.now(), duration: 75, totalVolume: 5230),
       );
 
       await _pumpDashboard(tester, harness);
 
-      final todayCard = find.byKey(const Key('todayWorkoutCard'));
-      expect(todayCard, findsOneWidget);
+      expect(find.text('今日已完成訓練'), findsNothing);
+      expect(find.byKey(const Key('todayWorkoutCard')), findsNothing);
       expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
-      // 這筆今日訓練同時也會出現在「最近訓練」列表,文字可能重複出現在畫面兩處,
-      // 所以這裡的斷言一律限定在 todayWorkoutCard 子樹內。
-      expect(find.descendant(of: todayCard, matching: find.text('今日已完成訓練')), findsOneWidget);
-      // 第 3 波:今日狀態併入本週卡的一行摘要,時長/總容量/組數/動作數同一串文字。
-      expect(
-        find.descendant(
-          of: todayCard,
-          matching: find.text('75 分鐘 · 5230 kg · 24 組 · 6 個動作'),
-        ),
-        findsOneWidget,
-      );
+      // 這筆訓練改由「最近訓練」呈現。
+      expect(find.byKey(const Key('recentWorkoutRow-today-1')), findsOneWidget);
     });
 
-    testWidgets('今日無訓練時顯示 NoWorkoutTodayCard', (tester) async {
+    testWidgets('今日無訓練:也不顯示「今日尚未訓練」', (tester) async {
       final harness = await _setUpHarness();
 
       await _pumpDashboard(tester, harness);
 
-      expect(find.byKey(const Key('noWorkoutTodayCard')), findsOneWidget);
-      expect(find.byKey(const Key('todayWorkoutCard')), findsNothing);
-      expect(find.text('今日尚未訓練'), findsOneWidget);
+      expect(find.text('今日尚未訓練'), findsNothing);
+      expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
+      expect(find.byKey(const Key('weekSummaryCard')), findsOneWidget);
+    });
+
+    testWidgets('本週卡沒有「查看進度」(與數據分頁重複)', (tester) async {
+      final harness = await _setUpHarness();
+
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('查看進度'), findsNothing);
+      expect(find.byKey(const Key('quickActionViewProgress')), findsNothing);
+    });
+  });
+
+  group('首頁版面', () {
+    testWidgets('不顯示「首頁」大標題(導覽列已標示所在分頁),也沒有 AppBar', (tester) async {
+      final harness = await _setUpHarness();
+
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('首頁'), findsNothing);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byType(SliverAppBar), findsNothing);
+    });
+
+    testWidgets('主 CTA 緊貼狀態列安全區下方 8px(無標題列佔位)', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.reset);
+      final harness = await _setUpHarness();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: harness.container,
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(padding: const EdgeInsets.only(top: 47)),
+              child: child!,
+            ),
+            home: const DashboardPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.getTopLeft(find.byKey(const Key('quickActionStartWorkout'))).dy, 47 + 8);
     });
   });
 
@@ -567,12 +656,11 @@ void main() {
   });
 
   group('最近訓練', () {
-    testWidgets('最多顯示 5 筆,排序新到舊', (tester) async {
+    testWidgets('最多顯示 3 筆,排序新到舊', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
-      // i=0 最新(今天),i=5 最舊(6 天前)——刻意讓 6 筆散在不同天,避免落在
-      // 同一個「今日」桶內互相干擾今日概覽卡片的斷言。
-      for (var i = 0; i < 6; i++) {
+      // i=0 最新(今天),i=4 最舊(4 天前)——刻意散在不同天。
+      for (var i = 0; i < 5; i++) {
         await harness.workoutRepo.create(
           _buildWorkout(
             id: 'recent-$i',
@@ -584,37 +672,29 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 3; i++) {
         expect(find.byKey(Key('recentWorkoutRow-recent-$i')), findsOneWidget, reason: 'i=$i 應該出現');
       }
-      expect(find.byKey(const Key('recentWorkoutRow-recent-5')), findsNothing, reason: '第 6 筆(最舊)應被排除');
+      expect(find.byKey(const Key('recentWorkoutRow-recent-3')), findsNothing, reason: '第 4 筆應被排除');
+      expect(find.byKey(const Key('recentWorkoutRow-recent-4')), findsNothing, reason: '第 5 筆應被排除');
 
-      // 新到舊排序:recent-0(最新)應該畫在 recent-4(最舊留下的那筆)上方。
+      // 新到舊排序:recent-0(最新)應該畫在 recent-2(最舊留下的那筆)上方。
       final topY = tester.getCenter(find.byKey(const Key('recentWorkoutRow-recent-0'))).dy;
-      final bottomY = tester.getCenter(find.byKey(const Key('recentWorkoutRow-recent-4'))).dy;
+      final bottomY = tester.getCenter(find.byKey(const Key('recentWorkoutRow-recent-2'))).dy;
       expect(topY, lessThan(bottomY));
     });
   });
 
   group('快速操作與導航', () {
-    testWidgets('「開始訓練」導到 /workout', (tester) async {
-      final harness = await _setUpHarness();
+    testWidgets('「開始訓練」呼叫 openFreeWorkout(startFreeWorkout)', (tester) async {
+      final fake = _RecordingWorkoutController();
+      final harness = await _setUpHarness(workoutController: fake);
       await _pumpDashboardWithRouter(tester, harness);
 
       await tester.tap(find.byKey(const Key('quickActionStartWorkout')));
       await tester.pumpAndSettle();
 
-      expect(find.text('workout-route-marker'), findsOneWidget);
-    });
-
-    testWidgets('「查看進度」導到 /stats', (tester) async {
-      final harness = await _setUpHarness();
-      await _pumpDashboardWithRouter(tester, harness);
-
-      await tester.tap(find.byKey(const Key('quickActionViewProgress')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('stats-route-marker'), findsOneWidget);
+      expect(fake.calls, ['free']);
     });
 
     testWidgets('「查看全部」導到 /history', (tester) async {
@@ -632,14 +712,15 @@ void main() {
     });
 
     testWidgets('「記錄體重」開啟 bottom sheet(不導航離開首頁)', (tester) async {
-      final harness = await _setUpHarness();
+      final fake = _RecordingWorkoutController();
+      final harness = await _setUpHarness(workoutController: fake);
       await _pumpDashboardWithRouter(tester, harness);
 
       await tester.tap(find.byKey(const Key('quickActionRecordWeight')));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('bodyWeightInputField')), findsOneWidget);
-      expect(find.text('workout-route-marker'), findsNothing);
+      expect(fake.calls, isEmpty, reason: '記錄體重不該觸發任何訓練入口');
     });
   });
 
@@ -686,15 +767,12 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      // 今日概覽。
-      final todayCard = find.byKey(const Key('todayWorkoutCard'));
-      expect(todayCard, findsOneWidget);
-      // 這筆今日訓練同時也是「最近訓練」列表的一員,時長文字會重複出現兩處,
-      // 斷言限定在 todayWorkoutCard 子樹內。
-      expect(
-        find.descendant(of: todayCard, matching: find.text('50 分鐘 · 300 kg · 12 組 · 4 個動作')),
-        findsOneWidget,
-      );
+      // 今日那筆訓練在「最近訓練」列:時長/容量/組數/動作數都在該列內。
+      final todayRow = find.byKey(const Key('recentWorkoutRow-today'));
+      expect(todayRow, findsOneWidget);
+      expect(find.descendant(of: todayRow, matching: find.text('50 分鐘')), findsOneWidget);
+      expect(find.descendant(of: todayRow, matching: find.text('300 kg')), findsOneWidget);
+      expect(find.descendant(of: todayRow, matching: find.text('4 個動作 • 12 組')), findsOneWidget);
       // 最新體重。
       expect(find.text('68.4 kg'), findsOneWidget);
       // 目標進度:1/2 次 = 50%。
@@ -797,8 +875,7 @@ void main() {
 
       expect(find.textContaining('載入失敗'), findsOneWidget);
       expect(find.byKey(const Key('dashboardErrorRetryButton')), findsOneWidget);
-      expect(find.byKey(const Key('noWorkoutTodayCard')), findsNothing);
-      expect(find.byKey(const Key('todayWorkoutCard')), findsNothing);
+      expect(find.byKey(const Key('weekSummaryCard')), findsNothing);
     });
 
     testWidgets('點重試按鈕後,暫時性失敗恢復,畫面回到正常呈現', (tester) async {
@@ -821,16 +898,16 @@ void main() {
       // 正常的 data 分支,error 文案與重試按鈕都消失。
       expect(find.textContaining('載入失敗'), findsNothing);
       expect(find.byKey(const Key('dashboardErrorRetryButton')), findsNothing);
-      expect(find.byKey(const Key('noWorkoutTodayCard')), findsOneWidget);
+      expect(find.byKey(const Key('weekSummaryCard')), findsOneWidget);
     });
   });
 
   // 波 6:重量顯示層改造——override weightUnitProvider 成 lb,驗證今日概覽
   // (總容量/當前體重)、最近訓練列表卡片、記錄體重輸入框(顯示 + 反向換算
   // 入庫)三個消費點。變異:任一處漏接 provider、恆用 kg 版格式化,這些斷言
-  // 必紅(不是拿手抄的 2.20462 係數比對,期望值一律用 `kgToDisplay` 現算)。
+  // 必紅(期望值寫死字面,不用 `kgToDisplay` 現算)。
   group('重量單位(lb 模式)', () {
-    testWidgets('今日概覽總容量/當前體重換算成 lb 顯示,字尾正確', (tester) async {
+    testWidgets('最近訓練列的總容量/體重卡的當前體重換算成 lb 顯示,字尾正確', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
       await harness.workoutRepo.create(
         _buildWorkout(
@@ -856,15 +933,15 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      final expectedVolume = '${kgToDisplay(5230, WeightUnit.lb).toStringAsFixed(0)} lb';
-      final expectedWeight = '${kgToDisplay(71.2, WeightUnit.lb).toStringAsFixed(1)} lb';
-      // 這筆今日訓練同時也出現在「最近訓練」列表(同 iOS 對照的既有行為),
-      // 總容量字串會在畫面上出現多次——限定在 todayWorkoutCard 子樹內斷言。
-      final todayCard = find.byKey(const Key('todayWorkoutCard'));
+      // 期望值寫死字面(5230 kg × 2.20462 = 11530.2、71.2 kg × 2.20462 = 156.97),
+      // 不用正式換算函式現算,免得換算係數錯了測試跟著一起錯。
+      const expectedVolume = '11530 lb';
+      const expectedWeight = '157.0 lb';
+      // 總容量字串可能同時出現在本週卡,限定在最近訓練列子樹內斷言。
       expect(
         find.descendant(
-          of: todayCard,
-          matching: find.text('75 分鐘 · $expectedVolume · 24 組 · 6 個動作'),
+          of: find.byKey(const Key('recentWorkoutRow-today-lb')),
+          matching: find.text(expectedVolume),
         ),
         findsOneWidget,
       );
@@ -886,7 +963,7 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      final expectedVolume = '${kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0)} lb';
+      const expectedVolume = '2205 lb'; // 1000 kg × 2.20462 = 2204.62,寫死字面
       // 第 3 波:本週卡的總容量格(「2205 lb」)可能與列表同字串,限定在最近訓練列。
       expect(
         find.descendant(
@@ -928,8 +1005,9 @@ void main() {
 
   // 第 3 波 A:首頁改版。
   group('主 CTA', () {
-    testWidgets('沒有進行中訓練:全寬主 CTA 顯示「開始訓練」,點了導到 /workout', (tester) async {
-      final harness = await _setUpHarness();
+    testWidgets('沒有進行中訓練:全寬主 CTA 顯示「開始訓練」,點了呼叫 startFreeWorkout', (tester) async {
+      final fake = _RecordingWorkoutController();
+      final harness = await _setUpHarness(workoutController: fake);
       await _pumpDashboardWithRouter(tester, harness);
 
       final cta = find.byKey(const Key('quickActionStartWorkout'));
@@ -938,20 +1016,15 @@ void main() {
       expect(find.text('繼續訓練'), findsNothing);
       // 全寬:CTA 寬度等於頁面內容寬(視窗寬 800 扣左右各 16)。
       expect(tester.getSize(cta).width, 800 - 32);
-      // 降級後的次要入口是 OutlinedButton / 文字按鈕,不是 FilledButton。
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('quickActionRecordWeight')),
-          matching: find.text('記錄體重'),
-        ),
-        findsOneWidget,
-      );
-      expect(tester.widget(find.byKey(const Key('quickActionRecordWeight'))), isA<OutlinedButton>());
-      expect(tester.widget(find.byKey(const Key('quickActionViewProgress'))), isA<TextButton>());
+
+      await tester.tap(cta);
+      await tester.pumpAndSettle();
+      expect(fake.calls, ['free']);
     });
 
-    testWidgets('有進行中訓練草稿:主 CTA 變成「繼續訓練」,仍導到 /workout', (tester) async {
-      final harness = await _setUpHarness();
+    testWidgets('有進行中訓練草稿:主 CTA 變成「繼續訓練」,且不再開新訓練', (tester) async {
+      final fake = _RecordingWorkoutController();
+      final harness = await _setUpHarness(workoutController: fake);
       final now = DateTime.now();
       // endedAt 為 null = 進行中草稿。
       await harness.workoutRepo.create(
@@ -971,12 +1044,342 @@ void main() {
 
       await tester.tap(cta);
       await tester.pumpAndSettle();
-      expect(find.text('workout-route-marker'), findsOneWidget);
+      expect(fake.calls, isEmpty, reason: '繼續訓練走 openCurrentWorkout,不呼叫 startFreeWorkout');
+    });
+
+    testWidgets('開始訓練失敗:顯示 SnackBar「無法開始訓練,請稍後再試」,頁面不崩', (tester) async {
+      final fake = _RecordingWorkoutController()..throwOnStart = true;
+      final harness = await _setUpHarness(workoutController: fake);
+      await _pumpDashboardWithRouter(tester, harness);
+
+      expect(find.text('無法開始訓練,請稍後再試'), findsNothing);
+      await tester.tap(find.byKey(const Key('quickActionStartWorkout')));
+      await tester.pumpAndSettle();
+
+      expect(fake.calls, ['free']);
+      expect(find.text('無法開始訓練,請稍後再試'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      // 失敗後按鈕仍可再按(沒有被卡成載入中)。
+      expect(find.byKey(const Key('quickActionStartWorkout')), findsOneWidget);
+    });
+  });
+
+  group('最近用的模板 chip', () {
+    Future<void> seedTemplates(_DashboardHarness harness, int count) async {
+      final now = DateTime.now();
+      final repo = harness.container.read(templateRepositoryProvider);
+      for (var i = 0; i < count; i++) {
+        await repo.create(
+          WorkoutTemplate(
+            id: 'tpl-$i',
+            userId: testUserId,
+            name: '模板$i',
+            exercises: const [],
+            createdAt: now.add(Duration(seconds: i)),
+            updatedAt: now.add(Duration(seconds: i)),
+          ),
+        );
+      }
+    }
+
+    Finder chips() => find.byWidgetPredicate(
+          (w) => w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith('recentTemplateChip-'),
+        );
+
+    testWidgets('沒有任何模板:整列不顯示', (tester) async {
+      // 系統模板由 DB 種子建立,測試 DB 若有種子就刪光,確保「完全沒模板」。
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await _pumpDashboard(tester, harness);
+
+      expect(find.byKey(const Key('recentTemplatesRow')), findsNothing);
+      expect(find.text('最近用的模板'), findsNothing);
+      expect(chips(), findsNothing);
+    });
+
+    testWidgets('有模板但沒有使用紀錄:列出前幾個,最多 4 個', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 6);
+      await _pumpDashboard(tester, harness);
+
+      // 沒有使用紀錄:列的是模板清單,標題不能說「最近用的」。
+      expect(find.text('模板'), findsOneWidget);
+      expect(find.text('最近用的模板'), findsNothing);
+      expect(chips(), findsNWidgets(4));
+    });
+
+    testWidgets('有使用紀錄:依最近使用排序(新到舊),只列用過的,自由訓練略過', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 6);
+      final now = DateTime.now();
+      Workout used(String id, String? templateId, int daysAgo) {
+        final startedAt = now.subtract(Duration(days: daysAgo));
+        return Workout(
+          id: id,
+          userId: testUserId,
+          templateId: templateId,
+          startedAt: startedAt,
+          endedAt: startedAt.add(const Duration(minutes: 30)),
+          duration: 30,
+          createdAt: now,
+          updatedAt: now,
+        );
+      }
+
+      await harness.workoutRepo.create(used('w-a', 'tpl-3', 5));
+      await harness.workoutRepo.create(used('w-free', null, 3));
+      await harness.workoutRepo.create(used('w-b', 'tpl-1', 2));
+      await harness.workoutRepo.create(used('w-c', 'tpl-3', 1)); // tpl-3 再用一次:仍只出現一個 chip
+      await _pumpDashboard(tester, harness);
+
+      expect(chips(), findsNWidgets(2));
+      expect(find.text('最近用的模板'), findsOneWidget);
+      expect(find.text('模板'), findsNothing);
+      expect(find.byKey(const Key('recentTemplateChip-tpl-0')), findsNothing);
+      final first = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-3'))).dx;
+      final second = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-1'))).dx;
+      expect(first, lessThan(second), reason: 'tpl-3 最近用過,排在前面');
+    });
+
+    testWidgets('用過超過 4 種模板:最多 4 個 chip', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 6);
+      final now = DateTime.now();
+      for (var i = 0; i < 6; i++) {
+        final startedAt = now.subtract(Duration(days: 6 - i));
+        await harness.workoutRepo.create(
+          Workout(
+            id: 'w-$i',
+            userId: testUserId,
+            templateId: 'tpl-$i',
+            startedAt: startedAt,
+            endedAt: startedAt.add(const Duration(minutes: 30)),
+            duration: 30,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+      }
+      await _pumpDashboard(tester, harness);
+
+      expect(chips(), findsNWidgets(4));
+      // 最近 4 個:tpl-5、4、3、2。
+      expect(find.byKey(const Key('recentTemplateChip-tpl-5')), findsOneWidget);
+      expect(find.byKey(const Key('recentTemplateChip-tpl-2')), findsOneWidget);
+      expect(find.byKey(const Key('recentTemplateChip-tpl-1')), findsNothing);
+    });
+
+    testWidgets('點 chip:呼叫 startFromTemplate 帶入該模板', (tester) async {
+      final fake = _RecordingWorkoutController();
+      final harness = await _setUpHarness(workoutController: fake);
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 2);
+      await _pumpDashboardWithRouter(tester, harness);
+
+      await tester.tap(find.byKey(const Key('recentTemplateChip-tpl-1')));
+      await tester.pumpAndSettle();
+
+      expect(fake.calls, ['template']);
+      expect(fake.lastTemplate?.templateId, 'tpl-1');
+      expect(fake.lastTemplate?.templateName, '模板1');
+    });
+
+    testWidgets('點 chip 開始訓練失敗:顯示 SnackBar', (tester) async {
+      final fake = _RecordingWorkoutController()..throwOnStart = true;
+      final harness = await _setUpHarness(workoutController: fake);
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 2);
+      await _pumpDashboardWithRouter(tester, harness);
+
+      await tester.tap(find.byKey(const Key('recentTemplateChip-tpl-1')));
+      await tester.pumpAndSettle();
+
+      expect(fake.calls, ['template']);
+      expect(find.text('無法開始訓練,請稍後再試'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    Future<void> seedUsed(_DashboardHarness harness, String id, String? templateId, int daysAgo) {
+      final now = DateTime.now();
+      final startedAt = now.subtract(Duration(days: daysAgo));
+      return harness.workoutRepo.create(
+        Workout(
+          id: id,
+          userId: testUserId,
+          templateId: templateId,
+          startedAt: startedAt,
+          endedAt: startedAt.add(const Duration(minutes: 30)),
+          duration: 30,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    }
+
+    testWidgets('用過但已刪除的模板被略過,其餘照使用順序列出', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 3);
+      await seedUsed(harness, 'w-a', 'tpl-0', 3);
+      await seedUsed(harness, 'w-b', 'tpl-2', 2); // tpl-2 稍後被刪除
+      await seedUsed(harness, 'w-c', 'tpl-1', 1);
+      await harness.container.read(templateRepositoryProvider).delete('tpl-2');
+      await _pumpDashboard(tester, harness);
+
+      expect(chips(), findsNWidgets(2));
+      expect(find.byKey(const Key('recentTemplateChip-tpl-2')), findsNothing);
+      final first = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-1'))).dx;
+      final second = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-0'))).dx;
+      expect(first, lessThan(second));
+      expect(find.text('最近用的模板'), findsOneWidget);
+    });
+
+    testWidgets('用過的模板全被刪除:走 fallback,標題改「模板」', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 3);
+      await seedUsed(harness, 'w-a', 'tpl-0', 2);
+      await seedUsed(harness, 'w-b', 'tpl-1', 1);
+      final repo = harness.container.read(templateRepositoryProvider);
+      await repo.delete('tpl-0');
+      await repo.delete('tpl-1');
+      await _pumpDashboard(tester, harness);
+
+      expect(chips(), findsOneWidget);
+      expect(find.byKey(const Key('recentTemplateChip-tpl-2')), findsOneWidget);
+      expect(find.text('模板'), findsOneWidget);
+      expect(find.text('最近用的模板'), findsNothing);
+    });
+
+    testWidgets('fallback:個人模板排在系統模板前,且不會因為系統模板而擠掉個人模板', (tester) async {
+      // 不清系統模板:DB 種子帶有多個系統模板,個人模板必須排在它們前面。
+      final harness = await _setUpHarness();
+      await seedTemplates(harness, 2);
+      final all = await harness.container.read(templateRepositoryProvider).fetchSystemTemplates();
+      expect(all.length, greaterThanOrEqualTo(2), reason: '測試前提:種子有系統模板');
+      await _pumpDashboard(tester, harness);
+
+      expect(chips(), findsNWidgets(4));
+      final personal0 = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-0'))).dx;
+      final personal1 = tester.getTopLeft(find.byKey(const Key('recentTemplateChip-tpl-1'))).dx;
+      expect(personal0, lessThan(personal1));
+      // 其餘兩個是系統模板,都排在個人模板之後。
+      final systemChips = [
+        for (final t in all.take(2)) tester.getTopLeft(find.byKey(Key('recentTemplateChip-${t.id}'))).dx,
+      ];
+      for (final dx in systemChips) {
+        expect(dx, greaterThan(personal1));
+      }
+    });
+
+    testWidgets('使用紀錄查詢失敗:chip 列不顯示、不報錯,主 CTA 照常', (tester) async {
+      final harness = await _setUpHarness(
+        // 關掉 riverpod 自動重試,否則重試排程的 Timer 會殘留到測試結束。
+        disableAutoRetry: true,
+        workoutRepoBuilder: (db) =>
+            _InterceptingWorkoutRepository(db, () async => throw Exception('模擬彙整失敗')),
+      );
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 2);
+      await _pumpDashboard(tester, harness);
+
+      expect(find.byKey(const Key('quickActionStartWorkout')), findsOneWidget);
+      expect(find.byKey(const Key('recentTemplatesRow')), findsNothing);
+      expect(chips(), findsNothing);
+      expect(find.text('載入失敗，請稍後再試'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('使用紀錄還沒查回來:主 CTA 先顯示、不等它;查回來後 chip 才出現', (tester) async {
+      final pending = Completer<List<Workout>>();
+      late _InterceptingWorkoutRepository repo;
+      final harness = await _setUpHarness(
+        workoutRepoBuilder: (db) =>
+            repo = _InterceptingWorkoutRepository(db, () => pending.future),
+      );
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 2);
+      await _pumpDashboard(tester, harness);
+
+      expect(find.byKey(const Key('quickActionStartWorkout')), findsOneWidget);
+      expect(find.byKey(const Key('weekSummaryCard')), findsOneWidget);
+      expect(chips(), findsNothing);
+
+      pending.complete(const []);
+      await tester.pumpAndSettle();
+      expect(chips(), findsNWidgets(2));
+      // 回看 10 筆(雲端版每筆都巢狀抓全部動作與組,不能放大),且只查一次。
+      expect(repo.lookupLimits, [10]);
+    });
+
+    testWidgets('dashboard 重新載入(refresh / invalidate)會帶動最近用的模板更新', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 3);
+      await seedUsed(harness, 'w-a', 'tpl-0', 3);
+      await _pumpDashboard(tester, harness);
+      expect(chips(), findsOneWidget);
+      expect(find.byKey(const Key('recentTemplateChip-tpl-0')), findsOneWidget);
+
+      await seedUsed(harness, 'w-b', 'tpl-1', 2);
+      await harness.container.read(dashboardControllerProvider.notifier).refresh();
+      await tester.pumpAndSettle();
+      expect(chips(), findsNWidgets(2));
+      expect(find.byKey(const Key('recentTemplateChip-tpl-1')), findsOneWidget);
+
+      // 訓練完成等情境走 invalidate(router.dart),同樣要更新。
+      await seedUsed(harness, 'w-c', 'tpl-2', 1);
+      harness.container.invalidate(dashboardControllerProvider);
+      await tester.pumpAndSettle();
+      expect(chips(), findsNWidgets(3));
+      expect(find.byKey(const Key('recentTemplateChip-tpl-2')), findsOneWidget);
+    });
+
+    testWidgets('下拉刷新一併刷新模板清單:別處新增的模板出現在 chip 列', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 1);
+      await _pumpDashboard(tester, harness);
+      expect(chips(), findsOneWidget);
+
+      // 繞過 TemplatesController 直接寫 repository,模擬別處(例如其他分頁)新增。
+      final now = DateTime.now();
+      await harness.container.read(templateRepositoryProvider).create(
+            WorkoutTemplate(
+              id: 'tpl-new',
+              userId: testUserId,
+              name: '新模板',
+              exercises: const [],
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      await tester.fling(find.byType(CustomScrollView), const Offset(0, 400), 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('recentTemplateChip-tpl-new')), findsOneWidget);
+    });
+
+    testWidgets('有進行中草稿:不顯示模板 chip(避免點了只是回到草稿)', (tester) async {
+      final harness = await _setUpHarness();
+      await harness.db.delete(harness.db.templates).go();
+      await seedTemplates(harness, 2);
+      final now = DateTime.now();
+      await harness.workoutRepo.create(
+        Workout(id: 'draft-1', userId: testUserId, startedAt: now, createdAt: now, updatedAt: now),
+      );
+      await _pumpDashboard(tester, harness);
+
+      expect(find.text('繼續訓練'), findsOneWidget);
+      expect(chips(), findsNothing);
     });
   });
 
   group('本週卡(今日概覽與本週統計合併)', () {
-    testWidgets('舊的「今日概覽」「本週統計」標題消失,只有一張本週卡', (tester) async {
+    testWidgets('舊的「今日概覽」「本週統計」標題消失,只有一張本週卡(次數、容量、目標進度)', (tester) async {
       final harness = await _setUpHarness();
       await _pumpDashboard(tester, harness);
 
@@ -988,7 +1391,7 @@ void main() {
       final card = find.byKey(const Key('weekSummaryCard'));
       expect(find.descendant(of: card, matching: find.byKey(const Key('weekWorkoutCountCard'))), findsOneWidget);
       expect(find.descendant(of: card, matching: find.byKey(const Key('weekTotalVolumeCard'))), findsOneWidget);
-      expect(find.descendant(of: card, matching: find.byKey(const Key('noWorkoutTodayCard'))), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.byKey(const Key('goalEmptyState'))), findsOneWidget);
     });
 
     testWidgets('數字正確:本週 2 次、容量 700、目標 4 次 → 次數格「2 / 4 次」、容量「700 kg」、50%', (tester) async {
@@ -1079,7 +1482,28 @@ void main() {
           updatedAt: at,
         );
 
-    testWidgets('7 天內有兩筆以上:顯示最新減最早(+1.2 kg)', (tester) async {
+    testWidgets('單列:體重、近 7 天變化與新增 icon 在同一水平列,卡片高度精簡', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 3))));
+      await harness.bodyWeightRepo.create(weightAt('bw-b', 71.2, now.subtract(const Duration(seconds: 30))));
+
+      await _pumpDashboard(tester, harness);
+
+      final card = find.byKey(const Key('bodyWeightMiniCard'));
+      final weightY = tester.getCenter(find.text('71.2 kg')).dy;
+      final changeY = tester.getCenter(find.byKey(const Key('bodyWeightWeekChange'))).dy;
+      final addY = tester.getCenter(find.byKey(const Key('quickActionRecordWeight'))).dy;
+      expect(changeY, closeTo(weightY, 1));
+      expect(addY, closeTo(weightY, 1));
+      // 單列:高度 = 新增 icon 鈕(48)+ 卡片上下留白(共 64),遠小於舊版兩行排版(約 100)。
+      expect(tester.getSize(card).height, lessThanOrEqualTo(64));
+      // 舊的「當前體重」小標與文字按鈕「記錄體重」已移除,新增入口改為 icon。
+      expect(find.text('當前體重'), findsNothing);
+      expect(tester.widget(find.byKey(const Key('quickActionRecordWeight'))), isA<IconButton>());
+    });
+
+    testWidgets('7 天內有兩筆以上:顯示最新減最早(▲1.2)', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
       await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 3))));
@@ -1090,10 +1514,10 @@ void main() {
       await _pumpDashboard(tester, harness);
 
       expect(find.text('71.2 kg'), findsOneWidget);
-      expect(find.text('近 7 天 +1.2 kg'), findsOneWidget);
+      expect(find.text('近 7 天 \u25B21.2'), findsOneWidget);
     });
 
-    testWidgets('體重下降:顯示減號(−0.8 kg)', (tester) async {
+    testWidgets('體重下降:顯示向下箭頭(▼0.8)', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
       await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 5))));
@@ -1101,7 +1525,7 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      expect(find.text('近 7 天 \u22120.8 kg'), findsOneWidget);
+      expect(find.text('近 7 天 \u25BC0.8'), findsOneWidget);
     });
 
     testWidgets('區間內只有一筆、或完全沒有紀錄:算不出變化,顯示 —', (tester) async {
@@ -1121,7 +1545,7 @@ void main() {
       expect(find.text('近 7 天 —'), findsOneWidget);
     });
 
-    testWidgets('lb 模式:變化量依單位換算(+1.2 kg → +2.6 lb)', (tester) async {
+    testWidgets('lb 模式:變化量依單位換算(▲1.2 kg → ▲2.6)', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
       final now = DateTime.now();
       await harness.bodyWeightRepo.create(weightAt('bw-a', 70.0, now.subtract(const Duration(days: 2))));
@@ -1129,8 +1553,8 @@ void main() {
 
       await _pumpDashboard(tester, harness);
 
-      final expected = '+${kgToDisplay(1.2, WeightUnit.lb).toStringAsFixed(1)} lb';
-      expect(find.text('近 7 天 $expected'), findsOneWidget);
+      // 1.2 kg × 2.20462 = 2.645 → 2.6;期望值寫死,不用正式換算函式算。
+      expect(find.text('近 7 天 \u25B22.6'), findsOneWidget);
     });
   });
 

@@ -7,15 +7,13 @@
 // `powerliftingControllerProvider`,不需要呼叫端額外包 ProviderScope 或傳
 // 任何參數進來。
 //
-// 這個子頁被嵌入外層 Stats 分頁殼(TabBarView)裡,沒有自己的 AppBar——
-// 「右上角 +」(對照 iOS `.toolbar { ... Image(systemName: "plus") }`)這裡
-// 改成子頁內容最上方、靠右對齊的圖示按鈕,視覺上仍是這塊子頁內容的右上角,
-// 不額外疊一層 AppBar 造成雙層工具列。
+// 這個子頁被嵌入外層 Stats 分頁殼裡,沒有自己的 AppBar。
+// 介面改版:拿掉「經典三項」標題列與整塊「新增」按鈕——「新增」改成動作
+// chip 列最右側的一顆小圖示鈕,省掉頂端一整列。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_tokens.dart';
-import '../../../core/widgets/section_header.dart';
 import 'powerlifting_controller.dart';
 import 'widgets/add_power_lift_record_sheet.dart';
 import 'widgets/lift_picker.dart';
@@ -74,19 +72,18 @@ class _PowerliftingContent extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SectionHeader(
-              title: '經典三項',
-              trailing: FilledButton.tonalIcon(
+            TotalLiftCard(totalLifts: state.totalLiftsValue, bestByLift: state.bestByLift),
+            const SizedBox(height: AppSpacing.lg),
+            LiftPicker(
+              selected: state.selectedLift,
+              onSelected: notifier.selectLift,
+              trailing: IconButton.filledTonal(
                 key: const Key('addPowerLiftRecordButton'),
                 onPressed: () => _showAddSheet(context),
                 icon: const Icon(Icons.add),
-                label: const Text('新增'),
+                tooltip: '新增三項紀錄',
+                visualDensity: VisualDensity.compact,
               ),
-            ),
-            TotalLiftCard(totalLifts: state.totalLiftsValue, bestByLift: state.bestByLift),
-            const SizedBox(height: AppSpacing.lg),
-            Center(
-              child: LiftPicker(selected: state.selectedLift, onSelected: notifier.selectLift),
             ),
             const SizedBox(height: AppSpacing.lg),
             ManualRecordsSection(

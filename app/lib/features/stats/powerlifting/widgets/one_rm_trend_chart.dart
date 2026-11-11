@@ -23,6 +23,14 @@ class OneRmTrendChart extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // RepaintBoundary:圖表自成一層,外層清單捲動時不連帶重繪圖表。
+    return RepaintBoundary(
+      key: const Key('oneRmTrendChartRepaintBoundary'),
+      child: _buildChart(context, ref),
+    );
+  }
+
+  Widget _buildChart(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
     // 資料點本身(record.oneRepMax)恆 kg 不動,這裡只換算畫進圖表的顯示
     // y 值——對照 volume_chart_section.dart 的同一套作法。

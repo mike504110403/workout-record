@@ -90,7 +90,9 @@ void main() {
       expect(state.draft!.userId, testUserId);
     });
 
-    test('從模板開始:exercises/sets 依 AppliedTemplate 展開,一次性寫入', () async {
+    // Mike 2026-11-11 裁示 2:模板的組改成「計畫組」,不再寫成真實 WorkoutSet
+    // (計畫組的完整行為見 planned_sets_test.dart)。
+    test('從模板開始:exercises 依 AppliedTemplate 建立,組變成計畫組(DB 無真實組)', () async {
       final harness = await _setUpHarness();
       final exercise = await _firstSystemExercise(harness.db);
       await harness.container.read(workoutControllerProvider.future);
@@ -119,9 +121,10 @@ void main() {
       expect(state.draft!.templateId, 'template-1');
       expect(state.draft!.exercises, hasLength(1));
       expect(state.draft!.exercises.single.exerciseId, exercise.id);
-      expect(state.draft!.exercises.single.sets, hasLength(3));
-      expect(state.draft!.exercises.single.sets.map((s) => s.setNumber).toList(), [1, 2, 3]);
-      expect(state.draft!.exercises.single.sets.every((s) => s.weight == 0 && s.reps == 10), isTrue);
+      expect(state.draft!.exercises.single.sets, isEmpty);
+      final planned = state.plannedSets[state.draft!.exercises.single.id]!;
+      expect(planned, hasLength(3));
+      expect(planned.every((p) => p.weight == 0 && p.reps == 10), isTrue);
     });
 
     // 雙向變異(草稿唯一性):把 startFreeWorkout/startFromTemplate 開頭的
@@ -301,22 +304,25 @@ void main() {
       expect(sets.map((s) => s.weight).toList(), [20, 30]);
     });
 
-    test('setExerciseCompleted:切換完成狀態', () async {
+    // 原本測 setExerciseCompleted 切換完成狀態;Mike 2026-11-11 裁示 3 拿掉
+    // 「完成動作」鈕後該方法已無呼叫端而刪除。改測現行行為:動作的「完成」
+    // 由有沒有組推導,controller 記組不寫 isCompleted,完成訓練時有組的動作
+    // 照樣保留結算。
+    test('動作完成由「有組」推導:記組不寫 isCompleted,有組的動作照樣結算', () async {
       final notifier = harness.container.read(workoutControllerProvider.notifier);
       await notifier.addExercise(exercise);
       final exerciseId = harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
 
-      await notifier.setExerciseCompleted(exerciseId, isCompleted: true);
-      expect(
-        harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.isCompleted,
-        isTrue,
-      );
-
-      await notifier.setExerciseCompleted(exerciseId, isCompleted: false);
+      await notifier.addSet(workoutExerciseId: exerciseId, weight: 40, reps: 8);
       expect(
         harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.isCompleted,
         isFalse,
       );
+
+      final outcome = await notifier.completeWorkout();
+      final completed = (outcome as WorkoutCompleted).workout;
+      expect(completed.exercises.single.id, exerciseId);
+      expect(completed.exercises.single.sets, hasLength(1));
     });
 
     test('removeExercise:連同其下組數一併移除', () async {
@@ -349,7 +355,6 @@ void main() {
       await notifier.addExercise(exercise);
       workoutExerciseId = harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
       await notifier.addSet(workoutExerciseId: workoutExerciseId, weight: 50, reps: 10);
-      await notifier.setExerciseCompleted(workoutExerciseId, isCompleted: true);
     });
 
     // 雙向變異(完成冪等):把 completeWorkout() 開頭的
@@ -488,7 +493,6 @@ void main() {
       await notifier.addExercise(exercise);
       final exerciseId = harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
       await notifier.addSet(workoutExerciseId: exerciseId, weight: 50, reps: 10);
-      await notifier.setExerciseCompleted(exerciseId, isCompleted: true);
 
       await notifier.completeWorkout();
 
@@ -534,7 +538,11 @@ void main() {
       await harness.container.read(workoutControllerProvider.future);
       final notifier = harness.container.read(workoutControllerProvider.notifier);
       await notifier.startFreeWorkout();
+      // 0 組草稿不能完成(controller 守門),先記一組才會走到寫入那一步。
+      await notifier.addExercise(await _firstSystemExercise(harness.db));
       final draftId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+      final weId = harness.container.read(workoutControllerProvider).value!.draft!.exercises.single.id;
+      await notifier.addSet(workoutExerciseId: weId, weight: 40, reps: 5);
 
       await expectLater(notifier.completeWorkout(), throwsA(isA<Exception>()));
 
@@ -596,7 +604,6 @@ void main() {
           workoutExerciseId: workoutExerciseId, weight: 100, reps: 5, isWarmup: true);
       // 正式組:60kg x 8 下,1RM(Epley)= 60 * (1 + 8/30) = 76
       await notifier.addSet(workoutExerciseId: workoutExerciseId, weight: 60, reps: 8);
-      await notifier.setExerciseCompleted(workoutExerciseId, isCompleted: true);
 
       final outcome = await notifier.completeWorkout();
 

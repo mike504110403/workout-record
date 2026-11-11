@@ -1,13 +1,9 @@
-// 「訓練統計」子頁的資料組裝與狀態控制。對應 iOS 版
-// `VolumeChartViewModel` + `DashboardViewModel`(本週統計/最近訓練那兩塊
-// WorkoutStatsView 直接借用 DashboardViewModel 的欄位,這裡改成子頁自己的
-// controller 一次算好,不 import dashboard controller)。
+// 「訓練統計」子頁的資料組裝與狀態控制。對應 iOS 版 `VolumeChartViewModel`。
 //
-// 週起算沿用 dashboard_controller.dart 的慣例:固定 ISO 8601(週一為一週
-// 開始),跨裝置/測試環境一致。
+// 介面改版:「本週統計」「最近訓練」與首頁/歷史重複,已從子頁拿掉,
+// 對應的三個查詢(本週次數/本週容量/最近 5 筆)一併移除——不留沒人讀的查詢。
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/models/workout.dart';
 import '../../../data/providers.dart';
 import '../chart_palette.dart';
 import 'chart_time_range.dart';
@@ -19,36 +15,24 @@ class WorkoutStatsState {
     required this.muscleGroupFilter,
     required this.dataPoints,
     required this.stats,
-    required this.weekWorkoutCount,
-    required this.weekTotalVolume,
-    required this.recentWorkouts,
   });
 
   final ChartTimeRange timeRange;
   final MuscleGroupFilter muscleGroupFilter;
   final List<VolumeDataPoint> dataPoints;
   final VolumeStats stats;
-  final int weekWorkoutCount;
-  final double weekTotalVolume;
-  final List<Workout> recentWorkouts;
 
   WorkoutStatsState copyWith({
     ChartTimeRange? timeRange,
     MuscleGroupFilter? muscleGroupFilter,
     List<VolumeDataPoint>? dataPoints,
     VolumeStats? stats,
-    int? weekWorkoutCount,
-    double? weekTotalVolume,
-    List<Workout>? recentWorkouts,
   }) {
     return WorkoutStatsState(
       timeRange: timeRange ?? this.timeRange,
       muscleGroupFilter: muscleGroupFilter ?? this.muscleGroupFilter,
       dataPoints: dataPoints ?? this.dataPoints,
       stats: stats ?? this.stats,
-      weekWorkoutCount: weekWorkoutCount ?? this.weekWorkoutCount,
-      weekTotalVolume: weekTotalVolume ?? this.weekTotalVolume,
-      recentWorkouts: recentWorkouts ?? this.recentWorkouts,
     );
   }
 }
@@ -154,27 +138,12 @@ class WorkoutStatsController extends AsyncNotifier<WorkoutStatsState> {
     final dataPoints = aggregateVolumeByDate(workouts);
     final stats = calculateVolumeStats(dataPoints, filter);
 
-    final weekStart = _startOfWeek(now);
-    final weekWorkoutCount = await workoutRepo.countWorkouts(from: weekStart, to: now);
-    final weekTotalVolume = await workoutRepo.calculateTotalVolume(from: weekStart, to: now);
-    final recentWorkouts = await workoutRepo.fetchRecent(5);
-
     return WorkoutStatsState(
       timeRange: timeRange,
       muscleGroupFilter: filter,
       dataPoints: dataPoints,
       stats: stats,
-      weekWorkoutCount: weekWorkoutCount,
-      weekTotalVolume: weekTotalVolume,
-      recentWorkouts: recentWorkouts,
     );
-  }
-
-  /// ISO 8601:週一為一週開始。與 dashboard_controller.dart 的
-  /// `_startOfWeek` 同一套算法(刻意各自維護一份,不 import dashboard 的
-  /// controller)。
-  DateTime _startOfWeek(DateTime now) {
-    return DateTime(now.year, now.month, now.day - (now.weekday - 1));
   }
 }
 

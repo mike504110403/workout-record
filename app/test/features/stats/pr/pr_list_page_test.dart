@@ -17,6 +17,7 @@ import 'package:workout_record/features/auth/shared_preferences_provider.dart';
 import 'package:workout_record/features/settings/preferences/one_rm_formula_preference.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/stats/pr/pr_list_page.dart';
+import 'package:workout_record/features/stats/pr/widgets/pr_summary_card.dart';
 
 import '../../../data/test_helpers.dart';
 
@@ -54,12 +55,15 @@ Future<_Harness> _setUpHarness({
   return _Harness(db, container);
 }
 
-Future<void> _pump(WidgetTester tester, _Harness harness) async {
+Future<void> _pump(WidgetTester tester, _Harness harness, {bool tall = true}) async {
   // 理由同 powerlifting_tab_test.dart:分組多時預設 800x600 視窗裝不下。
-  tester.view.physicalSize = const Size(1000, 3000);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  // 懶建置測試(tall: false)要的就是「裝不下」,用預設小視窗。
+  if (tall) {
+    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
 
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -235,6 +239,25 @@ void main() {
       expect(find.descendant(of: squatCard, matching: find.text('2026/3/1')), findsOneWidget);
     });
 
+    testWidgets('非首段標題與上一張卡片的視覺間距是 lg(16),不是 28', (tester) async {
+      final harness = await _setUpHarness();
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final squat = systemExercises.firstWhere((e) => e.name == '深蹲'); // legs
+      final benchPress = systemExercises.firstWhere((e) => e.name == '槓鈴臥推'); // chest
+      await _createPR(harness, id: 'pr-squat', exerciseId: squat.id, oneRepMax: 140, achievedAt: DateTime(2026, 3, 1));
+      await _createPR(harness, id: 'pr-bench', exerciseId: benchPress.id, oneRepMax: 90, achievedAt: DateTime(2026, 2, 1));
+
+      await _pump(tester, harness);
+
+      // 胸(首段)的卡片在前、腿標題在後。Card 的 rect 含自帶 bottom margin 12
+      // (視覺底緣在 rect 之上 12),所以「視覺間距」＝ rect 差 + 12。
+      final chestCardBottom = tester.getBottomLeft(find.byKey(Key('prSummaryCard-${benchPress.id}'))).dy;
+      final legsTitleTop = tester
+          .getTopLeft(find.descendant(of: find.byKey(const Key('prGroupSection-腿')), matching: find.text('腿')))
+          .dy;
+      expect(legsTitleTop - chestCardBottom + 12, closeTo(16.0, 0.01));
+    });
+
     testWidgets('同一動作多筆歷史紀錄時,卡片顯示的是 1RM 最高的那筆(currentPR),不是最新一筆', (tester) async {
       final harness = await _setUpHarness();
       final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
@@ -280,6 +303,36 @@ void main() {
       await _pump(tester, harness);
 
       expect(find.byKey(Key('prSummaryCard-${squat.id}')), findsOneWidget);
+    });
+  });
+
+  group('長清單懶建置', () {
+    testWidgets('40 個動作的 PR:只建可見範圍的卡片,捲到底才出現最後一張', (tester) async {
+      final harness = await _setUpHarness();
+      final systemExercises = await harness.exerciseRepo.fetchSystemExercises();
+      final targets = systemExercises.take(40).toList();
+      expect(targets.length, 40, reason: '種子動作不足 40 個,測試前提不成立');
+      for (final (i, e) in targets.indexed) {
+        await _createPR(harness, id: 'pr-$i', exerciseId: e.id, oneRepMax: 100.0 + i);
+      }
+
+      await _pump(tester, harness, tall: false);
+
+      final built = find.byType(PrSummaryCard).evaluate().length;
+      expect(built, greaterThan(0));
+      expect(built, lessThan(40), reason: '40 張卡不該全部建置(懶建置)');
+
+      final firstBuiltId = tester.widgetList<PrSummaryCard>(find.byType(PrSummaryCard)).first.summary.exerciseId;
+
+      // 一路捲到底:捲動位置到達 maxScrollExtent(清單可捲到底),最初那張卡已被
+      // 回收(只建可見範圍),建置數仍小於總數。
+      final scrollable = find.byType(Scrollable).last;
+      await tester.fling(scrollable, const Offset(0, -30000), 8000);
+      await tester.pumpAndSettle();
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.pixels, position.maxScrollExtent);
+      expect(find.byKey(Key('prSummaryCard-$firstBuiltId')), findsNothing, reason: '捲到底後最上面的卡應已回收');
+      expect(find.byType(PrSummaryCard).evaluate().length, lessThan(40));
     });
   });
 }

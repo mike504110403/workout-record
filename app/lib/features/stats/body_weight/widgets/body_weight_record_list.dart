@@ -1,10 +1,13 @@
 // 體重紀錄列表（按 measuredAt 降序，對照 iOS `BodyWeightView.weightList` +
 // `BodyWeightRow`）。每列可編輯（開表單帶原值）、可刪除（先跳確認對話框）。
+//
+// 本 widget 是 **sliver**(只能放在 CustomScrollView 的 slivers 裡),用
+// SliverList.builder 懶建置——紀錄筆數隨使用時間增長,不能一次全建。
+// 「歷史記錄」標題由外層 sliver 負責(跟在圖表/統計卡後面)。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_tokens.dart';
-import '../../../../core/widgets/section_header.dart';
 import '../../../../data/models/body_weight.dart';
 import '../../../settings/preferences/weight_unit.dart';
 import '../body_weight_format.dart';
@@ -27,18 +30,20 @@ class BodyWeightRecordList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final unit = ref.watch(weightUnitProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeader(title: '歷史記錄'),
-        for (final entry in entriesDesc)
-          _BodyWeightRow(
+    return SliverPadding(
+      padding: AppSpacing.pagePadding,
+      sliver: SliverList.builder(
+        itemCount: entriesDesc.length,
+        itemBuilder: (context, index) {
+          final entry = entriesDesc[index];
+          return _BodyWeightRow(
             entry: entry,
             unit: unit,
             onEdit: () => onEdit(entry),
             onDelete: () => _confirmDelete(context, entry, unit),
-          ),
-      ],
+          );
+        },
+      ),
     );
   }
 
@@ -88,7 +93,7 @@ class _BodyWeightRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       key: Key('bodyWeightRow-${entry.id}'),
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
       child: ListTile(
         onTap: onEdit,
         title: Text(

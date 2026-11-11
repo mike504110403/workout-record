@@ -28,7 +28,9 @@ import '../../data/models/personal_record.dart';
 import '../../data/models/workout.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
+import 'exercise_history.dart';
 import 'one_rm_calculator.dart';
+import 'planned_sets_store.dart';
 import 'templates/applied_template.dart';
 import 'workout_ui_shared.dart';
 import '../auth/resolve_user_id.dart';
@@ -38,11 +40,18 @@ import '../auth/resolve_user_id.dart';
 class WorkoutFlowState {
   const WorkoutFlowState({
     this.draft,
+    this.plannedSets = const {},
     this.isCompleting = false,
     this.isAbandoning = false,
   });
 
   final Workout? draft;
+
+  /// 計畫組(模板帶入、尚未打勾),key 是 workoutExerciseId。**不是**真實
+  /// `WorkoutSet`、不進 DB——存在本機附屬儲存([PlannedSetsStore]),見
+  /// planned_sets_store.dart 檔頭。打勾([WorkoutController.confirmPlannedSet])
+  /// 才變成真實組並從這裡移除。
+  final Map<String, List<PlannedSet>> plannedSets;
 
   /// 完成訓練寫入中——UI 用來 disable「放棄」按鈕(矩陣:完成與放棄互斥,
   /// 結算進行中不可放棄)與「完成訓練」按鈕本身(避免連點觸發第二次結算,
@@ -53,6 +62,9 @@ class WorkoutFlowState {
   final bool isAbandoning;
 
   bool get isActive => draft != null;
+
+  /// 草稿裡真實組的總數(含暖身)。0 組時不能完成訓練(沒有內容可存)。
+  int get totalSetCount => draft?.exercises.fold<int>(0, (sum, e) => sum + e.sets.length) ?? 0;
 }
 
 /// [WorkoutController.completeWorkout] 的結果。冪等設計的關鍵型別——
@@ -110,7 +122,53 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     // 由 UI 呼叫 [checkForRecoverableDraft] + [resumeDraft] 明確決定(見
     // 這兩個方法的文件),build() 一律從乾淨的 idle 狀態開始。
     ref.watch(sessionControllerProvider.select((s) => s.appleUserId));
+    // 計畫組附屬儲存的 GC(換帳號/刪帳號後留下的舊 key)。排進序列化鎖,
+    // 保證比之後的開始訓練先跑完——不會把剛寫入的計畫組當成舊 key 刪掉。
+    // 不 await:build 要立刻回 idle,GC 失敗(離線查不到草稿)也不影響任何事。
+    unawaited(_synchronized(_gcPlannedSets));
     return const WorkoutFlowState();
+  }
+
+  PlannedSetsStore get _plannedStore => ref.read(plannedSetsStoreProvider);
+
+  /// 刪掉不屬於「目前使用者草稿」的計畫組 key。只能在 [_synchronized] 內呼叫。
+  /// 查不到使用者(未登入)時不動——沒有依據判斷哪些 key 是舊的。
+  Future<void> _gcPlannedSets({Workout? knownDraft, bool draftKnown = false}) async {
+    try {
+      final String? keepId;
+      if (draftKnown) {
+        keepId = knownDraft?.id;
+      } else {
+        final userId = await _resolveUserId();
+        if (userId == null) return;
+        keepId = (await ref.read(workoutRepositoryProvider).fetchDraft(userId))?.id;
+      }
+      await _plannedStore.removeAllExcept(keepId);
+    } catch (_) {
+      // best-effort:下次 build/草稿檢查再清。
+    }
+  }
+
+  /// 接手 [draft] 進 [state],連同它在附屬儲存裡的計畫組(App 重開續訓)。
+  /// 計畫組只保留草稿裡仍存在的動作(以 workoutExerciseId 比對)——動作已被
+  /// 刪掉的計畫組沒有意義。不依真實組數裁切:打勾時計畫組已從附屬儲存移除
+  /// ([confirmPlannedSet]),剩下的就是還沒做的。
+  WorkoutFlowState _flowFor(Workout? draft) {
+    if (draft == null) return const WorkoutFlowState();
+    Map<String, List<PlannedSet>> stored;
+    try {
+      stored = _plannedStore.read(draft.id);
+    } catch (_) {
+      stored = const {};
+    }
+    final exerciseIds = {for (final e in draft.exercises) e.id};
+    return WorkoutFlowState(
+      draft: draft,
+      plannedSets: {
+        for (final entry in stored.entries)
+          if (exerciseIds.contains(entry.key)) entry.key: entry.value,
+      },
+    );
   }
 
   Future<String?> _resolveUserId() => resolveSessionUserId(ref);
@@ -135,7 +193,9 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   Future<Workout?> checkForRecoverableDraft() => _synchronized(() async {
     final userId = await _resolveUserId();
     if (userId == null) return null;
-    return ref.read(workoutRepositoryProvider).fetchDraft(userId);
+    final draft = await ref.read(workoutRepositoryProvider).fetchDraft(userId);
+    await _gcPlannedSets(knownDraft: draft, draftKnown: true);
+    return draft;
   });
 
   /// 使用者選擇「繼續上次訓練」:把草稿接手進 [state](動作/組/起始時間
@@ -167,7 +227,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         .fetchById(workoutId);
     if (workout == null) return;
     if (workout.endedAt != null || workout.userId != userId) return;
-    state = AsyncData(WorkoutFlowState(draft: workout));
+    state = AsyncData(_flowFor(workout));
   });
 
   /// 使用者選擇「放棄」上次未完成的草稿:直接刪除,不接手進 [state]。不像
@@ -178,6 +238,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   Future<void> discardRecoverableDraft(String workoutId) =>
       _synchronized(() async {
         await ref.read(workoutRepositoryProvider).discardDraft(workoutId);
+        await _plannedStore.clear(workoutId);
       });
 
   // MARK: - 開始訓練
@@ -196,7 +257,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     final repo = ref.read(workoutRepositoryProvider);
     final existingDraft = await repo.fetchDraft(userId);
     if (existingDraft != null) {
-      state = AsyncData(WorkoutFlowState(draft: existingDraft));
+      state = AsyncData(_flowFor(existingDraft));
       return;
     }
     final now = DateTime.now();
@@ -210,6 +271,9 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         updatedAt: now,
       ),
     );
+    // 新的一場訓練:「最近用過/上次數字」重查一次(上一場若在別台裝置完成、
+    // 或上次查詢失敗,這裡補回來)。
+    ref.invalidate(exerciseHistoryProvider);
     state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId)));
   });
 
@@ -225,13 +289,19 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
         final repo = ref.read(workoutRepositoryProvider);
         final existingDraft = await repo.fetchDraft(userId);
         if (existingDraft != null) {
-          state = AsyncData(WorkoutFlowState(draft: existingDraft));
+          state = AsyncData(_flowFor(existingDraft));
           return;
         }
         final now = DateTime.now();
         final workoutId = generateUuidV4();
 
+        // Mike 2026-11-11 裁示 2:模板的組不再寫成真實 WorkoutSet(沒做的組
+        // 不該被存進歷史),只建動作;組改成「計畫組」存本機附屬儲存,打勾
+        // 才變成真實組。計畫組的數字存模板值,畫面顯示時再用「該動作上一次
+        // 的數字」覆蓋(best-effort,見 exercise_history.dart)——歷史查詢
+        // 不放在開始訓練的必經路徑上。
         final exercises = <WorkoutExercise>[];
+        final planned = <String, List<PlannedSet>>{};
         for (var i = 0; i < template.exercises.length; i++) {
           final templateExercise = template.exercises[i];
           final workoutExerciseId = generateUuidV4();
@@ -244,20 +314,12 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
               orderIndex: i,
               createdAt: now,
               updatedAt: now,
-              sets: [
-                for (var j = 0; j < templateExercise.sets.length; j++)
-                  WorkoutSet(
-                    id: generateUuidV4(),
-                    workoutExerciseId: workoutExerciseId,
-                    setNumber: j + 1,
-                    weight: templateExercise.sets[j].weight,
-                    reps: templateExercise.sets[j].reps,
-                    createdAt: now,
-                    updatedAt: now,
-                  ),
-              ],
             ),
           );
+          planned[workoutExerciseId] = [
+            for (final templateSet in templateExercise.sets)
+              PlannedSet(id: generateUuidV4(), weight: templateSet.weight, reps: templateSet.reps),
+          ];
         }
 
         await repo.create(
@@ -271,8 +333,15 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
             updatedAt: now,
           ),
         );
+        // 附屬儲存寫失敗不擋開始訓練(計畫組只是提示),畫面仍用記憶體裡的。
+        try {
+          await _plannedStore.write(workoutId, planned);
+        } catch (_) {}
+        // 同 [startFreeWorkout]:新的一場訓練重查歷史。
+        ref.invalidate(exerciseHistoryProvider);
+        final draft = await repo.fetchById(workoutId);
         state = AsyncData(
-          WorkoutFlowState(draft: await repo.fetchById(workoutId)),
+          WorkoutFlowState(draft: draft, plannedSets: draft == null ? const {} : planned),
         );
       });
 
@@ -288,7 +357,44 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
 
   Future<void> _refresh(String workoutId) async {
     final repo = ref.read(workoutRepositoryProvider);
-    state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId)));
+    final planned = state.value?.plannedSets ?? const {};
+    state = AsyncData(WorkoutFlowState(draft: await repo.fetchById(workoutId), plannedSets: planned));
+  }
+
+  /// 更新計畫組(記憶體 + 附屬儲存)。附屬儲存寫失敗只影響「重開後還在不在」,
+  /// 不擋這次操作。
+  Future<void> _setPlanned(String workoutId, Map<String, List<PlannedSet>> planned) async {
+    final current = state.value;
+    if (current != null) {
+      state = AsyncData(
+        WorkoutFlowState(
+          draft: current.draft,
+          plannedSets: planned,
+          isCompleting: current.isCompleting,
+          isAbandoning: current.isAbandoning,
+        ),
+      );
+    }
+    try {
+      await _plannedStore.write(workoutId, planned);
+    } catch (_) {}
+  }
+
+  Map<String, List<PlannedSet>> _withoutPlanned(String workoutExerciseId, String? plannedSetId) {
+    final planned = {...?state.value?.plannedSets};
+    final list = planned[workoutExerciseId];
+    if (list == null) return planned;
+    if (plannedSetId == null) {
+      planned.remove(workoutExerciseId);
+    } else {
+      final remaining = [for (final p in list) if (p.id != plannedSetId) p];
+      if (remaining.isEmpty) {
+        planned.remove(workoutExerciseId);
+      } else {
+        planned[workoutExerciseId] = remaining;
+      }
+    }
+    return planned;
   }
 
   /// 新增動作到進行中的訓練(對照 iOS `addExercise`,插在最前面顯示是 UI
@@ -319,18 +425,10 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
             .read(workoutRepositoryProvider)
             .removeExercise(workoutExerciseId, workoutId: draft.id);
         await _refresh(draft.id);
+        if (state.value?.plannedSets.containsKey(workoutExerciseId) ?? false) {
+          await _setPlanned(draft.id, _withoutPlanned(workoutExerciseId, null));
+        }
       });
-
-  Future<void> setExerciseCompleted(
-    String workoutExerciseId, {
-    required bool isCompleted,
-  }) => _synchronized(() async {
-    final draft = _requireDraft();
-    await ref
-        .read(workoutRepositoryProvider)
-        .setExerciseCompleted(workoutExerciseId, isCompleted: isCompleted);
-    await _refresh(draft.id);
-  });
 
   /// 記一組新的組數。[setNumber] 由目前草稿裡該動作既有的組數長度 + 1 算出
   /// (對照 iOS `exercise.sets.count + 1`)——用 [_requireDraft] 目前的
@@ -342,7 +440,57 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     double? rpe,
     bool isWarmup = false,
     int restSeconds = kDefaultRestSeconds,
+  }) => _synchronized(
+    () => _addSet(
+      workoutExerciseId: workoutExerciseId,
+      weight: weight,
+      reps: reps,
+      rpe: rpe,
+      isWarmup: isWarmup,
+      restSeconds: restSeconds,
+    ),
+  );
+
+  /// 計畫組打勾:照給定數字(呼叫端可能改過)記成真實組,成功後才移除該
+  /// 計畫組;寫入失敗時計畫組留著,使用者可再按一次。
+  Future<void> confirmPlannedSet({
+    required String workoutExerciseId,
+    required String plannedSetId,
+    required double weight,
+    required int reps,
+    double? rpe,
+    bool isWarmup = false,
+    int restSeconds = kDefaultRestSeconds,
   }) => _synchronized(() async {
+    await _addSet(
+      workoutExerciseId: workoutExerciseId,
+      weight: weight,
+      reps: reps,
+      rpe: rpe,
+      isWarmup: isWarmup,
+      restSeconds: restSeconds,
+    );
+    final draft = _requireDraft();
+    await _setPlanned(draft.id, _withoutPlanned(workoutExerciseId, plannedSetId));
+  });
+
+  /// 不做這組計畫組(左滑)。只動附屬儲存,不碰 DB。
+  Future<void> removePlannedSet({
+    required String workoutExerciseId,
+    required String plannedSetId,
+  }) => _synchronized(() async {
+    final draft = _requireDraft();
+    await _setPlanned(draft.id, _withoutPlanned(workoutExerciseId, plannedSetId));
+  });
+
+  Future<void> _addSet({
+    required String workoutExerciseId,
+    required double weight,
+    required int reps,
+    double? rpe,
+    bool isWarmup = false,
+    int restSeconds = kDefaultRestSeconds,
+  }) async {
     final draft = _requireDraft();
     final exercise = draft.exercises.firstWhere(
       (e) => e.id == workoutExerciseId,
@@ -366,7 +514,7 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
           ),
         );
     await _refresh(draft.id);
-  });
+  }
 
   /// 更新既有組數。[set] 通常是從目前 [WorkoutFlowState.draft] 讀出的既有
   /// `WorkoutSet` 再用 `copyWith` 改過欄位——呼叫端(編輯 sheet)負責組出
@@ -396,24 +544,65 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
   /// **冪等**(矩陣:完成訓練連點/完成後再完成):沒有進行中草稿時(代表
   /// 已經完成過、或從未開始)直接回傳 [WorkoutCompletionNoOp],不拋錯、不
   /// 重複結算、不重複建立 PR。
+  ///
+  /// **沒有任何組的動作在結算前自動丟棄**(Mike 2026-11-11 裁示 3:拿掉
+  /// 「完成動作」鈕,有組就算完成)——`WorkoutExercise.isCompleted` 欄位
+  /// 保留不動、也不在這裡寫 true:「完成」一律由「有沒有組」推導,少一輪
+  /// 逐動作寫入(雲端模式每筆都是網路往返)。草稿 0 組時拋 [StateError]
+  /// (UI 已停用完成鈕,這是 controller 層的守門,不存空訓練)。計畫組
+  /// 附屬儲存只在結算**成功後**清除;失敗時保留,讓使用者重試時計畫組還在。
   Future<WorkoutCompletionOutcome> completeWorkout() => _synchronized(() async {
-    final draft = state.value?.draft;
-    if (draft == null) return const WorkoutCompletionNoOp();
+    final current = state.value;
+    final draft = current?.draft;
+    if (current == null || draft == null) return const WorkoutCompletionNoOp();
+    if (current.totalSetCount == 0) {
+      throw StateError('WorkoutController: 草稿沒有任何組,不能完成訓練');
+    }
 
-    state = AsyncData(WorkoutFlowState(draft: draft, isCompleting: true));
+    final planned = current.plannedSets;
+    state = AsyncData(WorkoutFlowState(draft: draft, plannedSets: planned, isCompleting: true));
     final workoutRepo = ref.read(workoutRepositoryProvider);
     try {
+      for (final exercise in draft.exercises) {
+        if (exercise.sets.isEmpty) {
+          await workoutRepo.removeExercise(exercise.id, workoutId: draft.id);
+        }
+      }
       final completed = await workoutRepo.completeWorkout(draft.id);
       final newPRCount = await _recordPersonalRecords(completed);
+      // 先清附屬儲存、最後才收回 idle:真機 SharedPreferences.remove 走
+      // platform channel,若先 idle 再 await 清除,中間會畫一幀把進行中畫面
+      // 拆掉,UI 端還沒拿到結果就失去 context(不彈結算、不回首頁)。
+      try {
+        await _plannedStore.clear(draft.id);
+      } catch (_) {}
       state = const AsyncData(WorkoutFlowState());
+      // 下一場訓練的「最近用過/上次數字」要包含這一場。
+      ref.invalidate(exerciseHistoryProvider);
       return WorkoutCompleted(
         workout: completed,
         newPersonalRecordCount: newPRCount,
       );
     } catch (_) {
       // 失敗時解除 loading、草稿保留在 state,讓 UI 能重試(常備紀律:
-      // 非同步失敗路徑不得 fire-and-forget)。
-      state = AsyncData(WorkoutFlowState(draft: draft));
+      // 非同步失敗路徑不得 fire-and-forget)。空動作可能已被丟棄一部分,
+      // 重新讀一次 DB 讓畫面與事實一致(讀不到就沿用原草稿)。
+      Workout? latest;
+      try {
+        latest = await workoutRepo.fetchById(draft.id);
+      } catch (_) {}
+      // 雲端已收下(只是記 PR 失敗)時,讀回的是已完成的訓練(endedAt 非 null)
+      // ——不能放進 state.draft(進行中草稿的不變式是 endedAt == null)。改用
+      // 原草稿,但拿掉已在結算前丟棄的 0 組動作,重試時不再對它們發刪除。
+      final Workout keep;
+      if (latest == null) {
+        keep = draft;
+      } else if (latest.endedAt == null) {
+        keep = latest;
+      } else {
+        keep = draft.copyWith(exercises: [for (final e in draft.exercises) if (e.sets.isNotEmpty) e]);
+      }
+      state = AsyncData(WorkoutFlowState(draft: keep, plannedSets: planned));
       rethrow;
     }
   });
@@ -467,12 +656,17 @@ class WorkoutController extends AsyncNotifier<WorkoutFlowState> {
     final draft = state.value?.draft;
     if (draft == null) return;
 
-    state = AsyncData(WorkoutFlowState(draft: draft, isAbandoning: true));
+    final planned = state.value?.plannedSets ?? const <String, List<PlannedSet>>{};
+    state = AsyncData(WorkoutFlowState(draft: draft, plannedSets: planned, isAbandoning: true));
     try {
       await ref.read(workoutRepositoryProvider).discardDraft(draft.id);
+      // 先清附屬儲存再收回 idle,理由同 [completeWorkout]。
+      try {
+        await _plannedStore.clear(draft.id);
+      } catch (_) {}
       state = const AsyncData(WorkoutFlowState());
     } catch (_) {
-      state = AsyncData(WorkoutFlowState(draft: draft));
+      state = AsyncData(WorkoutFlowState(draft: draft, plannedSets: planned));
       rethrow;
     }
   });

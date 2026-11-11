@@ -77,6 +77,7 @@ Future<Exercise> _firstSystemExercise(AppDatabase db) async =>
     (await DriftExerciseRepository(db).fetchSystemExercises()).first;
 
 /// 開始→加動作→加兩組(一組暖身)→改組→加一組再刪掉,全經 controller。
+/// (原本最後還有「標記動作完成」;該方法隨裁示 3 刪除,完成改由有組推導。)
 Future<WorkoutController> _recordWorkout(_Harness h) async {
   await h.container.read(workoutControllerProvider.future);
   final notifier = h.container.read(workoutControllerProvider.notifier);
@@ -106,12 +107,11 @@ Future<WorkoutController> _recordWorkout(_Harness h) async {
       .sets;
   await notifier.updateSet(sets[1].copyWith(weight: 62.5));
   await notifier.deleteSet(sets[2].id, workoutExerciseId: weId);
-  await notifier.setExerciseCompleted(weId, isCompleted: true);
   return notifier;
 }
 
 void main() {
-  test('經 controller 開始→加動作→加/改/刪組→標記完成:零雲端呼叫,state 即本機草稿', () async {
+  test('經 controller 開始→加動作→加/改/刪組:零雲端呼叫,state 即本機草稿', () async {
     final h = await _setUp();
     await _recordWorkout(h);
 
@@ -122,7 +122,8 @@ void main() {
       (1, 20.0, true),
       (2, 62.5, false),
     ]);
-    expect(draft.exercises.single.isCompleted, isTrue);
+    // 現行行為:controller 不寫 isCompleted(完成由有組推導,裁示 3)。
+    expect(draft.exercises.single.isCompleted, isFalse);
   });
 
   test('離線放棄:零雲端呼叫,草稿清掉', () async {
@@ -209,6 +210,11 @@ void main() {
         .value!
         .draft!
         .id;
+    // 雲端已收下、讀回的是已完成的訓練;state.draft 仍必須是進行中草稿
+    // (endedAt == null),不能把已完成的那筆放進來(flow-fix 3)。
+    final keptDraft = h.container.read(workoutControllerProvider).value!.draft!;
+    expect(keptDraft.endedAt, isNull);
+    expect(keptDraft.exercises.single.sets, hasLength(2));
 
     final outcome = await notifier.completeWorkout();
 

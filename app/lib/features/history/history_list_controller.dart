@@ -33,12 +33,21 @@ import '../../data/models/workout.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import 'history_calendar_controller.dart';
+import 'history_week_grouping.dart';
 
 class HistoryListState {
-  const HistoryListState({this.workouts = const [], this.deletingIds = const {}});
+  HistoryListState({
+    this.workouts = const [],
+    this.deletingIds = const {},
+    List<HistoryListItem>? items,
+  }) : items = items ?? flattenWeekGroups(groupWorkoutsByWeek(workouts));
 
   /// 已完成訓練,`WorkoutRepository.fetchAll()` 已排序新到舊、排除草稿。
   final List<Workout> workouts;
+
+  /// 週分組攤平後的列表項。在建構時算一次(載入／重新載入),build 只取用;
+  /// 只改 [deletingIds] 的 [copyWith] 沿用同一份,不重算。
+  final List<HistoryListItem> items;
 
   /// 正在刪除中的 workout id 集合——[WorkoutHistoryCard] 依此顯示列內
   /// loading 遮罩;刪除失敗時會從這裡移除(解除遮罩),不會卡死。
@@ -48,6 +57,8 @@ class HistoryListState {
     return HistoryListState(
       workouts: workouts ?? this.workouts,
       deletingIds: deletingIds ?? this.deletingIds,
+      // workouts 沒變就沿用既有分組;換了資料才重算。
+      items: workouts == null ? items : null,
     );
   }
 }

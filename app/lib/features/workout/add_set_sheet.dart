@@ -66,6 +66,13 @@ const int kAddSetRepsStep = 1;
 /// [AddSetResult.autoStartRestTimer] 文件)——新增組路徑(預設 `true`)才有
 /// 意義,編輯既有組路徑(`workout_in_progress_view.dart` `_editSet`)傳
 /// `false` 整顆隱藏,不留一個點了沒用的開關。
+///
+/// 以下兩個參數是 ui-polish 改版給「進行中訓練頁」用的,**預設關閉**——歷史
+/// 編輯頁(features/history/edit/)也用這個 sheet,維持舊版面與舊 key:
+/// - [compact]:動作名與「第 N 組」合成一行、「進階選項」縮成一行小入口、
+///   底部只留全寬「儲存」(取消靠下滑/點外面)。
+/// - [onSaveAndContinue]:非 null 時多一顆「存並再記一組」——呼叫它寫入這組,
+///   回傳 true 代表寫入成功,sheet 不關、組號 +1、數字保留,方便連記同重量。
 Future<AddSetResult?> showAddSetSheet(
   BuildContext context, {
   required String exerciseName,
@@ -78,12 +85,15 @@ Future<AddSetResult?> showAddSetSheet(
   bool initialIsWarmup = false,
   int initialRestSeconds = kDefaultRestSeconds,
   bool showAutoStartRestTimer = true,
+  bool compact = false,
+  Future<bool> Function(AddSetResult result)? onSaveAndContinue,
 }) {
   return showModalBottomSheet<AddSetResult>(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
+    showDragHandle: compact ? true : null,
     builder: (_) => _AddSetForm(
       exerciseName: exerciseName,
       setNumber: setNumber,
@@ -95,6 +105,8 @@ Future<AddSetResult?> showAddSetSheet(
       initialIsWarmup: initialIsWarmup,
       initialRestSeconds: initialRestSeconds,
       showAutoStartRestTimer: showAutoStartRestTimer,
+      compact: compact,
+      onSaveAndContinue: onSaveAndContinue,
     ),
   );
 }
@@ -111,6 +123,8 @@ class _AddSetForm extends ConsumerStatefulWidget {
     this.initialIsWarmup = false,
     this.initialRestSeconds = kDefaultRestSeconds,
     this.showAutoStartRestTimer = true,
+    this.compact = false,
+    this.onSaveAndContinue,
   });
 
   final String exerciseName;
@@ -123,6 +137,8 @@ class _AddSetForm extends ConsumerStatefulWidget {
   final bool initialIsWarmup;
   final int initialRestSeconds;
   final bool showAutoStartRestTimer;
+  final bool compact;
+  final Future<bool> Function(AddSetResult result)? onSaveAndContinue;
 
   @override
   ConsumerState<_AddSetForm> createState() => _AddSetFormState();
@@ -139,6 +155,15 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
   /// 文件的刻意差異說明)。不隨 initial* 參數帶入——編輯既有組數時這顆開關
   /// 沒有對應的持久化欄位可回填,每次開啟表單都從預設值開始。
   bool _autoStartRestTimer = true;
+
+  /// 目前要記的是第幾組——「存並再記一組」成功後 +1。
+  late int _setNumber;
+
+  /// compact 版面的「進階選項」展開狀態(非 compact 版仍用 ExpansionTile)。
+  late bool _advancedOpen;
+
+  /// 「存並再記一組」寫入中,擋連點。
+  bool _savingAndContinuing = false;
 
   @override
   void initState() {
@@ -157,6 +182,8 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
     );
     _isWarmup = widget.initialIsWarmup;
     _restSeconds = widget.initialRestSeconds;
+    _setNumber = widget.setNumber;
+    _advancedOpen = widget.initialRpe != null || widget.initialIsWarmup;
   }
 
   @override
@@ -196,26 +223,45 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
     setState(() => _repsController.text = '${next < 0 ? 0 : next}');
   }
 
-  void _save() {
+  AddSetResult? _buildResult() {
     final enteredWeight = double.tryParse(_weightController.text);
     final reps = int.tryParse(_repsController.text);
-    if (enteredWeight == null || reps == null) return;
+    if (enteredWeight == null || reps == null) return null;
     final rpeText = _rpeController.text.trim();
     final rpe = rpeText.isEmpty ? null : double.tryParse(rpeText);
     // 使用者輸入視為當前顯示單位的值,反向換算成 kg 才是 AddSetResult 的
     // 契約值(儲存一律 kg)。
     final unit = ref.read(weightUnitProvider);
     final weightKg = displayToKg(enteredWeight, unit);
-    Navigator.of(context).pop(
-      AddSetResult(
-        weight: weightKg,
-        reps: reps,
-        rpe: rpe,
-        isWarmup: _isWarmup,
-        restSeconds: _restSeconds,
-        autoStartRestTimer: _autoStartRestTimer,
-      ),
+    return AddSetResult(
+      weight: weightKg,
+      reps: reps,
+      rpe: rpe,
+      isWarmup: _isWarmup,
+      restSeconds: _restSeconds,
+      autoStartRestTimer: _autoStartRestTimer,
     );
+  }
+
+  void _save() {
+    final result = _buildResult();
+    if (result == null) return;
+    Navigator.of(context).pop(result);
+  }
+
+  /// 存這組但不關 sheet:成功後組號 +1、輸入的數字保留(連記同重量最常見)。
+  /// 失敗時呼叫端已提示錯誤,sheet 維持原狀讓使用者重試。
+  Future<void> _saveAndContinue() async {
+    final callback = widget.onSaveAndContinue;
+    final result = _buildResult();
+    if (callback == null || result == null || _savingAndContinuing) return;
+    setState(() => _savingAndContinuing = true);
+    final ok = await callback(result);
+    if (!mounted) return;
+    setState(() {
+      _savingAndContinuing = false;
+      if (ok) _setNumber += 1;
+    });
   }
 
   @override
@@ -239,14 +285,37 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.exerciseName, style: theme.textTheme.titleMedium),
-            Text(
-              '第 ${widget.setNumber} 組',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
+            if (widget.compact)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Flexible(
+                    child: Text(
+                      widget.exerciseName,
+                      style: theme.textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    '第 $_setNumber 組',
+                    key: const Key('addSetSetNumberText'),
+                    style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+                ],
+              )
+            else ...[
+              Text(widget.exerciseName, style: theme.textTheme.titleMedium),
+              Text(
+                '第 $_setNumber 組',
+                key: const Key('addSetSetNumberText'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
+            ],
+            SizedBox(height: widget.compact ? AppSpacing.md : AppSpacing.lg),
             _NumberStepper(
               label: '重量 (${unitSuffix(unit)})',
               controller: _weightController,
@@ -285,6 +354,22 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
                 ),
               ),
             ],
+            if (widget.compact) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const Key('addSetAdvancedToggle'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+                  ),
+                  onPressed: () => setState(() => _advancedOpen = !_advancedOpen),
+                  icon: Icon(_advancedOpen ? Icons.expand_less : Icons.expand_more, size: 18),
+                  label: Text('進階選項', style: theme.textTheme.labelLarge),
+                ),
+              ),
+              if (_advancedOpen) ..._advancedFields(),
+            ] else
             ExpansionTile(
               key: const Key('addSetAdvancedTile'),
               initiallyExpanded: startExpanded,
@@ -293,75 +378,22 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
               shape: const Border(),
               collapsedShape: const Border(),
               title: Text('進階選項', style: theme.textTheme.titleSmall),
-              children: [
-                TextField(
-                  key: const Key('addSetRpeField'),
-                  controller: _rpeController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(labelText: 'RPE(選填)'),
-                ),
-                SwitchListTile(
-                  key: const Key('addSetWarmupSwitch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('暖身組'),
-                  value: _isWarmup,
-                  onChanged: (value) => setState(() => _isWarmup = value),
-                ),
-                if (!_isWarmup)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('休息時間'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton.filledTonal(
-                          key: const Key('addSetRestMinusButton'),
-                          tooltip: '減少休息時間',
-                          icon: const Icon(Icons.remove),
-                          onPressed: _restSeconds <= 0
-                              ? null
-                              : () => setState(
-                                  () => _restSeconds = (_restSeconds - 15)
-                                      .clamp(0, 300),
-                                ),
-                        ),
-                        SizedBox(
-                          width: 64,
-                          child: Text(
-                            '$_restSeconds 秒',
-                            key: const Key('addSetRestSecondsValue'),
-                            textAlign: TextAlign.center,
-                            style: AppNumberStyles.body(context),
-                          ),
-                        ),
-                        IconButton.filledTonal(
-                          key: const Key('addSetRestPlusButton'),
-                          tooltip: '增加休息時間',
-                          icon: const Icon(Icons.add),
-                          onPressed: _restSeconds >= 300
-                              ? null
-                              : () => setState(
-                                  () => _restSeconds = (_restSeconds + 15)
-                                      .clamp(0, 300),
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (!_isWarmup && widget.showAutoStartRestTimer)
-                  SwitchListTile(
-                    key: const Key('addSetAutoStartRestTimerSwitch'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('自動開始休息計時'),
-                    value: _autoStartRestTimer,
-                    onChanged: (value) =>
-                        setState(() => _autoStartRestTimer = value),
-                  ),
-              ],
+              children: _advancedFields(),
             ),
             const SizedBox(height: AppSpacing.md),
+            if (widget.compact) ...[
+              FilledButton(
+                key: const Key('addSetSaveButton'),
+                onPressed: _canSave && !_savingAndContinuing ? _save : null,
+                child: const Text('儲存'),
+              ),
+              if (widget.onSaveAndContinue != null)
+                TextButton(
+                  key: const Key('addSetSaveAndContinueButton'),
+                  onPressed: _canSave && !_savingAndContinuing ? _saveAndContinue : null,
+                  child: const Text('存並再記一組'),
+                ),
+            ] else
             Row(
               children: [
                 Expanded(
@@ -386,6 +418,77 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
         ),
       ),
     );
+  }
+
+  /// 進階欄位(RPE / 暖身 / 休息秒數 / 自動計時),compact 與舊版共用。
+  List<Widget> _advancedFields() {
+    return [
+      TextField(
+        key: const Key('addSetRpeField'),
+        controller: _rpeController,
+        keyboardType: const TextInputType.numberWithOptions(
+          decimal: true,
+        ),
+        decoration: const InputDecoration(labelText: 'RPE(選填)'),
+      ),
+      SwitchListTile(
+        key: const Key('addSetWarmupSwitch'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('暖身組'),
+        value: _isWarmup,
+        onChanged: (value) => setState(() => _isWarmup = value),
+      ),
+      if (!_isWarmup)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('休息時間'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton.filledTonal(
+                key: const Key('addSetRestMinusButton'),
+                tooltip: '減少休息時間',
+                icon: const Icon(Icons.remove),
+                onPressed: _restSeconds <= 0
+                    ? null
+                    : () => setState(
+                        () => _restSeconds = (_restSeconds - 15)
+                            .clamp(0, 300),
+                      ),
+              ),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  '$_restSeconds 秒',
+                  key: const Key('addSetRestSecondsValue'),
+                  textAlign: TextAlign.center,
+                  style: AppNumberStyles.body(context),
+                ),
+              ),
+              IconButton.filledTonal(
+                key: const Key('addSetRestPlusButton'),
+                tooltip: '增加休息時間',
+                icon: const Icon(Icons.add),
+                onPressed: _restSeconds >= 300
+                    ? null
+                    : () => setState(
+                        () => _restSeconds = (_restSeconds + 15)
+                            .clamp(0, 300),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      if (!_isWarmup && widget.showAutoStartRestTimer)
+        SwitchListTile(
+          key: const Key('addSetAutoStartRestTimerSwitch'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('自動開始休息計時'),
+          value: _autoStartRestTimer,
+          onChanged: (value) =>
+              setState(() => _autoStartRestTimer = value),
+        ),
+    ];
   }
 }
 

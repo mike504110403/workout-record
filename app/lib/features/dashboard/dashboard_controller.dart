@@ -19,16 +19,28 @@ import '../../core/utils/uuid.dart';
 import '../../data/models/body_weight.dart';
 import '../../data/models/user_goal.dart';
 import '../../data/models/workout.dart';
+import '../../data/models/workout_template.dart';
 import '../../data/providers.dart';
 import '../auth/session_controller.dart';
 import '../auth/resolve_user_id.dart';
+import '../workout/templates/templates_controller.dart';
+
+/// 首頁「最近 N 筆訓練」列表的顯示上限。
+const kDashboardRecentWorkoutLimit = 3;
+
+/// 首頁「最近用的模板」chip 的上限。
+const kDashboardRecentTemplateLimit = 4;
+
+/// 找「最近用的模板」時回頭掃的已完成訓練筆數——只用來取不重複的 templateId。
+/// 雲端版 fetchRecent 會巢狀抓每筆的全部動作與組,筆數越大越貴,所以只看 10 筆;
+/// 這 10 筆全是自由訓練時就走 fallback(列模板清單),不再往回找。
+const _kTemplateLookbackWorkouts = 10;
 
 /// 空狀態 / 尚未設定週目標時的鼓勵文案。
 const kNoGoalMessage = '設定目標，追蹤進步！';
 
 class DashboardState {
   const DashboardState({
-    this.todayWorkout,
     this.currentWeight,
     this.weekWorkoutCount = 0,
     this.weekTotalVolume = 0,
@@ -40,11 +52,12 @@ class DashboardState {
     this.weightWeekChange,
   });
 
-  final Workout? todayWorkout;
   final double? currentWeight;
   final int weekWorkoutCount;
   final double weekTotalVolume;
+  /// 最近訓練(最多 [kDashboardRecentWorkoutLimit] 筆,新到舊)。
   final List<Workout> recentWorkouts;
+
   final UserGoal? userGoal;
 
   /// 本週訓練次數 / 目標次數 * 100,未設定目標時為 null(對照 iOS
@@ -133,7 +146,6 @@ class DashboardController extends AsyncNotifier<DashboardState> {
 
     final now = DateTime.now();
     final weekStart = _startOfWeek(now);
-    final startOfToday = DateTime(now.year, now.month, now.day);
     // 用 DateTime(y, m, d+1) 的日曆算術,不用 `Duration(days: 1)` 位移——
     // 夏令時切換日當地一天不是 24 小時,`.add(Duration(days: 1))` 可能落在
     // 錯的鐘點(甚至不是隔天 00:00:00),讓「今日」區間算錯。DateTime
@@ -144,8 +156,9 @@ class DashboardController extends AsyncNotifier<DashboardState> {
     final latestWeight = await bodyWeightRepo.getLatestWeight();
     final weekWorkoutCount = await workoutRepo.countWorkouts(from: weekStart, to: now);
     final weekTotalVolume = await workoutRepo.calculateTotalVolume(from: weekStart, to: now);
-    final todayWorkouts = await workoutRepo.fetchByDateRange(startOfToday, endOfToday);
-    final recentWorkouts = await workoutRepo.fetchRecent(5);
+    // 模板 chip 的 templateId 彙整已拆到 [dashboardRecentTemplateIdsProvider],
+    // 不在這裡多抓,首屏只取「最近訓練」要的筆數。
+    final recentWorkouts = await workoutRepo.fetchRecent(kDashboardRecentWorkoutLimit);
 
     // 近 7 天 = 今天與前 6 天(日曆算術,理由同 endOfToday)。
     final weightWindowStart = DateTime(now.year, now.month, now.day - 6);
@@ -170,7 +183,6 @@ class DashboardController extends AsyncNotifier<DashboardState> {
     }
 
     return DashboardState(
-      todayWorkout: todayWorkouts.isNotEmpty ? todayWorkouts.first : null,
       currentWeight: latestWeight?.weight,
       weekWorkoutCount: weekWorkoutCount,
       weekTotalVolume: weekTotalVolume,
@@ -216,3 +228,63 @@ class DashboardController extends AsyncNotifier<DashboardState> {
 
 final dashboardControllerProvider =
     AsyncNotifierProvider<DashboardController, DashboardState>(DashboardController.new);
+
+/// 從(新到舊的)已完成訓練取出不重複的 templateId,最多
+/// [kDashboardRecentTemplateLimit] 個。自由訓練(templateId 為 null)略過。
+List<String> recentTemplateIdsOf(List<Workout> workouts) {
+  final ids = <String>[];
+  for (final workout in workouts) {
+    final id = workout.templateId;
+    if (id == null || ids.contains(id)) continue;
+    ids.add(id);
+    if (ids.length == kDashboardRecentTemplateLimit) break;
+  }
+  return ids;
+}
+
+/// 最近用過的模板 id(新到舊)。獨立於 [dashboardControllerProvider] 的 state,
+/// 不阻塞首屏(主 CTA 不等它);失敗或尚未載入時 chip 列不顯示、不報錯。
+///
+/// 刷新:先 `await dashboardControllerProvider.future` 建立依賴——dashboard 被
+/// refresh()(下拉刷新、記體重)或被 invalidate(訓練完成、改目標、重試鈕)
+/// 重新載入後,這個 provider 會跟著重跑,所以呼叫端不必另外記得刷新它。
+/// 同時讓 dashboard 先載完才發這筆查詢,首屏不與它搶 DB/網路。
+final dashboardRecentTemplateIdsProvider = FutureProvider<List<String>>((ref) async {
+  await ref.watch(dashboardControllerProvider.future);
+  final recent = await ref.read(workoutRepositoryProvider).fetchRecent(_kTemplateLookbackWorkouts);
+  return recentTemplateIdsOf(recent);
+});
+
+/// 首頁 chip 列的內容。[isFallback] 為 true 表示沒有可用的使用紀錄、列的是模板
+/// 清單前幾個,標題要改成中性的「模板」,不能謊稱「最近用的」。
+class DashboardRecentTemplates {
+  const DashboardRecentTemplates(this.templates, {this.isFallback = false});
+
+  final List<WorkoutTemplate> templates;
+  final bool isFallback;
+
+  static const empty = DashboardRecentTemplates([]);
+}
+
+/// 首頁「最近用的模板」chip 要顯示的模板(最多 [kDashboardRecentTemplateLimit]
+/// 個)。有使用紀錄就依最近使用排序(已被刪除的模板略過);完全沒有使用紀錄
+/// (或用過的全被刪了)才列模板清單前幾個,個人模板優先於系統模板;沒有模板
+/// 則為空。使用紀錄尚未載好或載入失敗時回空,不顯示 chip。
+/// 用 Provider 快取結果,不在 build 裡排序。
+final dashboardRecentTemplatesProvider = Provider<DashboardRecentTemplates>((ref) {
+  final templates = ref.watch(templatesControllerProvider).value ?? const <WorkoutTemplate>[];
+  final recentIds = ref.watch(dashboardRecentTemplateIdsProvider).value;
+  if (templates.isEmpty || recentIds == null) return DashboardRecentTemplates.empty;
+  final byId = {for (final t in templates) t.id: t};
+  final used = [
+    for (final id in recentIds)
+      if (byId[id] != null) byId[id]!,
+  ];
+  if (used.isNotEmpty) return DashboardRecentTemplates(used);
+  return DashboardRecentTemplates(
+    [...templates.personalTemplates, ...templates.systemTemplates]
+        .take(kDashboardRecentTemplateLimit)
+        .toList(),
+    isFallback: true,
+  );
+});

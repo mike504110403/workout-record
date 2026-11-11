@@ -1,6 +1,7 @@
 // OnboardingPage widget seam(2026-11 改版:5 步縮成 2 步):
-// - 步驟 1「基本資訊」(單位、體重、身高、性別、年齡)→ 步驟 2「目標」(目標體重、
-//   每週訓練次數);步驟指示「1 / 2」、進度條、固定底部主按鈕。
+// - 步驟 1「基本資訊」(單位、體重必填;身高、性別、年齡收進「更多資料」可展開)
+//   → 步驟 2「目標」(目標體重、每週訓練次數,全為選填);步驟指示「1 / 2」、
+//   進度條、固定底部主按鈕。
 // - 基本資訊頁體重非有效數值時「下一步」disabled(對等 iOS
 //   `canProceed(from: .basicInfo)`);「跳過」在任一步都能直接完成。
 // - 兩步都不得出現 emoji;從 UI 走完 2 步後 complete() 寫入的欄位與原本一致
@@ -47,6 +48,13 @@ Future<ProviderContainer> _pumpPage(WidgetTester tester) async {
   return container;
 }
 
+/// 展開(或再點一次收合)步驟 1 的「更多資料(選填)」。
+Future<void> _expandMore(WidgetTester tester) async {
+  // 點標題列;展開後 ExpansionTile 本體的中心點會落在子欄位上,不能用它的 key 點。
+  await tester.tap(find.text('更多資料(選填)'));
+  await tester.pumpAndSettle();
+}
+
 /// 畫面上所有 Text 的文字(含 TextField 的 label/hint 以外的純 Text)。
 Iterable<String> _allTexts(WidgetTester tester) =>
     tester.widgetList<Text>(find.byType(Text)).map((t) => t.data ?? t.textSpan?.toPlainText() ?? '');
@@ -54,7 +62,7 @@ Iterable<String> _allTexts(WidgetTester tester) =>
 final _emoji = RegExp(r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]', unicode: true);
 
 void main() {
-  testWidgets('第一步:顯示「1 / 2」、基本資訊欄位全在、不含功能介紹與舊 App 名', (tester) async {
+  testWidgets('第一步:顯示「1 / 2」、只有單位與體重為必要欄位,身高/性別/年齡收合在「更多」', (tester) async {
     await _pumpPage(tester);
 
     expect(find.text('1 / 2'), findsOneWidget);
@@ -65,13 +73,20 @@ void main() {
     for (final key in const [
       'onboardingWeightUnitToggle',
       'onboardingWeightField',
-      'onboardingHeightField',
-      'onboardingGenderToggle',
-      'onboardingAgeField',
+      'onboardingMoreSection',
       'skipOnboardingButton',
       'onboardingNextButton',
     ]) {
       expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+    }
+    // 選填欄位預設收合,不佔第一屏。
+    for (final key in const ['onboardingHeightField', 'onboardingGenderToggle', 'onboardingAgeField']) {
+      expect(find.byKey(Key(key)), findsNothing, reason: '$key 應收在「更多」裡');
+    }
+
+    await _expandMore(tester);
+    for (final key in const ['onboardingHeightField', 'onboardingGenderToggle', 'onboardingAgeField']) {
+      expect(find.byKey(Key(key)), findsOneWidget, reason: '$key 展開後應出現');
     }
     // 功能介紹頁已移除。
     expect(find.text('記錄訓練'), findsNothing);
@@ -134,6 +149,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('onboardingWeightField')), '70.5');
+    await _expandMore(tester);
     await tester.enterText(find.byKey(const Key('onboardingHeightField')), '175');
     await tester.tap(find.text('男性'));
     await tester.enterText(find.byKey(const Key('onboardingAgeField')), '30');
@@ -183,6 +199,38 @@ void main() {
     final goal = await container.read(userGoalRepositoryProvider).fetchByUser('test-user');
     expect(goal?.weeklyWorkoutGoal, 5);
     expect(goal?.targetWeight, 65);
+  });
+
+  testWidgets('展開「更多」填的值,收合再展開仍保留', (tester) async {
+    await _pumpPage(tester);
+
+    await _expandMore(tester);
+    await tester.enterText(find.byKey(const Key('onboardingHeightField')), '168');
+    await tester.pumpAndSettle();
+    await _expandMore(tester); // 收合
+    expect(find.byKey(const Key('onboardingHeightField')), findsNothing);
+    await _expandMore(tester); // 再展開
+    expect(find.text('168'), findsOneWidget);
+  });
+
+  testWidgets('第 2 步全是選填:只填體重、不動任何目標欄位就能直接「開始使用」完成', (tester) async {
+    final container = await _pumpPage(tester);
+
+    await tester.enterText(find.byKey(const Key('onboardingWeightField')), '60');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('onboardingNextButton')));
+    await tester.pumpAndSettle();
+
+    final start = tester.widget<FilledButton>(find.byKey(const Key('startUsingButton')));
+    expect(start.onPressed, isNotNull, reason: '第 2 步無必填,按鈕一進來就可按');
+
+    await tester.tap(find.byKey(const Key('startUsingButton')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(onboardingStatusProvider), isTrue);
+    final prefs = container.read(sharedPreferencesProvider);
+    expect(prefs.getDouble(kUserCurrentWeightKey), 60);
+    expect(prefs.containsKey(kUserHeightKey), isFalse, reason: '沒填的選填欄位不寫入');
   });
 
   testWidgets('「跳過」不驗證欄位,直接完成 Onboarding', (tester) async {

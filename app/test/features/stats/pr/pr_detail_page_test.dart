@@ -292,6 +292,37 @@ void main() {
     expect(chart.data.maxX, greaterThan(chart.data.minX));
   });
 
+  testWidgets('PR 趨勢圖外包 RepaintBoundary', (tester) async {
+    final harness = await _setUpHarness();
+    final now = DateTime(2026, 1, 1);
+    final entry = PrDetailEntry(
+      record: PersonalRecord(
+        id: 'p',
+        userId: testUserId,
+        exerciseId: 'e',
+        weight: 100,
+        reps: 1,
+        oneRepMax: 100,
+        achievedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      oneRepMax: 100,
+    );
+
+    await _pumpApp(tester, harness, Scaffold(body: PrProgressChart(entriesAsc: [entry])));
+
+    // 該 key 必須掛在真正的 RepaintBoundary 上(不是任意 widget),且圖表在它底下。
+    expect(tester.widget(find.byKey(const Key('prProgressChartRepaintBoundary'))), isA<RepaintBoundary>());
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('prProgressChartRepaintBoundary')),
+        matching: find.byType(LineChart),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('趨勢圖資料點:時間由舊到新、y 為 1RM', (tester) async {
     final harness = await _setUpHarness();
     final squatId = await _squatId(harness);

@@ -78,8 +78,8 @@ Future<void> _pumpPlain(WidgetTester tester, _Harness h) async {
   await tester.pumpAndSettle();
 }
 
-/// 用 GoRouter 掛:'/' 首頁有按鈕推入模板頁、'/workout' 是訓練 tab 替身,
-/// 驗證「使用此模板」之後落在 /workout 且模板頁已被收掉。
+/// 用 GoRouter 掛:'/' 首頁有按鈕推入模板頁、'/workout' 是訓練頁替身,
+/// 驗證「使用此模板」之後 push 到 /workout 且模板頁已被收掉。
 Future<GoRouter> _pumpRouted(WidgetTester tester, _Harness h) async {
   await _bigView(tester);
   final router = GoRouter(
@@ -242,7 +242,7 @@ void main() {
   });
 
   group('使用此模板', () {
-    testWidgets('開始訓練(草稿依模板展開寫入 DB)並導到 /workout,模板頁被收掉', (tester) async {
+    testWidgets('開始訓練(草稿依模板建立、組為計畫組)並 push 到 /workout,模板頁被收掉', (tester) async {
       final h = await _setUp();
       await _createTemplate(
         h,
@@ -257,12 +257,19 @@ void main() {
       await tester.tap(find.byKey(const Key('templateUseButton_use-me')));
       await tester.pumpAndSettle();
 
-      // 導到訓練 tab 替身,模板頁已不在。
+      // push 到訓練頁替身,模板頁已不在;返回會回到原本的 '/' 而不是模板頁。
       expect(find.text('WORKOUT_TAB'), findsOneWidget);
-      expect(find.byType(TemplatesListPage), findsNothing);
+      expect(find.byType(TemplatesListPage, skipOffstage: false), findsNothing);
+      final router = GoRouter.of(tester.element(find.text('WORKOUT_TAB')));
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('openTemplates')), findsOneWidget);
 
-      // controller 狀態與獨立 SELECT 都看到依模板展開的草稿。
-      final draft = h.container.read(workoutControllerProvider).value?.draft;
+      // controller 狀態與獨立 SELECT 都看到依模板建立的草稿。模板的組是
+      // 「計畫組」(Mike 2026-11-11 裁示 2):DB 裡沒有任何真實組,計畫組
+      // 4 組 × 6 次在 controller state。
+      final flow = h.container.read(workoutControllerProvider).value!;
+      final draft = flow.draft;
       expect(draft, isNotNull);
       final landed = await DriftWorkoutRepository(
         h.db,
@@ -271,11 +278,12 @@ void main() {
       expect(landed, isNotNull);
       expect(landed!.id, draft!.id);
       expect(landed.exercises, hasLength(2));
-      expect(landed.exercises.every((e) => e.sets.length == 4), isTrue);
-      expect(
-        landed.exercises.every((e) => e.sets.every((s) => s.reps == 6)),
-        isTrue,
-      );
+      expect(landed.exercises.every((e) => e.sets.isEmpty), isTrue);
+      for (final e in landed.exercises) {
+        final planned = flow.plannedSets[e.id]!;
+        expect(planned, hasLength(4));
+        expect(planned.every((p) => p.reps == 6), isTrue);
+      }
     });
 
     testWidgets('已有進行中訓練:不覆蓋既有草稿、提示後仍導到 /workout', (tester) async {

@@ -1,5 +1,5 @@
 // 首頁首屏唯一主 CTA:全寬 FilledButton。有進行中的訓練草稿時改成「繼續訓練」。
-// 其餘次要動作(記錄體重、查看進度)下放到各自所屬的卡片(體重卡、本週卡)。
+// 「開始訓練」直接開始自由訓練;模板入口放在按鈕下方的 [RecentTemplatesRow]。
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_tokens.dart';

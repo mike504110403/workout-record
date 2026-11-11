@@ -7,9 +7,11 @@
 // 後續補上「自定義動作」入口(訓練組,iOS 在「動作庫管理」組):管理自建動作的
 // 列表/新增/編輯/刪除,見 custom_exercises/。
 //
-// UI 改版(第 3 波):M3 large title 取代只重複分頁名稱的 AppBar;每組一張群組卡片
+// UI 改版(第 3 波):每組一張群組卡片
 // (SectionHeader + AppCard + ListTile),圖示一律單色;「重量單位」「主題」從偏好
 // 子頁拉到「應用程式」組的行內 SegmentedButton,偏好子頁保留其餘項目。
+// ui-polish(2026-11-11):拿掉「設定」大標題(底部導覽已標示所在分頁),比照
+// 首頁只吃頂部安全區、內容從安全區下方 8 起;群組之間 16。
 //
 // 目標設定(GoalSettingsPage)、我的模板(TemplatesListPage)、偏好設定
 // (PreferencesPage,另一工人換真身的契約 stub)皆為 zero-arg const 頁面,
@@ -48,11 +50,12 @@ class _SettingsGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // 標題上方不留白:群組間距由外層統一插 16,第一組才能貼齊頁頂 8。
         SectionHeader(
           title: title,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xs,
-            AppSpacing.lg,
+            0,
             AppSpacing.xs,
             AppSpacing.sm,
           ),
@@ -329,128 +332,133 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      // M3 large title:不佔一條只重複分頁名稱的 AppBar。
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar.large(title: Text('設定')),
-          // 單一 SliverToBoxAdapter(整段一次建置):項目數固定,且測試用
-          // find.byKey 需要下方項目都在 Element tree 內。
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageHorizontal,
-                0,
-                AppSpacing.pageHorizontal,
-                AppSpacing.xl,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _SettingsGroup(
-                    title: '個人',
-                    children: [
-                      _NavTile(
-                        key: const Key('settingsProfileEntry'),
-                        icon: Icons.person_outline,
-                        title: '個人資料',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
-                        ),
-                      ),
-                      _NavTile(
-                        key: const Key('settingsGoalEntry'),
-                        icon: Icons.track_changes,
-                        title: '目標設定',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
-                        ),
-                      ),
-                    ],
-                  ),
-                  _SettingsGroup(
-                    title: '訓練',
-                    children: [
-                      _NavTile(
-                        key: const Key('settingsCustomExercisesEntry'),
-                        icon: Icons.add_circle_outline,
-                        title: '自定義動作',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const CustomExerciseListPage(),
+      // 不放頁名標題;只吃頂部安全區(狀態列),底部由分頁殼的導覽列負責。
+      body: SafeArea(
+        bottom: false,
+        child: CustomScrollView(
+          slivers: [
+            // 單一 SliverToBoxAdapter(整段一次建置):項目數固定,且測試用
+            // find.byKey 需要下方項目都在 Element tree 內。
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageHorizontal,
+                  AppSpacing.sm,
+                  AppSpacing.pageHorizontal,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _SettingsGroup(
+                      title: '個人',
+                      children: [
+                        _NavTile(
+                          key: const Key('settingsProfileEntry'),
+                          icon: Icons.person_outline,
+                          title: '個人資料',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
                           ),
                         ),
-                      ),
-                      // 「我的模板」:設定入口保留於此(訓練開始頁另有入口,不在本頁範圍)。
-                      _NavTile(
-                        key: const Key('settingsTemplatesEntry'),
-                        icon: Icons.description_outlined,
-                        title: '我的模板',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const TemplatesListPage()),
+                        _NavTile(
+                          key: const Key('settingsGoalEntry'),
+                          icon: Icons.track_changes,
+                          title: '目標設定',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const GoalSettingsPage()),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  _SettingsGroup(
-                    title: '應用程式',
-                    children: [
-                      const _QuickPreferences(),
-                      _NavTile(
-                        key: const Key('settingsPreferencesEntry'),
-                        icon: Icons.tune,
-                        title: '偏好設定',
-                        subtitle: '休息秒數、1RM 公式、重置',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const PreferencesPage()),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _SettingsGroup(
+                      title: '訓練',
+                      children: [
+                        _NavTile(
+                          key: const Key('settingsCustomExercisesEntry'),
+                          icon: Icons.add_circle_outline,
+                          title: '自定義動作',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const CustomExerciseListPage(),
+                            ),
+                          ),
                         ),
-                      ),
-                      _NavTile(
-                        key: const Key('settingsTutorialEntry'),
-                        icon: Icons.menu_book_outlined,
-                        title: '使用教學',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
+                        // 「我的模板」:設定入口保留於此(訓練開始頁另有入口,不在本頁範圍)。
+                        _NavTile(
+                          key: const Key('settingsTemplatesEntry'),
+                          icon: Icons.description_outlined,
+                          title: '我的模板',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const TemplatesListPage()),
+                          ),
                         ),
-                      ),
-                      _NavTile(
-                        key: const Key('settingsAboutEntry'),
-                        icon: Icons.info_outline,
-                        title: '關於',
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(builder: (_) => const AboutPage()),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _SettingsGroup(
+                      title: '應用程式',
+                      children: [
+                        const _QuickPreferences(),
+                        _NavTile(
+                          key: const Key('settingsPreferencesEntry'),
+                          icon: Icons.tune,
+                          title: '偏好設定',
+                          subtitle: '休息秒數、1RM 公式、重置',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const PreferencesPage()),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  _SettingsGroup(
-                    title: '帳號',
-                    children: [
-                      ListTile(
-                        key: const Key('signOutButton'),
-                        leading: Icon(Icons.logout, color: colors.onSurfaceVariant),
-                        title: const Text('登出'),
-                        onTap: () => _confirmSignOut(context, ref),
-                      ),
-                      // 只有雲端帳號才有「帳號」可刪;本機模式不顯示。破壞性動作
-                      // 才用 error 色(圖示與文字)。
-                      if (ref.watch(cloudAuthServiceProvider) != null)
+                        _NavTile(
+                          key: const Key('settingsTutorialEntry'),
+                          icon: Icons.menu_book_outlined,
+                          title: '使用教學',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const TutorialPage()),
+                          ),
+                        ),
+                        _NavTile(
+                          key: const Key('settingsAboutEntry'),
+                          icon: Icons.info_outline,
+                          title: '關於',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const AboutPage()),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _SettingsGroup(
+                      title: '帳號',
+                      children: [
                         ListTile(
-                          key: const Key('deleteAccountButton'),
-                          leading: Icon(Icons.delete_forever_outlined, color: colors.error),
-                          title: Text('刪除帳號', style: TextStyle(color: colors.error)),
-                          onTap: () => _confirmDeleteAccount(context, ref),
+                          key: const Key('signOutButton'),
+                          leading: Icon(Icons.logout, color: colors.onSurfaceVariant),
+                          title: const Text('登出'),
+                          onTap: () => _confirmSignOut(context, ref),
                         ),
-                      // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染,放群組尾。
-                      const ImportRetryTile(),
-                      // 雲端模式登入後本機舊資料上傳的狀態(idle 不渲染)。
-                      const CloudUploadStatusTile(),
-                    ],
-                  ),
-                ],
+                        // 只有雲端帳號才有「帳號」可刪;本機模式不顯示。破壞性動作
+                        // 才用 error 色(圖示與文字)。
+                        if (ref.watch(cloudAuthServiceProvider) != null)
+                          ListTile(
+                            key: const Key('deleteAccountButton'),
+                            leading: Icon(Icons.delete_forever_outlined, color: colors.error),
+                            title: Text('刪除帳號', style: TextStyle(color: colors.error)),
+                            onTap: () => _confirmDeleteAccount(context, ref),
+                          ),
+                        // 僅在 CoreData 匯入永久失敗旗標為 true 時渲染,放群組尾。
+                        const ImportRetryTile(),
+                        // 雲端模式登入後本機舊資料上傳的狀態(idle 不渲染)。
+                        const CloudUploadStatusTile(),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

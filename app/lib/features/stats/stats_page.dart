@@ -9,26 +9,18 @@
 // UI 優化波 2 改成「把訓練移到第一位、預設 index 0」:預設選取＝第一個分段,
 // 同時 Dashboard 進來仍直接是訓練統計。
 //
-// WAVE4-MERGE 注意事項(給 merge 時的大腦看):
-// 1. **router.dart 分頁失效點目前只掛了訓練統計子頁**——`_AppShellState`
-//    (見 router.dart)切到「數據」分頁時只 invalidate
-//    `workoutStatsControllerProvider`。等 B(體重)/C(三項)兩位工人的
-//    provider 就位後,merge 這裡的 placeholder 換成真實作時,務必回頭在
-//    router.dart 的 `_refreshForBranch` 補上那兩個 provider 的
-//    invalidate(同一個「切分頁不 dispose、需要主動重新查詢」的理由——見
-//    router.dart 檔頭那兩段長註解),不然體重/三項子頁會重演這波修的同一種
-//    「切走記新資料、切回看到舊資料」問題。
-// 2. **IndexedStack 三子頁是一次全部建置**(`children:` 是 eager list,不是
-//    依 index 懶載入)——StatsPage 第一次掛載時,體重/訓練/三項三個子頁的
-//    provider 會同時觸發各自的 `build()`,即使使用者當下只看得到其中一個
-//    (被蓋住的兩個只是不 paint,不是不存在,見
-//    `test/features/stats/stats_page_test.dart` 用
-//    `find.byType(..., skipOffstage: false)` 驗證背景子頁仍活著的那條
-//    測試)。這是「切分頁保留狀態、不用每次重新查詢」換來的代價——換成懶載入
-//    (第一次被選中才建置)可以省掉這個「三個子頁的查詢一次全發」的成本,
-//    但會讓使用者第一次切到未曾造訪的分頁時多一次讀取延遲。目前三個子頁
-//    的查詢量都不大(單一使用者的本機 SQLite),先不處理;三個子頁都做完、
-//    如果實測有感卡頓再考慮改懶載入。
+// 分頁失效:router.dart `_refreshForBranch` 切到「數據」分頁時已同時
+// invalidate 訓練/體重/三項三個子頁的 provider(「切分頁不 dispose、需要
+// 主動重新查詢」的理由見 router.dart 檔頭長註解)。
+//
+// IndexedStack 三子頁「第一次被選中才建置」(介面改版):原本 `children:` 是
+// eager list,StatsPage 一掛載三個子頁的 provider 就同時觸發 `build()` 查詢,
+// 即使使用者只看得到其中一個。現在未造訪過的子頁以 `SizedBox.shrink()` 占位,
+// 選中過一次後才換成真子頁並一直保留(已建過的狀態不丟,切回來不用重新查詢);
+// router.dart 對未建置 provider 的 `ref.invalidate` 是 no-op,不會誤觸發建置。
+//
+// 介面改版:拿掉「數據」AppBar 標題(底部導覽已標示所在分頁),三段分段鈕
+// 直接頂在狀態列安全區下方。
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_tokens.dart';
@@ -52,39 +44,56 @@ class _StatsPageState extends State<StatsPage> {
   /// 預設選取第一個分段(訓練)。
   int _selectedIndex = 0;
 
+  /// 已被選中過(因此已建置)的分段;預設只有第一個。
+  final Set<int> _visited = {0};
+
+  static const _tabs = <Widget>[WorkoutStatsTab(), BodyWeightTab(), PowerliftingTab()];
+
+  void _select(int index) {
+    setState(() {
+      _selectedIndex = index;
+      _visited.add(index);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 不放 AppBar:分頁名稱由底部導覽標示。SafeArea 只吃頂部(底部由外層
+    // 殼的導覽列處理),狀態列安全區照留。
     return Scaffold(
-      appBar: AppBar(title: const Text('數據')),
-      body: Column(
-        children: [
-          Padding(
-            padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.md),
-            child: SegmentedButton<int>(
-              key: const Key('statsSegmentedControl'),
-              segments: [
-                for (var i = 0; i < _tabLabels.length; i++)
-                  ButtonSegment(
-                    value: i,
-                    label: Text(_tabLabels[i], key: Key('statsSegment-$i')),
-                  ),
-              ],
-              selected: {_selectedIndex},
-              onSelectionChanged: (values) => setState(() => _selectedIndex = values.first),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: AppSpacing.pagePadding.copyWith(top: AppSpacing.sm, bottom: AppSpacing.sm),
+              child: SegmentedButton<int>(
+                key: const Key('statsSegmentedControl'),
+                segments: [
+                  for (var i = 0; i < _tabLabels.length; i++)
+                    ButtonSegment(
+                      value: i,
+                      label: Text(_tabLabels[i], key: Key('statsSegment-$i')),
+                    ),
+                ],
+                selected: {_selectedIndex},
+                onSelectionChanged: (values) => _select(values.first),
+              ),
             ),
-          ),
-          // IndexedStack(而非直接依 index 切換 build 出來的單一 widget)讓
-          // 三個子頁的內部狀態(尤其是訓練統計子頁背後 controller/provider
-          // 的資料)在使用者切分頁時保留,不會每次切回去都重新查詢——對照
-          // dashboard 分頁用 StatefulShellRoute.indexedStack 保留分頁狀態
-          // 的精神,只是這裡是頁內三段,不是 router 分頁。
-          Expanded(
-            child: IndexedStack(
-              index: _selectedIndex,
-              children: const [WorkoutStatsTab(), BodyWeightTab(), PowerliftingTab()],
+            // IndexedStack(而非直接依 index 切換 build 出來的單一 widget)讓
+            // 已建過的子頁內部狀態(尤其是 controller/provider 的資料)在使用者
+            // 切分頁時保留,不會每次切回去都重新查詢。
+            Expanded(
+              child: IndexedStack(
+                index: _selectedIndex,
+                children: [
+                  for (var i = 0; i < _tabs.length; i++)
+                    _visited.contains(i) ? _tabs[i] : const SizedBox.shrink(),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -201,4 +201,116 @@ void main() {
       expect(result().value, isNull);
     });
   });
+
+  // ui-polish:進行中訓練頁才開的 compact 版面與「存並再記一組」(預設關閉,
+  // 歷史編輯頁維持舊版面——上面幾組測試就是舊版面的守門)。
+  group('compact 版面 + 存並再記一組(進行中訓練頁)', () {
+    Future<({List<AddSetResult> saved, AddSetResult? Function() popped})> openCompact(
+      WidgetTester tester, {
+      bool saveOk = true,
+      bool withContinue = true,
+    }) async {
+      final saved = <AddSetResult>[];
+      AddSetResult? popped;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [weightUnitProvider.overrideWithValue(WeightUnit.kg)],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: ElevatedButton(
+                  onPressed: () async {
+                    popped = await showAddSetSheet(
+                      context,
+                      exerciseName: '深蹲',
+                      setNumber: 2,
+                      previousWeight: 60,
+                      previousReps: 8,
+                      compact: true,
+                      onSaveAndContinue: withContinue
+                          ? (result) async {
+                              if (saveOk) saved.add(result);
+                              return saveOk;
+                            }
+                          : null,
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return (saved: saved, popped: () => popped);
+    }
+
+    testWidgets('動作名與「第 N 組」同一行;沒有取消鈕;進階選項是一行小入口', (tester) async {
+      await openCompact(tester);
+
+      final nameY = tester.getCenter(find.text('深蹲')).dy;
+      final numberY = tester.getCenter(find.byKey(const Key('addSetSetNumberText'))).dy;
+      expect((nameY - numberY).abs(), lessThan(4));
+      expect(find.byKey(const Key('addSetCancelButton')), findsNothing);
+      expect(find.byKey(const Key('addSetAdvancedTile')), findsNothing);
+      expect(find.byKey(const Key('addSetRpeField')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('addSetAdvancedToggle')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('addSetRpeField')), findsOneWidget);
+      expect(find.byKey(const Key('addSetWarmupSwitch')), findsOneWidget);
+    });
+
+    testWidgets('存並再記一組:寫入這組、sheet 不關、組號 +1、數字保留;再按一次記第二組', (tester) async {
+      final h = await openCompact(tester);
+      expect(find.text('第 2 組'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('addSetSaveAndContinueButton')));
+      await tester.pumpAndSettle();
+
+      expect(h.saved, hasLength(1));
+      expect((h.saved.single.weight, h.saved.single.reps), (60.0, 8));
+      expect(find.byKey(const Key('addSetSaveButton')), findsOneWidget, reason: 'sheet 還開著');
+      expect(find.text('第 3 組'), findsOneWidget);
+      expect(_text(tester, 'addSetWeightField'), '60');
+      expect(_text(tester, 'addSetRepsField'), '8');
+
+      await tester.enterText(find.byKey(const Key('addSetRepsField')), '6');
+      await tester.tap(find.byKey(const Key('addSetSaveAndContinueButton')));
+      await tester.pumpAndSettle();
+      expect(h.saved.map((r) => r.reps), [8, 6]);
+      expect(find.text('第 4 組'), findsOneWidget);
+    });
+
+    testWidgets('存並再記一組寫入失敗:組號不變、sheet 不關', (tester) async {
+      final h = await openCompact(tester, saveOk: false);
+
+      await tester.tap(find.byKey(const Key('addSetSaveAndContinueButton')));
+      await tester.pumpAndSettle();
+
+      expect(h.saved, isEmpty);
+      expect(find.text('第 2 組'), findsOneWidget);
+      expect(find.byKey(const Key('addSetSaveButton')), findsOneWidget);
+    });
+
+    testWidgets('儲存:回傳結果並關閉;沒帶 onSaveAndContinue 時不顯示該鈕', (tester) async {
+      final h = await openCompact(tester, withContinue: false);
+      expect(find.byKey(const Key('addSetSaveAndContinueButton')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+
+      expect(h.popped()?.weight, 60);
+      expect(find.byKey(const Key('addSetSaveButton')), findsNothing);
+    });
+
+    testWidgets('舊版面(預設)仍有取消鈕、沒有「存並再記一組」', (tester) async {
+      await _openSheet(tester, previousWeight: 60, previousReps: 8);
+      expect(find.byKey(const Key('addSetCancelButton')), findsOneWidget);
+      expect(find.byKey(const Key('addSetSaveAndContinueButton')), findsNothing);
+      expect(find.byKey(const Key('addSetAdvancedTile')), findsOneWidget);
+    });
+  });
 }

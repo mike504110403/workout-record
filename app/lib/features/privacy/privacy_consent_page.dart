@@ -3,8 +3,10 @@
 // 文案已於 2026-11 改為雲端現況(登入後資料存 Supabase、僅本人可存取),
 // 且不再宣稱收集 analytics / 錯誤報告(app/lib 沒有對應 SDK)。
 //
-// 兩個勾選框是這個頁面的本地狀態(對等 iOS `@State`),按下「同意並繼續」才
-// 一次寫入 controller(見 privacy_consent_controller.dart 開頭註解)。
+// 單一「我已閱讀並同意」勾選框是這個頁面的本地狀態(對等 iOS `@State`),按下
+// 「同意並繼續」才寫入 controller(見 privacy_consent_controller.dart 開頭註解)。
+// 原本「雲端儲存」與「隱私政策」兩個勾選框合併成一個:上方條款已寫明雲端儲存,
+// 分開勾只是多一步操作;controller 仍寫入兩個既有偏好 key,語意不變。
 //
 // 「不同意」:mobile 用 SystemNavigator.pop() 結束 App(對等 iOS
 // `exit(0)`);web 沒有「結束網頁」這種操作,改顯示阻斷頁,不可用 exit(0)
@@ -27,10 +29,7 @@ class PrivacyConsentPage extends ConsumerStatefulWidget {
 
 class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
   bool _declined = false;
-  bool _analyticsAgreed = false;
-  bool _privacyAgreed = false;
-
-  bool get _bothAgreed => _analyticsAgreed && _privacyAgreed;
+  bool _agreed = false;
 
   void _handleDecline() {
     if (kIsWeb) {
@@ -58,7 +57,7 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
             constraints: const BoxConstraints(maxWidth: 560),
             child: Column(
               children: [
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
                 Icon(
                   Icons.privacy_tip_outlined,
                   size: 48,
@@ -126,23 +125,16 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                   child: Column(
                     children: [
                       _CheckboxRow(
-                        key: const Key('analyticsConsentCheckbox'),
-                        value: _analyticsAgreed,
-                        text: '我同意將訓練資料儲存於雲端伺服器以提供跨裝置存取',
-                        onChanged: (value) => setState(() => _analyticsAgreed = value),
-                      ),
-                      _CheckboxRow(
                         key: const Key('privacyConsentCheckbox'),
-                        value: _privacyAgreed,
-                        text: '我已閱讀並同意隱私政策',
-                        onChanged: (value) => setState(() => _privacyAgreed = value),
+                        value: _agreed,
+                        text: '我已閱讀並同意以上條款，包含將訓練資料儲存於雲端伺服器',
+                        onChanged: (value) => setState(() => _agreed = value),
                       ),
-                      const SizedBox(height: AppSpacing.sm),
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
                           key: const Key('agreeAndContinueButton'),
-                          onPressed: _bothAgreed ? _handleAgreeAndContinue : null,
+                          onPressed: _agreed ? _handleAgreeAndContinue : null,
                           child: const Text('同意並繼續'),
                         ),
                       ),

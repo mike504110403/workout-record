@@ -39,7 +39,8 @@ class WorkoutHistoryCard extends ConsumerWidget {
           InkWell(
             onTap: isDeleting ? null : onTap,
             child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              // 上下收到 md,卡片之間的視覺間距才不會被內距加倍。
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

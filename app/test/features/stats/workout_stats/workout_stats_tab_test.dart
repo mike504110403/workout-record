@@ -15,7 +15,9 @@ import 'package:workout_record/data/providers.dart';
 import 'package:workout_record/data/repositories/exercise_repository.dart';
 import 'package:workout_record/data/repositories/workout_repository.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
+import 'package:workout_record/core/widgets/section_header.dart';
 import 'package:workout_record/features/stats/pr/pr_list_page.dart';
+import 'package:workout_record/features/stats/workout_stats/volume_chart_section.dart';
 import 'package:workout_record/features/stats/workout_stats/workout_stats_tab.dart';
 
 import '../../../data/test_helpers.dart';
@@ -212,7 +214,7 @@ Future<void> _seedChestWorkouts(_Harness harness, int count) async {
 
 void main() {
   group('空狀態', () {
-    testWidgets('沒有任何訓練時,圖表顯示空狀態文案、本週統計為 0、最近訓練顯示空狀態', (tester) async {
+    testWidgets('沒有任何訓練時,圖表顯示空狀態文案', (tester) async {
       final harness = await _setUpHarness();
 
       await _pump(tester, harness);
@@ -220,11 +222,6 @@ void main() {
       expect(find.byKey(const Key('volumeChartEmptyState')), findsOneWidget);
       expect(find.text('尚無訓練數據'), findsOneWidget);
       expect(find.text('完成訓練後這裡會顯示容量趨勢'), findsOneWidget);
-      expect(
-        find.descendant(of: find.byKey(const Key('statsWeekWorkoutCountCard')), matching: find.text('0')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('statsRecentWorkoutsEmpty')), findsOneWidget);
     });
   });
 
@@ -419,74 +416,85 @@ void main() {
     });
   });
 
-  group('本週統計', () {
-    testWidgets('計入本週內訓練,排除本週外(10 天前)、草稿(未完成)的訓練', (tester) async {
+  // 介面改版:本週統計/最近訓練與首頁、歷史重複,從訓練子頁拿掉,只留趨勢圖與 PR 入口。
+  group('精簡版面', () {
+    testWidgets('有資料時也沒有「本週統計」「最近訓練」兩段', (tester) async {
       final harness = await _setUpHarness();
       final now = DateTime.now();
-
-      await harness.workoutRepo.create(_buildWorkout(id: 'in-week', startedAt: now, totalVolume: 100));
-      // 週外:10 天前,任何合理的一週定義都會落在上週之外。
-      await harness.workoutRepo.create(
-        _buildWorkout(id: 'out-of-week', startedAt: now.subtract(const Duration(days: 10)), totalVolume: 999),
-      );
-      // 草稿:endedAt 為 null(進行中,未完成)——變異:草稿混入必紅。
-      await harness.workoutRepo.create(
-        Workout(
-          id: 'draft',
-          userId: testUserId,
-          startedAt: now,
-          totalVolume: 777,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
-
-      await _pump(tester, harness);
-
-      final countCard = find.byKey(const Key('statsWeekWorkoutCountCard'));
-      final volumeCard = find.byKey(const Key('statsWeekTotalVolumeCard'));
-      expect(find.descendant(of: countCard, matching: find.text('1')), findsOneWidget);
-      expect(find.descendant(of: volumeCard, matching: find.text('100')), findsOneWidget);
-      // 反向斷言:週外/草稿的數字不該出現在本週統計卡片裡。
-      expect(find.descendant(of: volumeCard, matching: find.text('999')), findsNothing);
-      expect(find.descendant(of: volumeCard, matching: find.text('777')), findsNothing);
-      expect(find.descendant(of: countCard, matching: find.text('3')), findsNothing);
-    });
-  });
-
-  group('最近訓練', () {
-    testWidgets('最多顯示 5 筆,PR 入口卡點擊會推到 PrListPage', (tester) async {
-      final harness = await _setUpHarness();
-      final now = DateTime.now();
-      for (var i = 0; i < 6; i++) {
+      for (var i = 0; i < 3; i++) {
         await harness.workoutRepo.create(
-          _buildWorkout(
-            id: 'recent-$i',
-            startedAt: now.subtract(Duration(days: i)),
-            totalVolume: (i + 1) * 100,
-          ),
+          _buildWorkout(id: 'recent-$i', startedAt: now.subtract(Duration(days: i)), totalVolume: 100),
         );
       }
 
       await _pump(tester, harness);
 
-      for (var i = 0; i < 5; i++) {
-        expect(find.byKey(Key('statsRecentWorkoutRow-recent-$i')), findsOneWidget, reason: 'i=$i 應該出現');
-      }
-      expect(find.byKey(const Key('statsRecentWorkoutRow-recent-5')), findsNothing, reason: '第 6 筆(最舊)應被排除');
+      expect(find.text('本週統計'), findsNothing);
+      expect(find.text('最近訓練'), findsNothing);
+      expect(find.byKey(const Key('statsWeekWorkoutCountCard')), findsNothing);
+      expect(find.byKey(const Key('statsWeekTotalVolumeCard')), findsNothing);
+      expect(find.byKey(Key('statsRecentWorkoutRow-recent-0')), findsNothing);
+      expect(find.byKey(const Key('statsRecentWorkoutsEmpty')), findsNothing);
+      // 獨立的 PR 入口卡也改成標題列的一顆鈕。
+      expect(find.byKey(const Key('prEntryCard')), findsNothing);
+    });
 
-      await tester.tap(find.byKey(const Key('prEntryCard')));
+    testWidgets('PR 入口是趨勢區標題列的一顆鈕,點擊推到 PrListPage', (tester) async {
+      final harness = await _setUpHarness();
+      await _pump(tester, harness);
+
+      final prButton = find.byKey(const Key('prEntryButton'));
+      expect(prButton, findsOneWidget);
+      // 在趨勢區(同一張卡)標題列裡,與肌群下拉並排。
+      expect(
+        find.ancestor(of: prButton, matching: find.byType(VolumeChartSection)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(SectionHeader), matching: find.byKey(const Key('prEntryButton'))),
+        findsOneWidget,
+      );
+
+      await tester.tap(prButton);
       await tester.pumpAndSettle();
 
       expect(find.byType(PrListPage), findsOneWidget);
     });
+
+    testWidgets('第三格統計標籤是「訓練日」(dataPointCount 以日期聚合),不叫「次數」或「數據點」', (tester) async {
+      final harness = await _setUpHarness();
+      await _pump(tester, harness);
+
+      expect(
+        find.descendant(of: find.byKey(const Key('volumeStatCount')), matching: find.text('訓練日')),
+        findsOneWidget,
+      );
+      expect(find.text('次數'), findsNothing);
+      expect(find.text('數據點'), findsNothing);
+    });
+
+    testWidgets('趨勢折線圖外包 RepaintBoundary', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedChestWorkouts(harness, 3);
+
+      await _pump(tester, harness);
+
+      // 該 key 必須掛在真正的 RepaintBoundary 上(不是任意 widget),且圖表在它底下。
+      expect(tester.widget(find.byKey(const Key('volumeChartRepaintBoundary'))), isA<RepaintBoundary>());
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('volumeChartRepaintBoundary')),
+          matching: find.byType(LineChart),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
-  // 波 6:重量單位(lb 模式)。變異:任一消費點(本週總容量卡/最近訓練列/
-  // 平均與最高容量)漏接 weightUnitProvider、恆用 kg 必紅。期望值一律
-  // `kgToDisplay` 現算。
+  // 波 6:重量單位(lb 模式)。變異:任一消費點(平均/最高容量)漏接
+  // weightUnitProvider、恆用 kg 必紅。期望值一律 `kgToDisplay` 現算。
   group('重量單位(lb 模式)', () {
-    testWidgets('本週總容量卡、最近訓練列、平均/最高容量換算成 lb 顯示', (tester) async {
+    testWidgets('平均/最高容量換算成 lb 顯示', (tester) async {
       final harness = await _setUpHarness(weightUnit: WeightUnit.lb);
       final chest = _chestExercise();
       await harness.exerciseRepo.create(chest);
@@ -511,17 +519,6 @@ void main() {
       await _pump(tester, harness);
 
       final lbBare = kgToDisplay(1000, WeightUnit.lb).toStringAsFixed(0);
-      expect(
-        find.descendant(of: find.byKey(const Key('statsWeekTotalVolumeCard')), matching: find.text(lbBare)),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('statsRecentWorkoutRow-lb-1')),
-          matching: find.text('$lbBare lb'),
-        ),
-        findsOneWidget,
-      );
       for (final key in const ['volumeStatAverage', 'volumeStatHighest']) {
         expect(
           find.descendant(of: find.byKey(Key(key)), matching: find.text('$lbBare lb')),
@@ -532,6 +529,32 @@ void main() {
       // kg 版字串不該殘留。
       expect(find.text('1000 kg'), findsNothing);
       expect(find.text('1000'), findsNothing);
+    });
+  });
+
+  // 圖表 spots 以 (points, filter, unit) 為快取鍵:掛載後才切單位時 spots 必須重算。
+  // 變異:拿掉 _spotsFor 的 `_spotsUnit != unit` 條件 → 切 lb 後 y 仍是 kg 值而紅。
+  group('重量單位(掛載後切換)', () {
+    testWidgets('掛載後 kg→lb:趨勢圖 spots y 值即時換算(100 kg → 220.462 lb)', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedChestWorkouts(harness, 3);
+      await _pump(tester, harness);
+
+      LineChart chart() => tester.widget<LineChart>(
+        find.descendant(
+          of: find.byKey(const Key('volumeChartRepaintBoundary')),
+          matching: find.byType(LineChart),
+        ),
+      );
+      // 每天 50kg × 2 = 100kg(寫死字面值,不用 kgToDisplay 現算,避免測試與實作同錯)。
+      expect(chart().data.lineBarsData.single.spots.map((s) => s.y), everyElement(closeTo(100.0, 0.001)));
+
+      await harness.container.read(weightUnitControllerProvider.notifier).setUnit(WeightUnit.lb);
+      await tester.pumpAndSettle();
+
+      final ys = chart().data.lineBarsData.single.spots.map((s) => s.y).toList();
+      expect(ys.length, 3);
+      expect(ys, everyElement(closeTo(220.462, 0.001)));
     });
   });
 

@@ -1,5 +1,5 @@
-// 最近訓練區塊。對應 iOS 版 DashboardView 的 `recentWorkoutsSection` +
-// `RecentWorkoutRow`。
+// 最近訓練區塊(最多 3 筆,筆數上限由 DashboardController 控制)。對應 iOS 版
+// DashboardView 的 `recentWorkoutsSection` + `RecentWorkoutRow`。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,7 +70,7 @@ class _RecentWorkoutRow extends ConsumerWidget {
     );
     return Padding(
       key: Key('recentWorkoutRow-${workout.id}'),
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: AppCard(
         child: Row(
           children: [

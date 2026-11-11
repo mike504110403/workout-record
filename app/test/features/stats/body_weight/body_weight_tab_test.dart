@@ -285,6 +285,23 @@ void main() {
   });
 
   group('趨勢圖', () {
+    testWidgets('圖表外包 RepaintBoundary(捲動清單時不連帶重繪圖表)', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedThreeEntries(harness);
+
+      await _pump(tester, harness);
+
+      // 該 key 必須掛在真正的 RepaintBoundary 上(不是任意 widget),且圖表在它底下。
+      expect(tester.widget(find.byKey(const Key('bodyWeightChartRepaintBoundary'))), isA<RepaintBoundary>());
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('bodyWeightChartRepaintBoundary')),
+          matching: find.byType(LineChart),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('資料點數與種子一致,且依 measuredAt 由舊到新排序(排序反轉必紅)', (tester) async {
       final harness = await _setUpHarness();
       await _seedThreeEntries(harness);
@@ -595,12 +612,36 @@ void main() {
 
       await _pump(tester, harness);
 
+      // 列表懶建置:最舊那筆在預設 800x600 視窗外、尚未建置,先比前兩筆,
+      // 再捲到最舊那筆比後兩筆(三筆合起來才是完整排序證據)。
       final newestY = tester.getCenter(find.byKey(const Key('bodyWeightRow-bw-newest'))).dy;
       final middleY = tester.getCenter(find.byKey(const Key('bodyWeightRow-bw-middle'))).dy;
-      final oldestY = tester.getCenter(find.byKey(const Key('bodyWeightRow-bw-oldest'))).dy;
-
       expect(newestY, lessThan(middleY));
-      expect(middleY, lessThan(oldestY));
+
+      await tester.scrollUntilVisible(find.byKey(const Key('bodyWeightRow-bw-oldest')), 100);
+      final middleY2 = tester.getCenter(find.byKey(const Key('bodyWeightRow-bw-middle'))).dy;
+      final oldestY = tester.getCenter(find.byKey(const Key('bodyWeightRow-bw-oldest'))).dy;
+      expect(middleY2, lessThan(oldestY));
+    });
+
+    testWidgets('長清單懶建置:60 筆只建可見範圍,捲到底最舊一筆才出現', (tester) async {
+      final harness = await _setUpHarness();
+      final now = DateTime.now();
+      for (var i = 0; i < 60; i++) {
+        await harness.bodyWeightRepo.create(
+          _entry(id: 'bw-$i', weight: 70 + (i % 5), measuredAt: now.subtract(Duration(days: i + 1))),
+        );
+      }
+
+      await _pump(tester, harness);
+
+      final built = find.byWidgetPredicate((w) => w.key.toString().contains('bodyWeightRow-')).evaluate().length;
+      expect(built, greaterThan(0));
+      expect(built, lessThan(30), reason: '60 筆不該全部建置(懶建置)');
+      expect(find.byKey(const Key('bodyWeightRow-bw-59')), findsNothing);
+
+      await tester.scrollUntilVisible(find.byKey(const Key('bodyWeightRow-bw-59')), 400);
+      expect(find.byKey(const Key('bodyWeightRow-bw-59')), findsOneWidget);
     });
   });
 
@@ -1041,6 +1082,27 @@ void main() {
       // 資料層(DB)不受顯示層換算影響——恆 kg。
       final all = await harness.bodyWeightRepo.fetchAll();
       expect(all.any((e) => e.weight == 78.0), isTrue);
+    });
+
+    // 圖表 spots 以 (entriesDesc, unit) 為快取鍵:掛載後才切單位時必須重算。
+    // 變異:拿掉 _spotsFor 的 `_cachedUnit != unit` 條件 → 切 lb 後 y 仍是 kg 值而紅。
+    testWidgets('掛載後 kg→lb:趨勢圖 spots y 值即時換算(74 kg → 163.142 lb)', (tester) async {
+      final harness = await _setUpHarness();
+      await _seedThreeEntries(harness);
+      await _pump(tester, harness);
+
+      var spots = _findLineChart(tester).data.lineBarsData.single.spots;
+      expect(spots.first.y, 74.0);
+      expect(spots.last.y, 78.0);
+
+      await harness.container.read(weightUnitControllerProvider.notifier).setUnit(WeightUnit.lb);
+      await tester.pumpAndSettle();
+
+      // 寫死字面值:74×2.20462262185=163.1422, 78×…=171.9606。
+      spots = _findLineChart(tester).data.lineBarsData.single.spots;
+      expect(spots.length, 3);
+      expect(spots.first.y, closeTo(163.142, 0.001));
+      expect(spots.last.y, closeTo(171.961, 0.001));
     });
 
     testWidgets('紀錄列表換算成 lb 顯示', (tester) async {

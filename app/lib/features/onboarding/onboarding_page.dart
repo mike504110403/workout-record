@@ -1,5 +1,5 @@
-// Onboarding 2 步精靈:1 基本資訊(單位、體重、身高、性別、年齡)、2 目標
-// (目標體重、每週訓練次數)。2026-11 改版:拿掉功能介紹頁與 emoji,版面
+// Onboarding 2 步精靈:1 基本資訊(單位、體重必填;身高、性別、年齡收進「更多」
+// 可展開)、2 目標(目標體重、每週訓練次數,全為選填,可直接完成)。2026-11 改版:拿掉功能介紹頁與 emoji,版面
 // 簡化為「頂部進度 + 單欄表單 + 固定底部主按鈕」。
 //
 // 用明確的「下一步」/ 返回按鈕控頁(web 滑鼠沒有原生滑動手勢)。「跳過」在
@@ -230,7 +230,7 @@ class _BasicInfoStep extends ConsumerWidget {
     final unit = draft.weightUnit.symbol;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, AppSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -265,36 +265,52 @@ class _BasicInfoStep extends ConsumerWidget {
                   decoration: InputDecoration(labelText: '當前體重(必填)', suffixText: unit),
                   onChanged: notifier.setWeightText,
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                TextFormField(
-                  key: const Key('onboardingHeightField'),
-                  initialValue: draft.heightText,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: '身高(選填)', suffixText: 'cm'),
-                  onChanged: notifier.setHeightText,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const _FieldLabel('性別'),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<String>(
-                    key: const Key('onboardingGenderToggle'),
-                    segments: const [
-                      ButtonSegment(value: '不指定', label: Text('不指定')),
-                      ButtonSegment(value: '男性', label: Text('男性')),
-                      ButtonSegment(value: '女性', label: Text('女性')),
+                const SizedBox(height: AppSpacing.sm),
+                // 身高/性別/年齡全是選填:預設收合,第一步只剩體重一個必要欄位。
+                // ExpansionTile 預設收合時不建置 children,展開才出現。
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    key: const Key('onboardingMoreSection'),
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    title: Text('更多資料(選填)', style: Theme.of(context).textTheme.titleSmall),
+                    children: [
+                      const SizedBox(height: AppSpacing.sm),
+                      TextFormField(
+                        key: const Key('onboardingHeightField'),
+                        initialValue: draft.heightText,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: '身高', suffixText: 'cm'),
+                        onChanged: notifier.setHeightText,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      const _FieldLabel('性別'),
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<String>(
+                          key: const Key('onboardingGenderToggle'),
+                          segments: const [
+                            ButtonSegment(value: '不指定', label: Text('不指定')),
+                            ButtonSegment(value: '男性', label: Text('男性')),
+                            ButtonSegment(value: '女性', label: Text('女性')),
+                          ],
+                          selected: {draft.gender},
+                          onSelectionChanged: (selection) => notifier.setGender(selection.first),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      TextFormField(
+                        key: const Key('onboardingAgeField'),
+                        initialValue: draft.ageText,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: '年齡', suffixText: '歲'),
+                        onChanged: notifier.setAgeText,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
                     ],
-                    selected: {draft.gender},
-                    onSelectionChanged: (selection) => notifier.setGender(selection.first),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                TextFormField(
-                  key: const Key('onboardingAgeField'),
-                  initialValue: draft.ageText,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '年齡(選填)', suffixText: '歲'),
-                  onChanged: notifier.setAgeText,
                 ),
               ],
             ),

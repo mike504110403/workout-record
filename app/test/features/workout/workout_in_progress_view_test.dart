@@ -99,7 +99,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('0')),
+        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('0 組')),
         findsOneWidget,
       );
 
@@ -111,7 +111,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('0')),
+        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('0 組')),
         findsOneWidget,
       );
 
@@ -124,7 +124,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('1')),
+        find.descendant(of: find.byKey(const Key('workoutTotalSetsValue')), matching: find.text('1 組')),
         findsOneWidget,
       );
 
@@ -163,7 +163,7 @@ void main() {
       expect(await repo.fetchById(workoutId), isNotNull);
     });
 
-    testWidgets('點放棄 → 彈確認框 → 確定 → 草稿刪除,畫面切回開始畫面', (tester) async {
+    testWidgets('點放棄 → 彈確認框 → 確定 → 草稿刪除(回首頁的導航測在 workout_shell_flow_test)', (tester) async {
       final harness = await harnessWithDraft(tester);
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
       final repo = DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db));
@@ -173,20 +173,18 @@ void main() {
       await tester.pumpAndSettle();
 
       // controller state 收回 idle;WorkoutInProgressView 在 draft == null
-      // 時回傳空白(見檔案內註解),父層 workout_page.dart 才負責切回
-      // StartWorkoutView——這裡直接斷言 controller state 與 DB,不依賴父層。
+      // 時回傳空白,回首頁由全螢幕訓練頁/路由負責——這裡直接斷言 controller
+      // state 與 DB,不依賴父層。
       expect(harness.container.read(workoutControllerProvider).value!.draft, isNull);
       expect(await repo.fetchById(workoutId), isNull);
     });
   });
 
-  group('完成訓練(按鈕隨時可按;有未完成動作才跳確認)', () {
-    /// 兩個動作各記一組;[completeFirst]/[completeSecond] 決定是否標記完成動作。
-    Future<_Harness> harnessWithTwoExercises(
-      WidgetTester tester, {
-      required bool completeFirst,
-      required bool completeSecond,
-    }) async {
+  // Mike 2026-11-11 裁示 3:拿掉「完成動作」鈕與「有 N 個動作未完成」確認框
+  // ——有組就算完成;0 組的動作完成時自動丟棄;草稿 0 組時完成鈕停用。
+  group('完成訓練(有組就算完成,不再有「完成動作」與未完成確認框)', () {
+    /// 兩個動作;[setsOnSecond] 決定第二個動作有沒有組(第一個一律有一組)。
+    Future<_Harness> harnessWithTwoExercises(WidgetTester tester, {required bool setsOnSecond}) async {
       final harness = await _setUpHarness();
       final exercises = await DriftExerciseRepository(harness.db).fetchSystemExercises();
       final notifier = harness.container.read(workoutControllerProvider.notifier);
@@ -195,14 +193,9 @@ void main() {
       await notifier.addExercise(exercises[0]);
       await notifier.addExercise(exercises[1]);
       final draft = harness.container.read(workoutControllerProvider).value!.draft!;
-      for (final e in draft.exercises) {
-        await notifier.addSet(workoutExerciseId: e.id, weight: 50, reps: 5);
-      }
-      if (completeFirst) {
-        await notifier.setExerciseCompleted(draft.exercises[0].id, isCompleted: true);
-      }
-      if (completeSecond) {
-        await notifier.setExerciseCompleted(draft.exercises[1].id, isCompleted: true);
+      await notifier.addSet(workoutExerciseId: draft.exercises[0].id, weight: 50, reps: 5);
+      if (setsOnSecond) {
+        await notifier.addSet(workoutExerciseId: draft.exercises[1].id, weight: 50, reps: 5);
       }
       await _pumpView(tester, harness);
       return harness;
@@ -211,13 +204,68 @@ void main() {
     Future<Workout?> fetchWorkout(_Harness harness, String id) =>
         DriftWorkoutRepository(harness.db, DriftExerciseRepository(harness.db)).fetchById(id);
 
-    testWidgets('一個動作都沒按「完成動作」時按鈕仍可按(不再被閘門停用)', (tester) async {
-      await harnessWithTwoExercises(tester, completeFirst: false, completeSecond: false);
-      final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
-      expect(button.onPressed, isNotNull);
+    testWidgets('動作卡上不再有「完成動作」鈕,刪除動作收進卡片 ⋯', (tester) async {
+      final harness = await harnessWithTwoExercises(tester, setsOnSecond: true);
+      final we = harness.container.read(workoutControllerProvider).value!.draft!.exercises.first.id;
+
+      expect(find.text('完成動作'), findsNothing);
+      expect(find.byKey(Key('toggleExerciseCompletedButton_$we')), findsNothing);
+      expect(find.byKey(Key('deleteExerciseButton_$we')), findsNothing);
+
+      await tester.tap(find.byKey(Key('exerciseMoreButton_$we')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('deleteExerciseButton_$we')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(Key('exerciseCard_$we')), findsNothing);
+      expect(harness.container.read(workoutControllerProvider).value!.draft!.exercises, hasLength(1));
     });
 
-    testWidgets('草稿還沒有任何動作時按鈕停用(不存空訓練)', (tester) async {
+    testWidgets('有組時按鈕可按,按下不跳任何確認框,直接結算', (tester) async {
+      final harness = await harnessWithTwoExercises(tester, setsOnSecond: true);
+      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+      final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
+      expect(button.onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byKey(const Key('summaryTitleText')), findsOneWidget);
+      expect((await fetchWorkout(harness, workoutId))!.endedAt, isNotNull);
+    });
+
+    testWidgets('有一個動作 0 組 → 直接結算,該動作被丟棄(結算顯示 1 個動作)', (tester) async {
+      final harness = await harnessWithTwoExercises(tester, setsOnSecond: false);
+      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
+
+      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.descendant(of: find.byKey(const Key('summaryExercisesValue')), matching: find.text('1')),
+        findsOneWidget,
+      );
+      final saved = (await fetchWorkout(harness, workoutId))!;
+      expect(saved.exercises, hasLength(1));
+      expect(saved.totalExercises, 1);
+    });
+
+    testWidgets('有動作但 0 組時按鈕停用(不存空訓練)', (tester) async {
+      final harness = await _setUpHarness();
+      final exercise = await _firstSystemExercise(harness.db);
+      final notifier = harness.container.read(workoutControllerProvider.notifier);
+      await harness.container.read(workoutControllerProvider.future);
+      await notifier.startFreeWorkout();
+      await notifier.addExercise(exercise);
+      await _pumpView(tester, harness);
+
+      final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
+      expect(button.onPressed, isNull);
+    });
+
+    testWidgets('草稿還沒有任何動作時按鈕停用', (tester) async {
       final harness = await _setUpHarness();
       final notifier = harness.container.read(workoutControllerProvider.notifier);
       await harness.container.read(workoutControllerProvider.future);
@@ -226,51 +274,6 @@ void main() {
 
       final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
       expect(button.onPressed, isNull);
-    });
-
-    testWidgets('有 1 個動作未完成 → 跳確認「有 1 個動作尚未完成」→ 取消:不結束,草稿保留', (tester) async {
-      final harness = await harnessWithTwoExercises(tester, completeFirst: true, completeSecond: false);
-      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
-
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
-      expect(find.text('有 1 個動作尚未完成,仍要結束訓練?'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('completeWorkoutCancelButton')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('有 1 個動作尚未完成,仍要結束訓練?'), findsNothing);
-      expect(find.byKey(const Key('summaryTitleText')), findsNothing);
-      expect(harness.container.read(workoutControllerProvider).value!.draft, isNotNull);
-      expect((await fetchWorkout(harness, workoutId))!.endedAt, isNull);
-    });
-
-    testWidgets('兩個動作都未完成 → 文案數字為 2;確認「結束」→ 訓練完成並顯示結算', (tester) async {
-      final harness = await harnessWithTwoExercises(tester, completeFirst: false, completeSecond: false);
-      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
-
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
-      expect(find.text('有 2 個動作尚未完成,仍要結束訓練?'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('completeWorkoutConfirmButton')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('summaryTitleText')), findsOneWidget);
-      expect(harness.container.read(workoutControllerProvider).value!.draft, isNull);
-      expect((await fetchWorkout(harness, workoutId))!.endedAt, isNotNull);
-    });
-
-    testWidgets('全部動作都已完成 → 不跳確認,直接結算', (tester) async {
-      final harness = await harnessWithTwoExercises(tester, completeFirst: true, completeSecond: true);
-      final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
-
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('completeWorkoutConfirmDialog')), findsNothing);
-      expect(find.byKey(const Key('summaryTitleText')), findsOneWidget);
-      expect((await fetchWorkout(harness, workoutId))!.endedAt, isNotNull);
     });
   });
 
@@ -339,7 +342,7 @@ void main() {
 
       await _pumpView(tester, harness);
 
-      await tester.tap(find.byKey(Key('editSetButton_$setId')));
+      await tester.tap(find.byKey(Key('setRowTap_$setId')));
       await tester.pumpAndSettle();
 
       // 先展開進階選項,否則「收合所以看不到」會讓這則斷言對退化無感。
@@ -427,7 +430,7 @@ void main() {
           .sets
           .single
           .id;
-      await tester.tap(find.byKey(Key('editSetButton_$setId')));
+      await tester.tap(find.byKey(Key('setRowTap_$setId')));
       await tester.pumpAndSettle();
       final weightField = tester.widget<TextField>(find.byKey(const Key('addSetWeightField')));
       expect(weightField.controller!.text, trimZeros(kgToDisplay(setWeight, WeightUnit.lb)));
