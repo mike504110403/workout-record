@@ -8,12 +8,21 @@
 // null)、已登入且 session uid = auth uid、本機資料 owner = 這個 uid(帳號隔離:
 // 別人的本機資料不能上傳到我的帳號)、旗標未寫、本機有可上傳資料。
 //
+// 只有 v1 完成旗標的使用者(舊版已上傳過)走靜默補送:不進 uploading,只有實際補送了
+// 子列(送出筆數不含動作複本)才顯示 succeeded;沒資料要補或失敗都維持 idle(失敗只
+// debugPrint,下次啟動再試)。否則每位舊使用者升級後都會看到一次「正在同步/已同步完成
+// 共 0 筆」。
+//
+// 重入:啟動恢復 session 與登入成功可能幾乎同時觸發,守門檢查之間有 await;旗標必須在
+// 第一個 await 之前設好,否則兩次呼叫都會通過檢查而各跑一次上傳。
+//
 // 上傳本體與對應規則見 data/migration/cloud_upload.dart。
 import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/db/app_database.dart' show AppDatabase;
 import '../../data/migration/cloud_upload.dart';
 import '../../data/providers.dart';
 import '../../data/supabase_client.dart';
@@ -61,9 +70,15 @@ class CloudUploadController extends Notifier<CloudUploadStatus> {
   @override
   CloudUploadStatus build() => const CloudUploadStatus.idle();
 
+  /// 執行中(含守門檢查與靜默補送;靜默路徑狀態不進 uploading,只能靠這個擋重入)。
+  bool _running = false;
+
   /// 符合條件時上傳一次;不符條件或上傳中重入回 null。不拋例外。
   Future<CloudUploadResult?> runIfNeeded() async {
-    if (state.phase == CloudUploadPhase.uploading) return null;
+    if (state.phase == CloudUploadPhase.uploading || _running) return null;
+    // 在第一個 await 之前設好(見檔頭「重入」)。
+    _running = true;
+    var silent = false;
     try {
       final sink = ref.read(cloudUploadSinkProvider);
       if (sink == null) return null;
@@ -77,6 +92,11 @@ class CloudUploadController extends Notifier<CloudUploadStatus> {
       if (uploader.isCompleted(uid)) return null;
       final db = ref.read(appDatabaseProvider);
       if (!await uploader.hasUploadableData(db)) return null;
+
+      if (uploader.isLegacyCompleted(uid)) {
+        silent = true;
+        return await _repairSilently(uploader, db, sink);
+      }
 
       state = const CloudUploadStatus(CloudUploadPhase.uploading);
       // users 列:Onboarding 完成才 ensure(同 SessionController 的 2026-11-10 裁示 A,
@@ -106,10 +126,38 @@ class CloudUploadController extends Notifier<CloudUploadStatus> {
       return result;
     } catch (e) {
       final kind = classifyCloudUploadError(e);
-      state = CloudUploadStatus(CloudUploadPhase.failed, errorMessage: cloudUploadFailureMessage(kind));
+      if (!silent) {
+        state = CloudUploadStatus(CloudUploadPhase.failed, errorMessage: cloudUploadFailureMessage(kind));
+      }
       debugPrint('cloud upload crashed: $e');
       return CloudUploadResult(success: false, errorMessage: '$e', failureKind: kind);
+    } finally {
+      _running = false;
     }
+  }
+
+  /// v1 補送(見檔頭):不經 uploading;子表實際送出筆數 > 0 才 succeeded(補送路徑的
+  /// uploadedRows 不含動作複本),其餘維持原狀態。
+  /// v1 完成後本來就不再 ensure users,這裡不帶 ensureUser。
+  Future<CloudUploadResult> _repairSilently(
+    LocalToCloudUploader uploader,
+    AppDatabase db,
+    CloudUploadSink sink,
+  ) async {
+    final result = await uploader.uploadIfNeeded(db, sink);
+    if (!result.success) {
+      debugPrint('cloud upload (v1 補送) failed, 下次啟動再試: ${result.errorMessage}');
+    } else if (result.uploadedRows > 0) {
+      state = CloudUploadStatus(
+        CloudUploadPhase.succeeded,
+        uploadedRows: result.uploadedRows,
+        unownedRows: result.unownedTotal,
+      );
+    }
+    if (result.unownedCounts.isNotEmpty) {
+      debugPrint('cloud upload (v1 補送): 屬於其他帳號、未上傳的筆數 ${result.unownedCounts}');
+    }
+    return result;
   }
 }
 

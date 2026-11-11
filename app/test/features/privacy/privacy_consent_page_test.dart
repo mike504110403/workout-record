@@ -38,6 +38,18 @@ void main() {
     expect(find.text('我已閱讀並同意隱私政策'), findsNothing);
   });
 
+  testWidgets('同意頁內文與隱私政策一致:含 Apple、Supabase 東京、登出不清全部本機資料', (tester) async {
+    await _pumpPage(tester);
+    expect(find.textContaining('Apple'), findsWidgets);
+    expect(find.textContaining('Supabase'), findsWidgets);
+    expect(find.textContaining('日本東京'), findsOneWidget);
+    // 舊說法「登出時會清除本機的個人資料」「不與第三方分享」與政策矛盾,不得殘留。
+    expect(find.text('登出時會清除本機的個人資料'), findsNothing);
+    expect(find.textContaining('不與第三方分享您的個人資料'), findsNothing);
+    expect(find.textContaining('訓練資料快取、草稿與舊版匯入資料會保留'), findsOneWidget);
+    expect(find.textContaining('不會上傳到我們的伺服器'), findsOneWidget);
+  });
+
   testWidgets('未勾選時,「同意並繼續」是 disabled', (tester) async {
     await _pumpPage(tester);
     final button = tester.widget<FilledButton>(find.byKey(const Key('agreeAndContinueButton')));

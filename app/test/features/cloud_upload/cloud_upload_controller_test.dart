@@ -127,6 +127,16 @@ void main() {
       expect(await h.controller.runIfNeeded(), isNull);
     });
 
+    test('同時呼叫兩次 runIfNeeded → 只跑一次上傳(重入旗標在第一個 await 前就設好)', () async {
+      final h = await _harness(prefs: {kHasCompletedOnboardingKey: true});
+
+      final results = await Future.wait([h.controller.runIfNeeded(), h.controller.runIfNeeded()]);
+
+      expect(results.whereType<CloudUploadResult>(), hasLength(1), reason: '第二次呼叫重入回 null');
+      expect(h.sink!.insertCalls.where((c) => c.table == 'workouts'), hasLength(1));
+      expect(h.status.phase, CloudUploadPhase.succeeded);
+    });
+
     test('Onboarding 未完成 → 照常上傳但不 ensure users 列(裁示 A)', () async {
       final h = await _harness();
       await h.controller.runIfNeeded();
@@ -246,6 +256,100 @@ void main() {
       expect(h.status.unownedRows, 1);
       expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isTrue);
       expect(logs.join('\n'), contains('body_weights'));
+    });
+  });
+
+  group('只有 v1 旗標的使用者 → 靜默補送(不閃「正在同步」)', () {
+    /// v1 上傳完成後的雲端:本人資料都在;[occupied] 時自建動作被別的帳號佔用。
+    Future<_Harness> v1Harness({required bool occupied}) async {
+      final h = await _harness(prefs: {cloudUploadLegacyCompletedKey(uid): true});
+      h.sink!.table('exercises')['custom-ex-1'] = {
+        'id': 'custom-ex-1',
+        'user_id': occupied ? 'someone-else' : uid,
+      };
+      h.sink!.table('templates')['user-tpl-1'] = {'id': 'user-tpl-1', 'user_id': uid};
+      h.sink!.table('workouts')['w-1'] = {'id': 'w-1', 'user_id': uid, 'ended_at': 'x'};
+      return h;
+    }
+
+    List<CloudUploadPhase> recordPhases(_Harness h) {
+      final phases = <CloudUploadPhase>[];
+      final sub = h.container.listen<CloudUploadStatus>(
+        cloudUploadControllerProvider,
+        (_, next) => phases.add(next.phase),
+      );
+      addTearDown(sub.close);
+      return phases;
+    }
+
+    test('沒有缺漏 → 不經 uploading、狀態維持 idle、寫 v2', () async {
+      final h = await v1Harness(occupied: false);
+      final phases = recordPhases(h);
+
+      final result = await h.controller.runIfNeeded();
+
+      expect(result!.success, isTrue, reason: result.errorMessage);
+      expect(phases, isEmpty, reason: '狀態完全沒變過');
+      expect(h.status.phase, CloudUploadPhase.idle);
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isTrue);
+    });
+
+    test('有缺漏且實際補送 → 不經 uploading,直接 succeeded', () async {
+      final h = await v1Harness(occupied: true);
+      final phases = recordPhases(h);
+
+      final result = await h.controller.runIfNeeded();
+
+      expect(result!.success, isTrue, reason: result.errorMessage);
+      expect(result.uploadedRows, greaterThan(0));
+      expect(phases, [CloudUploadPhase.succeeded]);
+      expect(h.status.uploadedRows, result.uploadedRows);
+      expect(h.sink!.table('workout_exercises').keys, ['we-2']);
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isTrue);
+    });
+
+    test('同時呼叫兩次 → 只補送一次', () async {
+      final h = await v1Harness(occupied: true);
+
+      final results = await Future.wait([h.controller.runIfNeeded(), h.controller.runIfNeeded()]);
+
+      expect(results.whereType<CloudUploadResult>(), hasLength(1), reason: '第二次呼叫重入回 null');
+      expect(h.sink!.insertCalls.where((c) => c.table == 'workout_exercises'), hasLength(1));
+      expect(h.sink!.insertCalls.where((c) => c.table == 'exercises'), hasLength(1), reason: '複本只送一次');
+    });
+
+    test('只建了複本、補送的子列全不可見 → 送出筆數 0,狀態維持 idle', () async {
+      final h = await v1Harness(occupied: true);
+      h.sink!.table('template_exercises')['user-te-2'] = {'id': 'user-te-2', 'user_id': 'someone-else'};
+      h.sink!.table('workout_exercises')['we-2'] = {'id': 'we-2', 'user_id': 'someone-else'};
+      final phases = recordPhases(h);
+
+      final result = await h.controller.runIfNeeded();
+
+      expect(result!.success, isTrue, reason: result.errorMessage);
+      expect(h.sink!.table('exercises').containsKey(cloudUploadExerciseCopyId(uid, 'custom-ex-1')), isTrue);
+      expect(result.uploadedRows, 0);
+      expect(phases, isEmpty);
+      expect(h.status.phase, CloudUploadPhase.idle);
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isTrue);
+    });
+
+    test('補送失敗 → 不經 uploading、狀態維持 idle、只進 debugPrint,不寫 v2', () async {
+      final h = await v1Harness(occupied: true);
+      h.sink!.failOnTable = 'exercises';
+      final phases = recordPhases(h);
+      final logs = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) => logs.add(message ?? '');
+      addTearDown(() => debugPrint = originalDebugPrint);
+
+      final result = await h.controller.runIfNeeded();
+
+      expect(result!.success, isFalse);
+      expect(phases, isEmpty);
+      expect(h.status.phase, CloudUploadPhase.idle);
+      expect(logs.join('\n'), contains('injected failure'));
+      expect(h.prefs.getBool(cloudUploadCompletedKey(uid)), isNull);
     });
   });
 

@@ -7,7 +7,9 @@
 // exercises/templates 不可寫 is_system = true、各表 user_id 必須是登入者(RLS)。
 // 父列必須「是本人的」才能被子列引用(對應 RLS 的 exists(... user_id = auth.uid())
 // 與 20261111000600 的動作引用限「系統或本人」);別的帳號佔用的父 id 會讓子列被拒。
+// 一次 insert 是單一 statement:整批先驗、全過才寫,任一列被拒整批不寫。
 import 'package:drift/drift.dart' show Value;
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:workout_record/data/db/app_database.dart';
 import 'package:workout_record/data/migration/cloud_upload.dart';
 
@@ -77,12 +79,16 @@ class FakeCloudUploadSink implements CloudUploadSink {
     table('users').putIfAbsent(uid, () => {'id': uid, 'name': profile.name});
   }
 
+  /// 引用欄位查表前先正規化(表的 key 是 [_norm] 過的;非字串原樣)。
+  Object? _normRef(Object? id) => id is String ? _norm(id) : id;
+
   /// 動作可被引用:系統動作,或本人的自建動作。
   bool _exerciseExists(Object? id) =>
-      table('exercises')[id]?['user_id'] == uid || systemExercises.any((e) => e['id'] == id);
+      table('exercises')[_normRef(id)]?['user_id'] == uid ||
+      systemExercises.any((e) => _normRef(e['id']) == _normRef(id));
 
   /// 父列存在且屬於本人(RLS 的 exists 子查詢)。
-  bool _ownParent(String parentTable, Object? id) => table(parentTable)[id]?['user_id'] == uid;
+  bool _ownParent(String parentTable, Object? id) => table(parentTable)[_normRef(id)]?['user_id'] == uid;
 
   @override
   Future<void> insertIgnoringDuplicates(String name, List<Map<String, dynamic>> rows) async {
@@ -92,6 +98,8 @@ class FakeCloudUploadSink implements CloudUploadSink {
     }
     insertCalls.add((table: name, rows: rows.length));
     final t = table(name);
+    // PostgREST 一次請求是單一 INSERT statement:任一列被拒整批回滾。所以先驗整批,
+    // 全部通過才寫入。
     for (final row in rows) {
       if (row['user_id'] != uid) throw StateError('RLS: $name.user_id = ${row['user_id']}');
       if ((name == 'exercises' || name == 'templates') && row['is_system'] == true) {
@@ -111,14 +119,21 @@ class FakeCloudUploadSink implements CloudUploadSink {
         case 'personal_records':
           if (!_exerciseExists(row['exercise_id'])) throw StateError('FK exercise_id');
         case 'user_goals':
-          final clash = t.values.any((r) => r['user_id'] == row['user_id'] && r['id'] != row['id']);
+          final clash = t.values.any(
+            (r) => r['user_id'] == row['user_id'] && _normRef(r['id']) != _normRef(row['id']),
+          );
           if (clash) throw StateError('unique user_goals.user_id');
       }
+    }
+    for (final row in rows) {
       // 與雲端系統動作/模板同 id:ON CONFLICT (id) DO NOTHING,不新增列。
-      final isSystemId = (name == 'exercises' && systemExercises.any((e) => e['id'] == row['id'])) ||
-          (name == 'templates' && systemTemplates.any((e) => e['id'] == row['id']));
+      // 系統 id 與列 id 都先正規化,與 [_exerciseExists]、[fetchVisibleIds] 同口徑。
+      final isSystemId =
+          (name == 'exercises' && systemExercises.any((e) => _normRef(e['id']) == _normRef(row['id']))) ||
+              (name == 'templates' && systemTemplates.any((e) => _normRef(e['id']) == _normRef(row['id'])));
       if (!isSystemId) t.putIfAbsent(_norm(row['id'] as String), () => Map.of(row));
     }
+    afterInsert?.call(name);
   }
 
   /// 模擬 RLS 可見性:本人的列、以及系統動作/模板(is_system 對所有人可讀)看得到;
@@ -129,14 +144,41 @@ class FakeCloudUploadSink implements CloudUploadSink {
     if (failOnCount) throw failCountWith ?? StateError('injected count failure on $name');
     final t = table(name);
     final systemIds = switch (name) {
-      'exercises' => {for (final e in systemExercises) e['id']},
-      'templates' => {for (final e in systemTemplates) e['id']},
+      'exercises' => {for (final e in systemExercises) _normRef(e['id'])},
+      'templates' => {for (final e in systemTemplates) _normRef(e['id'])},
       _ => const <Object?>{},
     };
     return {
       for (final id in ids)
         if (t[_norm(id)]?['user_id'] == uid || systemIds.contains(_norm(id))) _norm(id),
     };
+  }
+
+  /// 每次「成功」的 [recomputeWorkoutSummary] 的 workout id(依呼叫順序;拋錯的不記)。
+  final recomputeCalls = <String>[];
+
+  /// 每次 [recomputeWorkoutSummary] 的 workout id(含拋錯的,依呼叫順序)。
+  final recomputeAttempts = <String>[];
+
+  /// 非 null:[recomputeWorkoutSummary] 一律拋這個(模擬網路等非預期錯誤)。
+  Object? recomputeFailWith;
+
+  /// 每次 insert 成功寫入後呼叫(測試用來模擬兩個步驟之間雲端被改動)。
+  void Function(String table)? afterInsert;
+
+  /// 模擬 RPC(security invoker,見 20261110000300_rpc.sql):workout 不存在或不是
+  /// 本人的 → P0002;仍是草稿(ended_at 為 null 或沒帶)→ WR001。
+  @override
+  Future<void> recomputeWorkoutSummary(String workoutId) async {
+    recomputeAttempts.add(workoutId);
+    if (recomputeFailWith != null) throw recomputeFailWith!;
+    if (!_ownParent('workouts', workoutId)) {
+      throw PostgrestException(message: 'Workout not found: $workoutId', code: 'P0002');
+    }
+    if (table('workouts')[_norm(workoutId)]?['ended_at'] == null) {
+      throw PostgrestException(message: 'recomputeSummary: workout $workoutId 還是草稿', code: 'WR001');
+    }
+    recomputeCalls.add(workoutId);
   }
 
   int count(String name) => table(name).length;

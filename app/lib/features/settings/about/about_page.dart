@@ -251,6 +251,16 @@ class PrivacyPolicyPage extends StatelessWidget {
           vertical: AppSpacing.lg,
         ),
         children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: Text(
+              '最後更新:2026 年 11 月 12 日',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ),
           const AppCard(child: _PrivacySections()),
           const SizedBox(height: AppSpacing.sm),
           Text('如有任何隱私相關問題,請聯絡:$kContactEmail', style: Theme.of(context).textTheme.bodySmall),
@@ -260,6 +270,8 @@ class PrivacyPolicyPage extends StatelessWidget {
   }
 }
 
+/// 與 `docs/privacy.html`(線上版)同一份事實:兩邊要改一起改,內容不得互相矛盾。
+/// 只寫有程式證據的陳述(不寫靜態加密、保存期限等沒有依據的承諾)。
 class _PrivacySections extends StatelessWidget {
   const _PrivacySections();
 
@@ -271,35 +283,64 @@ class _PrivacySections extends StatelessWidget {
         _PrivacySection(
           title: '資料收集範圍',
           items: [
-            'Apple ID 登入資訊(姓名、電子郵件)',
-            '您輸入的訓練記錄、體重與健身目標等資料',
-          ],
-        ),
-        SizedBox(height: AppSpacing.lg),
-        _PrivacySection(
-          title: '資料儲存方式',
-          items: [
-            '登入後,您的訓練記錄、體重與個人資料儲存於雲端伺服器(Supabase),並與您的 Apple 帳號綁定,用於跨裝置存取',
-            '只有您本人登入後可以存取這些資料',
-            '登出時會清除本機的個人資料,雲端帳號內的資料仍會保留',
-            '可於「設定 > 刪除帳號」永久刪除帳號與雲端上的所有資料',
+            '帳號資訊:僅提供 Sign in with Apple 登入,我們會收到 Apple 提供的使用者識別碼、姓名(僅在您同意分享時)與電子郵件(可能是 Apple 隱藏信箱的轉寄地址)',
+            '您輸入的訓練記錄(動作、組數、重量、次數、休息、備註)、模板、自訂動作、個人紀錄(PR)、體重與健身目標',
+            '身高、性別、年齡,以及個人資料頁的姓名,只存放在這台裝置,不會上傳到我們的伺服器(可能包含在您自己的裝置備份中)',
+            '注意:您在引導頁填寫的體重、目標體重與每週目標會上傳,分別成為雲端上的體重紀錄與健身目標',
+            '若您用過舊版 iOS App,首次啟動會把裝置上的舊版資料匯入本機,登入後上傳到您自己的帳號',
+            '本 App 不含任何分析、廣告、追蹤或當機回報工具',
           ],
         ),
         SizedBox(height: AppSpacing.lg),
         _PrivacySection(
           title: '資料使用目的',
           items: [
-            '提供帳號登入功能',
-            '儲存您的訓練資料並提供跨裝置存取',
+            '驗證身分,讓您登入自己的帳號',
+            '儲存您的訓練資料,並提供跨裝置存取與統計',
+            '不出售您的資料,也不用於廣告或行銷',
           ],
         ),
         SizedBox(height: AppSpacing.lg),
         _PrivacySection(
-          title: '隱私保護承諾',
+          title: '資料儲存與安全',
           items: [
-            '僅收集必要的帳號資訊與您輸入的訓練資料',
-            '不用於廣告或行銷目的',
-            '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
+            '登入後,您的訓練記錄、體重與帳號資訊儲存於雲端伺服器(Supabase),伺服器位於日本東京,與您的 Apple 帳號綁定,用於跨裝置存取',
+            '資料以 HTTPS 傳輸;資料庫以列層級權限(RLS)限制每位使用者只能存取自己的資料,只有您本人登入後可以存取',
+            '登入狀態儲存於 iOS Keychain(Android 為系統安全儲存)',
+            '登出時會清除這台裝置上的登入狀態與個人資料設定;訓練資料快取、進行中的草稿與舊版匯入資料會保留,換帳號登入或刪除帳號時才會清除;雲端帳號內的資料仍會保留',
+          ],
+        ),
+        SizedBox(height: AppSpacing.lg),
+        _PrivacySection(
+          title: '第三方服務',
+          items: [
+            'Supabase:雲端資料庫與帳號驗證,代為儲存您的資料',
+            'Apple(Sign in with Apple):登入驗證',
+          ],
+        ),
+        SizedBox(height: AppSpacing.lg),
+        _PrivacySection(
+          title: '您的權利與刪除帳號',
+          items: [
+            '您可以隨時登出,或在 App 內自行刪除帳號與所有資料',
+            '刪除步驟:設定 > 刪除帳號,閱讀提示後兩次確認(此動作無法復原)',
+            'iPhone 上會要求重新進行 Apple 授權以撤銷 Sign in with Apple 授權;若在此步驟取消,整個刪除會中止、不動任何資料',
+            '完成後,雲端帳號與全部資料(訓練記錄、體重、目標、模板等)會被永久刪除,並清除這台裝置上的本機資料與舊版留下的資料檔',
+            '若 Apple 授權撤銷失敗,帳號與資料仍會刪除,請到 iPhone 設定 > Apple ID > 使用 Apple 登入 手動移除本 App',
+          ],
+        ),
+        SizedBox(height: AppSpacing.lg),
+        _PrivacySection(
+          title: '追蹤與廣告',
+          items: [
+            '不追蹤您在其他 App 或網站上的活動,不顯示任何廣告',
+          ],
+        ),
+        SizedBox(height: AppSpacing.lg),
+        _PrivacySection(
+          title: '兒童隱私',
+          items: [
+            '本 App 不針對 13 歲以下兒童設計,不會故意收集其個人資訊',
           ],
         ),
       ],

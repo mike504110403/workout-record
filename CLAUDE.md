@@ -42,6 +42,7 @@ cd ios/WorkoutRecord && xcodebuild -project WorkoutRecord.xcodeproj -scheme Work
 - `UserPreferencesSyncService`、`CloudKitSyncService` 是半成品死碼,勿當現行功能參考
 - iOS 版隱私文案(Onboarding / About / PrivacyConsent)必須與「資料存裝置本機」的現狀一致;Flutter 版資料在 Supabase,`docs/privacy.html` 要在 Flutter 版送審時改寫(現行 iOS 版仍在用,之前勿動)
 - App Store 的隱私政策網頁由 `docs/privacy.html` + GitHub Pages 供應,勿刪勿移
+- **改雲端系統動作名稱/分類的 migration**:必須等只有 v1 上傳旗標的使用者清零(或確認 TestFlight 全員已升到含 v2 旗標的版本)才能跑。否則 `cloud_upload.dart` 的 v1 補送會把本機系統動作當成被佔用,補回使用者在雲端刪掉的組/動作項目/PR、模板重複,並建出舊名稱複本(2026-11-12 db-review)
 
 ## 文檔地圖
 

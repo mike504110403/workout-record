@@ -89,7 +89,8 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                           items: [
                             'Apple ID 登入資訊(姓名、電子郵件)',
                             '您輸入的訓練記錄、體重與健身目標等資料',
-                            '登入後訓練資料儲存於雲端伺服器(Supabase),並與您的帳號綁定',
+                            '登入後訓練資料儲存於雲端伺服器(Supabase,位於日本東京),並與您的帳號綁定',
+                            '身高、性別、年齡與姓名只存放在這台裝置,不會上傳到我們的伺服器',
                           ],
                         ),
                         SizedBox(height: AppSpacing.md),
@@ -105,10 +106,10 @@ class _PrivacyConsentPageState extends ConsumerState<PrivacyConsentPage> {
                           title: '隱私保護承諾',
                           items: [
                             '只有您本人登入後可以存取您的訓練資料',
-                            '登出時會清除本機的個人資料',
+                            '登出時會清除這台裝置上的登入狀態與個人資料設定;訓練資料快取、草稿與舊版匯入資料會保留,換帳號登入或刪除帳號時才清除',
                             '僅收集必要的帳號資訊與訓練資料',
                             '不用於廣告或行銷目的',
-                            '不與第三方分享您的個人資料(雲端儲存服務 Supabase 僅代為儲存)',
+                            '不出售或分享您的資料給第三方做廣告或追蹤;僅交由 Supabase(雲端儲存)與 Apple(登入驗證)處理',
                           ],
                         ),
                       ],
