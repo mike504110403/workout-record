@@ -340,6 +340,7 @@ CoreData 用 SQLite 做底層儲存時的慣例：
 | `GlobalSettings` | Data（JSON 編碼的 `SettingsData`） | **目前實際生效**的使用者偏好：`weightUnit`/`theme`/`oneRMFormula`/`defaultRestTime`/`showVolumeInStats`/`enableHapticFeedback`/`autoSaveWorkout` | `GlobalSettingsManager.swift`（注意：這個 key 是拼在程式碼變數 `settingsKey` 裡，直接 `grep "GlobalSettings"` 才找得到，用 `grep "forKey:"` 搜不到） |
 | `weightUnit` / `theme` / `oneRMFormula` / `defaultRestTime` / `enableAutoRestTimer` / `enableHapticFeedback` | 各自型別 | **已標記 `@available(*, deprecated)`** 的 `AppSettings` 類別用的 `@AppStorage` key，跟 `GlobalSettings` 是兩套並存的舊設計 | `AppSettings.swift` |
 | `userName` / `userEmail` / `userGender` / `userAge` / `userHeight` / `userCurrentWeight` / `userTargetWeight` / `weeklyWorkoutGoal` | 各自型別 | `UserProfile` 類別（非 deprecated，`AppleIDAuthService.updateUserProfile()` 登入成功後仍會寫入 `userName`/`userEmail`） | `AppSettings.swift`（`UserProfile` class）|
+| `customExercises` | Data（`JSONEncoder` 編碼的 `[Exercise]`） | **使用者自訂動作**（id、名稱、分類、type、肌群等）。**不在 CoreData**——`CustomExerciseStorage.swift` 只寫 UserDefaults；訓練與 PR 的 `exerciseId` 指向這裡的 id，CoreData 的 `ZEXERCISEENTITY` 沒有這些列。UUID 為大寫、`Date` 為 2001 起算秒數 | `CustomExerciseStorage.swift` |
 | `ComprehensiveAnalyticsData` / `LocalAnalyticsData` / `analytics_events` / `analytics_user_<key>` | 各自型別 | 分析用資料，非使用者訓練歷史，**建議不遷移** | 各 Analytics Service |
 
 ### 3.2 哪些需要遷移
@@ -350,6 +351,7 @@ CoreData 用 SQLite 做底層儲存時的慣例：
 - `AppSettings`/`UserProfile` 裡的個別 key（`weightUnit`/`theme`/`oneRMFormula`/`userName`/`userEmail`/`userHeight`/`userTargetWeight`/`weeklyWorkoutGoal` 等）→ 雖然 `AppSettings` 類別本身被標記 deprecated，但 `UserProfile`（`userName`/`userEmail`）仍在被 `AppleIDAuthService` 主動寫入，且沒有代碼證實 `GlobalSettings` 一定涵蓋所有欄位（例如 `userHeight`/`userTargetWeight` 只在 `UserProfile` 裡有，`GlobalSettings` 沒有），**建議兩邊都讀，`GlobalSettings` 優先，缺的欄位用 `AppSettings`/`UserProfile` 的舊 key 補**。
 - `AppleIDUserID`/`AppleIDUserName`/`AppleIDUserEmail` → 若 Flutter 版要沿用同一套「已登入」判斷，需要遷移；若 Flutter 版打算重新走一次 Apple 登入流程，則只需確認「已登入」狀態本身不用特別搬（使用者重新登入一次即可，Apple 的 `userID` 不會變）。**這點建議跟 Mike 確認 Flutter 版的登入流程設計後再決定**，不在本文件範圍內下定論。
 - `isDarkMode` / `accentColor` / `reminderTime` / `UnlockedAchievements` / `lastViewedAchievementsDate` → 使用者體感相關，建議遷移。
+- `customExercises` → **必須遷移**（使用者資產，且被訓練歷史引用）。由 `CoreDataImporter` 在 `_importExercises` 內以**原 id**（轉小寫）補寫進 `exercises`（`isSystem = false`；`type` / `primaryMuscleGroup` / `movementPattern` 的 raw value 與 Drift 一致，直接沿用；`categoryId` 沿用 `MockData.categories` 的固定 UUID；`description` → `descriptionText`；`userId` 是 iOS 寫入的隨機 UUID，對不上時 fallback 為唯一使用者），讓各子表的 `exerciseId` 直接命中、不走佔位動作。與 CoreData 同 id 者以 CoreData 為準；JSON 解不開 / 單筆缺 `id`·`name`·`categoryId`·`type` 時略過該筆（整批壞掉則整批略過），不讓匯入失敗。`muscleGroups` / `targetMuscles` / `displayOrder` / `isFavorite` / `isHidden` 在 Drift 沒有欄位，不搬。原生端經 channel method `getLegacyCustomExercises` 回傳原始 JSON 字串。
 
 **不建議遷移：**
 - `CoreDataMigrationCompleted` / `CoreDataModelVersion` / `DefaultDataInitialized` / `ForceResetCoreData` → 都是舊 App 內部狀態機用的旗標，跟舊 SQLite 檔案本身的結構綁定，Flutter 版有自己全新的初始化邏輯，這些 key 沒有意義。

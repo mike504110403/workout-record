@@ -20,6 +20,9 @@
 //   失敗就整個 rollback、不寫入完成旗標,下次啟動會自動重試(天然幂等)。
 // - 系統動作(isSystem = true)用「名稱 + categoryId」對映到 seedIfEmpty()
 //   已建立的內建動作,重複的不再插入,只記住 id 對映;自訂動作照原樣搬。
+// - 舊版另有一批自訂動作存在 UserDefaults(`customExercises`,JSON 陣列,
+//   不在 CoreData),透過 legacy_prefs MethodChannel 取回後,以原 id 補寫
+//   進 exercises(CoreData 同 id 者以 CoreData 為準),見 _importExercises。
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -27,6 +30,7 @@ import 'dart:typed_data';
 
 import 'package:drift/drift.dart'
     show GeneratedColumn, Table, TableInfo, Value;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,6 +44,48 @@ export 'coredata_importer_result.dart';
 
 const _oldDbFileName = 'WorkoutRecord.sqlite';
 const _coreDataEpochOffsetSeconds = 978307200;
+
+/// 跟 LegacyPrefsImporter 共用同一條 channel(見 app/ios/Runner/AppDelegate.swift
+/// `setUpLegacyPrefsChannel`),另開一個 method 回傳 UserDefaults
+/// `customExercises` 的原始 JSON 字串。
+const _legacyPrefsChannelName = 'com.mikelin.workitout/legacy_prefs';
+const _legacyCustomExercisesMethod = 'getLegacyCustomExercises';
+
+/// 預設的舊版自訂動作 JSON 讀取:走 MethodChannel。非 iOS / Web / 測試環境
+/// 沒有原生端(MissingPluginException)或 binding 未初始化時一律視為沒有
+/// 資料(null),不影響匯入主流程。
+Future<String?> _readLegacyCustomExercisesJson() async {
+  try {
+    return await const MethodChannel(_legacyPrefsChannelName)
+        .invokeMethod<String>(_legacyCustomExercisesMethod);
+  } catch (_) {
+    return null;
+  }
+}
+
+const _knownExerciseTypes = {'machine', 'free_weight', 'bodyweight'};
+const _knownMovementPatterns = {
+  'push',
+  'pull',
+  'squat',
+  'hinge',
+  'carry',
+  'rotation',
+  'isolation',
+};
+const _knownPrimaryMuscleGroups = {
+  'chest',
+  'back',
+  'legs',
+  'shoulders',
+  'arms',
+  'core',
+  'glutes',
+  'full_body',
+};
+final _uuidPattern = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
 
 /// spec 4.6 節「建議設一個重試上限(例如連續失敗 3 次)」——連續失敗達此
 /// 次數後標記 [kCoreDataImportFailedPermanentlyKey],改為需要使用者手動
@@ -59,11 +105,18 @@ class CoreDataImporter {
         getApplicationSupportDirectory,
     Future<Directory> Function() temporaryDirectoryProvider =
         getTemporaryDirectory,
+    Future<String?> Function() legacyCustomExercisesJsonProvider =
+        _readLegacyCustomExercisesJson,
   })  : _supportDirectoryProvider = supportDirectoryProvider,
-        _temporaryDirectoryProvider = temporaryDirectoryProvider;
+        _temporaryDirectoryProvider = temporaryDirectoryProvider,
+        _legacyCustomExercisesJsonProvider = legacyCustomExercisesJsonProvider;
 
   final Future<Directory> Function() _supportDirectoryProvider;
   final Future<Directory> Function() _temporaryDirectoryProvider;
+
+  /// 舊版 UserDefaults `customExercises` 的原始 JSON(`[Exercise]` Codable
+  /// 編碼);預設走 MethodChannel,測試可注入固定字串。
+  final Future<String?> Function() _legacyCustomExercisesJsonProvider;
 
   Future<ImportResult> importIfNeeded(AppDatabase db) async {
     final prefs = await SharedPreferences.getInstance();
@@ -299,6 +352,15 @@ class CoreDataImporter {
       final tally = _ImportTally();
       var userIds = <String>{};
 
+      // 舊版自訂動作存在 UserDefaults、不在 CoreData(見 _importExercises);
+      // 在 transaction 外先讀進來。讀不到 / 解不開一律視為空清單,不讓整批
+      // 匯入失敗。
+      currentStep.value = '讀取舊版自訂動作(UserDefaults)';
+      final legacyCustomExercises = _parseLegacyCustomExercises(
+        await _safeReadLegacyCustomExercisesJson(),
+        tally.warnings,
+      );
+
       await db.transaction(() async {
         currentStep.value = 'users';
         final usersImport = await _importUsers(db, oldDb);
@@ -312,6 +374,7 @@ class CoreDataImporter {
           oldDb,
           userIds,
           tally,
+          legacyCustomExercises,
         );
         tally.dedupedCounts['exercises'] = exercisesImport.dedupedCount;
         final exerciseIdMap = exercisesImport.idMap;
@@ -793,6 +856,7 @@ class CoreDataImporter {
     sqlite3lib.Database oldDb,
     Set<String> userIds,
     _ImportTally tally,
+    List<_LegacyCustomExercise> legacyCustomExercises,
   ) async {
     final existingSystemExercises = await (db.select(db.exercises)
           ..where((t) => t.isSystem.equals(true)))
@@ -854,12 +918,69 @@ class CoreDataImporter {
       idMap[oldId] = oldId;
     }
 
+    // 舊版 UserDefaults 自訂動作:以原 id 寫入,讓後面各子表的 exerciseId
+    // 直接命中 [idMap],不走佔位動作補建。放在 CoreData 列之後處理,同 id
+    // 已在 [idMap](CoreData 先寫入)或 Drift 已有(上一輪已落地)者以既有為準、
+    // 不重複插入。
+    var legacyCustomLanded = 0;
+    for (final custom in legacyCustomExercises) {
+      if (idMap.containsKey(custom.id)) {
+        continue;
+      }
+      final alreadyInDrift = await (db.select(db.exercises)
+            ..where((t) => t.id.equals(custom.id)))
+          .getSingleOrNull();
+      if (alreadyInDrift != null) {
+        idMap[custom.id] = custom.id;
+        continue;
+      }
+      final rawUserId = custom.userId;
+      final resolvedUserId = rawUserId == null
+          ? null
+          : await _resolveUserId(
+              db,
+              rawUserId,
+              userIds,
+              '舊版 UserDefaults 自訂動作「${custom.name}」',
+              tally,
+            );
+      await db.into(db.exercises).insert(
+            ExercisesCompanion.insert(
+              id: custom.id,
+              name: custom.name,
+              nameEn: Value(custom.nameEn),
+              categoryId: custom.categoryId,
+              type: custom.type,
+              movementPattern: Value(custom.movementPattern),
+              primaryMuscleGroup: Value(custom.primaryMuscleGroup),
+              descriptionText: Value(custom.descriptionText),
+              videoURL: Value(custom.videoURL),
+              imageURL: Value(custom.imageURL),
+              isSystem: const Value(false),
+              isActive: Value(custom.isActive),
+              userId: Value(resolvedUserId),
+              createdAt: custom.createdAt,
+              updatedAt: custom.updatedAt,
+            ),
+          );
+      idMap[custom.id] = custom.id;
+      legacyCustomLanded++;
+    }
+
     return (
       idMap: idMap,
-      sourceCount: rows.length,
-      landedCount: rows.length - dedupedCount,
+      sourceCount: rows.length + legacyCustomLanded,
+      landedCount: rows.length - dedupedCount + legacyCustomLanded,
       dedupedCount: dedupedCount,
     );
+  }
+
+  Future<String?> _safeReadLegacyCustomExercisesJson() async {
+    try {
+      return await _legacyCustomExercisesJsonProvider();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<({int sourceCount, Set<String> ids})> _importTemplates(
@@ -1283,6 +1404,140 @@ class CoreDataImporter {
 /// 寫進 log(spec 4.6 節)。獨立成一個小容器類別,而不是 [CoreDataImporter]
 /// 的 instance 欄位——`CoreDataImporter` 本身是 `const`(無狀態),不該為了
 /// 這種每次呼叫都不同的暫時性資訊而變成可變物件。
+/// 舊版 iOS `Exercise`(Codable)存在 UserDefaults `customExercises` 的一筆,
+/// 已正規化成可直接寫進 Drift `exercises` 的形狀。iOS 的 `muscleGroups` /
+/// `targetMuscles` / `displayOrder` / `isFavorite` / `isHidden` 在 Drift 沒有
+/// 對應欄位(CoreData 的 ExerciseEntity 也沒有),不搬。
+class _LegacyCustomExercise {
+  const _LegacyCustomExercise({
+    required this.id,
+    required this.name,
+    required this.nameEn,
+    required this.categoryId,
+    required this.type,
+    required this.movementPattern,
+    required this.primaryMuscleGroup,
+    required this.descriptionText,
+    required this.videoURL,
+    required this.imageURL,
+    required this.isActive,
+    required this.userId,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final String? nameEn;
+  final String categoryId;
+  final String type;
+  final String? movementPattern;
+  final String? primaryMuscleGroup;
+  final String? descriptionText;
+  final String? videoURL;
+  final String? imageURL;
+  final bool isActive;
+  final String? userId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
+/// 解析 UserDefaults `customExercises` 的 JSON 陣列。JSON 本身解不開、不是
+/// 陣列、或單筆缺必要欄位(id / name / categoryId / type)時略過(整批或該筆),
+/// 原因記進 [warnings],絕不丟例外。UUID 一律轉小寫(Swift 的
+/// `UUID.uuidString` 是大寫,CoreData 路徑 [_uuidFromBlob] 產出小寫,兩邊要一致
+/// 才能命中 exerciseIdMap)。日期為 Swift `JSONEncoder` 預設的 `Date` 編碼
+/// (2001-01-01 起的秒數,同 CoreData),缺漏時以現在時間補。
+List<_LegacyCustomExercise> _parseLegacyCustomExercises(
+  String? json,
+  List<String> warnings,
+) {
+  if (json == null || json.isEmpty) return const [];
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(json);
+  } catch (e) {
+    warnings.add('舊版 UserDefaults customExercises 不是合法 JSON,已略過整批:$e');
+    return const [];
+  }
+  if (decoded is! List) {
+    warnings.add('舊版 UserDefaults customExercises 不是 JSON 陣列,已略過整批。');
+    return const [];
+  }
+
+  String? optString(Object? v) => (v is String && v.isNotEmpty) ? v : null;
+  DateTime date(Object? v, DateTime fallback) =>
+      v is num ? _dateFromCoreData(v) : fallback;
+
+  final result = <_LegacyCustomExercise>[];
+  final seenIds = <String>{};
+  for (var i = 0; i < decoded.length; i++) {
+    final item = decoded[i];
+    try {
+      if (item is! Map) {
+        warnings.add('舊版自訂動作第 $i 筆不是 JSON 物件,已略過。');
+        continue;
+      }
+      final rawId = item['id'];
+      final rawName = item['name'];
+      final rawCategoryId = item['categoryId'];
+      final rawType = item['type'];
+      if (rawId is! String ||
+          !_uuidPattern.hasMatch(rawId) ||
+          rawName is! String ||
+          rawName.isEmpty ||
+          rawCategoryId is! String ||
+          !_uuidPattern.hasMatch(rawCategoryId) ||
+          rawType is! String ||
+          rawType.isEmpty) {
+        warnings.add('舊版自訂動作第 $i 筆缺必要欄位(id / name / categoryId / type)'
+            '或格式不符,已略過。');
+        continue;
+      }
+      final id = rawId.toLowerCase();
+      if (!seenIds.add(id)) {
+        warnings.add('舊版自訂動作第 $i 筆 id($id)重複,已略過。');
+        continue;
+      }
+      var type = rawType;
+      if (!_knownExerciseTypes.contains(type)) {
+        warnings.add('舊版自訂動作「$rawName」type「$rawType」不是已知值,改用 free_weight。');
+        type = 'free_weight';
+      }
+      final movement = item['movementPattern'];
+      final muscle = item['primaryMuscleGroup'];
+      final rawUserId = item['userId'];
+      final now = DateTime.now();
+      final createdAt = date(item['createdAt'], now);
+      result.add(
+        _LegacyCustomExercise(
+          id: id,
+          name: rawName,
+          nameEn: optString(item['nameEn']),
+          categoryId: rawCategoryId.toLowerCase(),
+          type: type,
+          movementPattern:
+              _knownMovementPatterns.contains(movement) ? movement as String : null,
+          primaryMuscleGroup:
+              _knownPrimaryMuscleGroups.contains(muscle) ? muscle as String : null,
+          descriptionText: optString(item['description']),
+          videoURL: optString(item['videoURL']),
+          imageURL: optString(item['imageURL']),
+          isActive: item['isActive'] is bool ? item['isActive'] as bool : true,
+          userId: (rawUserId is String && _uuidPattern.hasMatch(rawUserId))
+              ? rawUserId.toLowerCase()
+              : null,
+          createdAt: createdAt,
+          updatedAt: date(item['updatedAt'], createdAt),
+        ),
+      );
+    } catch (e) {
+      warnings.add('舊版自訂動作第 $i 筆解析失敗,已略過:$e');
+    }
+  }
+  return result;
+}
+
 class _CurrentStepHolder {
   String? value;
 }

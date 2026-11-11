@@ -16,6 +16,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1272,6 +1273,219 @@ void main() {
     });
   });
 
+  group('CoreDataImporter - 舊版 UserDefaults 自訂動作(customExercises)', () {
+    // 舊 iOS 版把「自訂動作」存在 UserDefaults `customExercises`(JSON 陣列
+    // `[Exercise]`,JSONEncoder 預設編碼:UUID 大寫、Date 為 2001 起算秒數),
+    // 不在 CoreData——匯入時要以原 id 補寫進 exercises。
+    final idA = _uuidFromSeed(73); // 被訓練引用
+    final idB = _uuidFromSeed(76); // 被 PR 引用
+    final idC = _uuidFromSeed(78); // 沒被任何東西引用
+    final idD = _uuidFromSeed(77); // CoreData 與 JSON 都有(同 id)
+    final userId = _uuidFromSeed(70);
+
+    Map<String, Object?> jsonExercise(
+      String id,
+      String name, {
+      String type = 'free_weight',
+      String categoryId = '00000000-0000-0000-0000-000000000003',
+      String? primaryMuscleGroup = 'legs',
+      String? movementPattern = 'squat',
+    }) =>
+        {
+          'id': id.toUpperCase(),
+          'name': name,
+          'nameEn': 'En $name',
+          'categoryId': categoryId.toUpperCase(),
+          'type': type,
+          'muscleGroups': ['股四頭肌'],
+          'targetMuscles': ['quads'],
+          'primaryMuscleGroup': primaryMuscleGroup,
+          'movementPattern': movementPattern,
+          'description': 'desc $name',
+          'isSystem': false,
+          'userId': _uuidFromSeed(999).toUpperCase(), // iOS 寫入的是隨機 UUID()
+          'isActive': true,
+          'createdAt': 1000.0,
+          'updatedAt': 2000.0,
+          'isFavorite': false,
+          'isHidden': false,
+        }..removeWhere((_, v) => v == null);
+
+    Directory buildSupportDir(String name) {
+      final dir = Directory(p.join(tempDir.path, name))
+        ..createSync(recursive: true);
+      _buildCustomExerciseRefsDb(p.join(dir.path, 'WorkoutRecord.sqlite'));
+      return dir;
+    }
+
+    CoreDataImporter importerWith(Directory dir, Future<String?> Function() json) {
+      return CoreDataImporter(
+        supportDirectoryProvider: () async => dir,
+        temporaryDirectoryProvider: () async {
+          final t = Directory(p.join(tempDir.path, 'tmp_${dir.hashCode}'))
+            ..createSync(recursive: true);
+          return t;
+        },
+        legacyCustomExercisesJsonProvider: json,
+      );
+    }
+
+    test('以原 id 寫入;引用它的訓練與 PR 對到正確動作,不產生佔位動作', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final dir = buildSupportDir('legacy_custom_ok');
+      final json = jsonEncode([
+        jsonExercise(idA, '自訂深蹲'),
+        jsonExercise(idB, '自訂划船', type: 'machine', primaryMuscleGroup: 'back', movementPattern: 'pull'),
+        jsonExercise(idC, '自訂伏地挺身',
+            type: 'bodyweight', categoryId: '00000000-0000-0000-0000-000000000001', primaryMuscleGroup: 'chest', movementPattern: 'push'),
+        jsonExercise(idD, 'JSON 版(應被 CoreData 蓋過)'),
+      ]);
+
+      final result = await importerWith(dir, () async => json).importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      // 沒有任何佔位動作;沒有「未知動作」。
+      expect(result.createdPlaceholders['exercises'] ?? 0, 0);
+      final all = await db.select(db.exercises).get();
+      expect(all.where((e) => e.name == '未知動作'), isEmpty);
+      expect(all.where((e) => e.name == 'Ghost A'), isEmpty);
+
+      final a = all.singleWhere((e) => e.id == idA);
+      expect(a.name, '自訂深蹲');
+      expect(a.nameEn, 'En 自訂深蹲');
+      expect(a.categoryId, '00000000-0000-0000-0000-000000000003');
+      expect(a.type, 'free_weight');
+      expect(a.primaryMuscleGroup, 'legs');
+      expect(a.movementPattern, 'squat');
+      expect(a.descriptionText, 'desc 自訂深蹲');
+      expect(a.isSystem, isFalse);
+      expect(a.isActive, isTrue);
+      // iOS 寫的 userId 是隨機 UUID,對不上時 fallback 為匯入的唯一使用者。
+      expect(a.userId, userId);
+      // 2001-01-01 + 1000 秒。
+      expect(a.createdAt.millisecondsSinceEpoch, (978307200 + 1000) * 1000);
+      expect(a.updatedAt.millisecondsSinceEpoch, (978307200 + 2000) * 1000);
+
+      final b = all.singleWhere((e) => e.id == idB);
+      expect(b.type, 'machine');
+      expect(b.primaryMuscleGroup, 'back');
+      final c = all.singleWhere((e) => e.id == idC);
+      expect(c.name, '自訂伏地挺身'); // 沒被引用的自訂動作也不會消失
+      expect(c.type, 'bodyweight');
+      expect(c.categoryId, '00000000-0000-0000-0000-000000000001');
+
+      // 訓練與 PR 對到正確動作。
+      final workoutExercise = (await db.select(db.workoutExercises).get()).single;
+      expect(workoutExercise.exerciseId, idA);
+      final record = (await db.select(db.personalRecords).get()).single;
+      expect(record.exerciseId, idB);
+
+      // 同 id 以 CoreData 為準、不重複插入。
+      final d = all.where((e) => e.id == idD).toList();
+      expect(d, hasLength(1));
+      expect(d.single.name, 'CoreData 版');
+      expect(d.single.type, 'machine');
+
+      // 帳式:種子 66 + CoreData 1(D)+ JSON 新增 3(A/B/C)= 70,與核帳快照一致。
+      expect(result.tableCounts['exercises'], 4);
+      final prefs = await SharedPreferences.getInstance();
+      final verified = (jsonDecode(prefs.getString(kCoreDataImportVerifiedCountsKey)!)
+              as Map<String, dynamic>)
+          .cast<String, int>();
+      expect(verified['exercises'], all.length);
+      expect(all.length, 70);
+    });
+
+    test('JSON 壞掉(非 JSON / 非陣列 / provider 丟例外)→ 其餘匯入照常完成', () async {
+      final badProviders = <String, Future<String?> Function()>{
+        'not json': () async => '{this is not json',
+        'not array': () async => '{"id":"x"}',
+        'provider throws': () async => throw StateError('channel boom'),
+        'null': () async => null,
+      };
+      var n = 0;
+      for (final entry in badProviders.entries) {
+        final db = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(db.close);
+        final dir = buildSupportDir('legacy_custom_bad_${n++}');
+
+        final result = await importerWith(dir, entry.value).importIfNeeded(db);
+
+        expect(result.success, isTrue, reason: '${entry.key}: ${result.errorMessage}');
+        expect(await db.select(db.workouts).get(), hasLength(1), reason: entry.key);
+        expect(await db.select(db.workoutSets).get(), hasLength(1), reason: entry.key);
+        expect(await db.select(db.personalRecords).get(), hasLength(1), reason: entry.key);
+        // 自訂動作沒進來 → 回到既有行為:引用它的訓練補建佔位動作。
+        expect(result.createdPlaceholders['exercises'], 2, reason: entry.key);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool(kCoreDataImportCompletedKey), isTrue, reason: entry.key);
+        await prefs.clear();
+      }
+    });
+
+    test('單筆缺欄位 / 非物件 / 重複 id → 只跳過該筆,好的照常匯入', () async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final dir = buildSupportDir('legacy_custom_partial');
+      final noName = jsonExercise(idB, 'x')..remove('name');
+      final json = jsonEncode([
+        jsonExercise(idA, '自訂深蹲'),
+        noName,
+        'garbage',
+        42,
+        jsonExercise(idA, '重複 id'),
+        jsonExercise(idC, '自訂伏地挺身', type: 'weird_type', primaryMuscleGroup: 'nope'),
+      ]);
+
+      final result = await importerWith(dir, () async => json).importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      final all = await db.select(db.exercises).get();
+      expect(all.singleWhere((e) => e.id == idA).name, '自訂深蹲');
+      final c = all.singleWhere((e) => e.id == idC);
+      expect(c.type, 'free_weight'); // 未知 type 退回預設
+      expect(c.primaryMuscleGroup, isNull); // 未知肌群不寫入
+      expect(all.where((e) => e.id == idB), isEmpty); // 缺 name 的被跳過
+      // B 被跳過 → PR 引用 B 仍走佔位(既有行為),A 的訓練不走佔位。
+      expect(result.createdPlaceholders['exercises'], 1);
+      expect((await db.select(db.workoutExercises).get()).single.exerciseId, idA);
+    });
+
+    test('預設 provider 走 MethodChannel getLegacyCustomExercises', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('com.mikelin.workitout/legacy_prefs');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var called = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'getLegacyCustomExercises');
+        called++;
+        return jsonEncode([jsonExercise(idA, '自訂深蹲')]);
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final dir = buildSupportDir('legacy_custom_channel');
+      final importer = CoreDataImporter(
+        supportDirectoryProvider: () async => dir,
+        temporaryDirectoryProvider: () async => Directory(p.join(tempDir.path, 'tmp_ch'))
+          ..createSync(recursive: true),
+      );
+
+      final result = await importer.importIfNeeded(db);
+
+      expect(result.success, isTrue, reason: result.errorMessage);
+      expect(called, 1);
+      expect((await db.select(db.workoutExercises).get()).single.exerciseId, idA);
+      expect(
+        (await db.select(db.exercises).get()).singleWhere((e) => e.id == idA).name,
+        '自訂深蹲',
+      );
+    });
+  });
+
   group('truncateForImportLog - 截斷邊界(500/501 字元)', () {
     test('剛好 500 字元不截斷', () {
       final message = 'a' * kImportLogMaxMessageLength;
@@ -1800,6 +2014,74 @@ void _buildMissingExerciseForTemplateExerciseDb(String path) {
       '(ZID, ZTEMPLATEID, ZEXERCISEID, ZORDERINDEX, ZSUGGESTEDSETS, '
       'ZSUGGESTEDREPS) VALUES (?, ?, ?, ?, ?, ?)',
       [templateExerciseId, templateId, ghostExerciseId, 0, 3, 8],
+    );
+  } finally {
+    db.dispose();
+  }
+}
+
+String _uuidFromSeed(int seed) {
+  final bytes = _fakeUuidBytes(seed);
+  return _hexToUuid(
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+  );
+}
+
+/// (h) UserDefaults 自訂動作情境用的舊庫:ZEXERCISEENTITY 只有一筆 CoreData
+/// 自訂動作 D(seed 77);訓練動作引用 A(seed 73)、PR 引用 B(seed 76),
+/// 這兩個 id 不在 CoreData 裡(只存在 UserDefaults JSON),C(seed 78)沒人
+/// 引用。workout_exercise 的 ZEXERCISENAME 刻意寫 'Ghost A',用來證明
+/// 沒有走佔位動作路徑(佔位名稱會取自這個欄位)。
+void _buildCustomExerciseRefsDb(String path) {
+  final db = sqlite3lib.sqlite3.open(path);
+  try {
+    db.execute(_syntheticSchema);
+
+    final userId = _fakeUuidBytes(70);
+    final workoutId = _fakeUuidBytes(71);
+    final workoutExerciseId = _fakeUuidBytes(72);
+    final exerciseAId = _fakeUuidBytes(73);
+    final setId = _fakeUuidBytes(74);
+    final recordId = _fakeUuidBytes(75);
+    final exerciseBId = _fakeUuidBytes(76);
+    final exerciseDId = _fakeUuidBytes(77);
+    final chestCategory = Uint8List.fromList([...List.filled(15, 0), 1]);
+
+    db.execute(
+      'INSERT INTO ZUSERENTITY (ZID, ZNAME, ZCREATEDAT, ZUPDATEDAT) '
+      'VALUES (?, ?, ?, ?)',
+      [userId, 'Synthetic User', 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZEXERCISEENTITY '
+      '(ZID, ZNAME, ZCATEGORYID, ZTYPE, ZISSYSTEM, ZISACTIVE, ZUSERID, '
+      'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [exerciseDId, 'CoreData 版', chestCategory, 'machine', 0, 1, userId, 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZWORKOUTENTITY '
+      '(ZID, ZUSERID, ZSTARTEDAT, ZTOTALVOLUME, ZTOTALSETS, ZTOTALEXERCISES, '
+      'ZISSYNCED, ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [workoutId, userId, 0.0, 300.0, 1, 1, 0, 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZWORKOUTEXERCISEENTITY '
+      '(ZID, ZWORKOUTID, ZEXERCISEID, ZEXERCISENAME, ZORDERINDEX, '
+      'ZTOTALVOLUME, ZTOTALSETS, ZISCOMPLETED, ZISCUSTOMEXERCISE, '
+      'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [workoutExerciseId, workoutId, exerciseAId, 'Ghost A', 0, 300.0, 1, 1, 1, 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZWORKOUTSETENTITY '
+      '(ZID, ZWORKOUTEXERCISEID, ZSETNUMBER, ZWEIGHT, ZREPS, ZVOLUME, '
+      'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [setId, workoutExerciseId, 1, 60.0, 5, 300.0, 0.0, 0.0],
+    );
+    db.execute(
+      'INSERT INTO ZPERSONALRECORDENTITY '
+      '(ZID, ZUSERID, ZEXERCISEID, ZREPS, ZONEREPMAX, ZWEIGHT, ZACHIEVEDAT, '
+      'ZCREATEDAT, ZUPDATEDAT) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [recordId, userId, exerciseBId, 5, 70.0, 60.0, 0.0, 0.0, 0.0],
     );
   } finally {
     db.dispose();

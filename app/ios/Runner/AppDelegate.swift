@@ -28,10 +28,22 @@ import UIKit
       switch call.method {
       case "getLegacyPreferences":
         result(self?.readLegacyPreferences() ?? [:])
+      case "getLegacyCustomExercises":
+        result(self?.readLegacyCustomExercisesJson())
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// 舊版「自訂動作」存在 UserDefaults `customExercises`(`[Exercise]` 的
+  /// JSONEncoder 輸出,不在 CoreData),原樣以 JSON 字串回傳,由 Dart 端
+  /// `CoreDataImporter` 解析並以原 id 補寫進 exercises。沒有這個 key 回傳 nil。
+  private func readLegacyCustomExercisesJson() -> String? {
+    guard let data = UserDefaults.standard.data(forKey: "customExercises") else {
+      return nil
+    }
+    return String(data: data, encoding: .utf8)
   }
 
   private func readLegacyPreferences() -> [String: Any] {
