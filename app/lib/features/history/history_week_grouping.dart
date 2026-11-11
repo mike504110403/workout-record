@@ -2,8 +2,7 @@
 //
 // 週起算沿用 dashboard_controller.dart / workout_stats_controller.dart 的
 // 慣例:固定 ISO 8601(週一為一週開始),讓列表的「本週」與首頁/數據頁的
-// 「本週」是同一個範圍。(日曆檢視的欄位是週日起算,那是 iOS 版日曆格線的
-// 既有排法,與這裡的「本週」語意無關。)
+// 「本週」是同一個範圍。日曆檢視的欄位同樣週一起算(見 calendar_grid.dart)。
 import '../../data/models/workout.dart';
 
 class HistoryWeekGroup {

@@ -8,6 +8,9 @@
 // 驗證,這裡照抄同一個行為(寬鬆完成、嚴格才能翻頁)。但 Users row 不受這條
 // 規則管——不論有沒有填體重,complete() 都會確保有一筆 Users row,體重只是
 // row 建好之後「要不要多記一筆 BodyWeight」的獨立決定,兩者不該綁在一起。
+// 與 iOS 差異:complete() 另外在尚無 UserGoal 時建立一筆(每週目標/目標
+// 體重)——首頁與目標設定頁讀 UserGoal,只寫 prefs 會讓引導設定的目標不生效。
+// 精靈目前 2 步、任何一步都可「跳過」直接 complete()。
 //
 // key 命名對齊 app/lib/data/migration/legacy_prefs_importer.dart 已在寫的
 // `legacy_user_*` / `legacy_weekly_workout_goal` 慣例,但去掉 `legacy_`

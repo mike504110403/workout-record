@@ -107,7 +107,7 @@ class _CalendarBody extends ConsumerWidget {
   }
 }
 
-/// 星期標題列(日一二三四五六)。7 個 `Expanded` 等寬,與下方 `GridView.count`
+/// 星期標題列(一二三四五六日)。7 個 `Expanded` 等寬,與下方 `GridView.count`
 /// 的 7 欄對齊(格線無水平 padding)。
 class _WeekdayHeader extends StatelessWidget {
   const _WeekdayHeader();

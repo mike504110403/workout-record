@@ -441,12 +441,12 @@ void main() {
   });
 
   group('日曆星期列', () {
-    testWidgets('顯示日一二三四五六標題,且日期格落在對應星期欄(週日起算)', (tester) async {
+    testWidgets('顯示一二三四五六日標題,且日期格落在對應星期欄(週一起算)', (tester) async {
       final harness = await _setUpHarness();
       await _pumpHistory(tester, harness);
       await _switchToCalendar(tester);
 
-      const labels = ['日', '一', '二', '三', '四', '五', '六'];
+      const labels = ['一', '二', '三', '四', '五', '六', '日'];
       final headerXs = <double>[];
       for (var i = 0; i < labels.length; i++) {
         final header = find.byKey(Key('historyCalendarWeekday-$i'));
@@ -459,11 +459,11 @@ void main() {
         expect(headerXs[i], greaterThan(headerXs[i - 1]));
       }
 
-      // 當月 1 號所在欄 = weekday % 7(週日=0),其水平中心要對齊該欄標題。
+      // 當月 1 號所在欄 = weekday - 1(週一=0),其水平中心要對齊該欄標題。
       final now = DateTime.now();
       final first = DateTime(now.year, now.month, 1);
       final cell = find.byKey(Key('historyCalendarDay-${now.year}-${now.month}-1'));
-      expect(tester.getCenter(cell).dx, closeTo(headerXs[first.weekday % 7], 1.0));
+      expect(tester.getCenter(cell).dx, closeTo(headerXs[first.weekday - 1], 1.0));
     });
 
     testWidgets('有訓練的日期格有實心底色(與無訓練的日期格不同)', (tester) async {
