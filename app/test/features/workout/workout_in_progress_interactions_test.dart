@@ -485,7 +485,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('exercise_picker_search_field')), exercise.name);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(Key('exercise_row_${exercise.id}')));
+    await tester.tap(find.byKey(Key('exercise_checkbox_${exercise.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('addSetWeightField')), findsOneWidget);

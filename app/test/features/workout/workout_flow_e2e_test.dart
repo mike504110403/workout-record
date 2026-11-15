@@ -90,8 +90,9 @@ Future<void> _pumpApp(WidgetTester tester, _Harness harness) async {
   return (context: element, ref: element as WidgetRef);
 }
 
+/// 進行中頁選動作器是多選:勾 1 個再按確認(仍自動開記組視窗)。
 Future<void> _pickExerciseSingle(WidgetTester tester, String exerciseId) async {
-  final row = find.byKey(Key('exercise_row_$exerciseId'));
+  final row = find.byKey(Key('exercise_checkbox_$exerciseId'));
   await tester.scrollUntilVisible(
     row,
     120,
@@ -103,6 +104,8 @@ Future<void> _pickExerciseSingle(WidgetTester tester, String exerciseId) async {
         .first,
   );
   await tester.tap(row);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
   await tester.pumpAndSettle();
 }
 

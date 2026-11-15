@@ -4,7 +4,11 @@
 // 也用來編輯既有組數(帶入 initial* 參數時,行為對照 iOS `EditSetSheet`——
 // iOS 那邊是獨立檔案,這裡刻意收斂成同一個表單少一份重複,呼叫端
 // (workout_in_progress_view.dart)決定要不要帶 initial* 值)。
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/weight_format.dart';
@@ -53,6 +57,17 @@ double addSetWeightStep(WeightUnit unit) => unit == WeightUnit.lb ? 5 : 2.5;
 
 /// 次數 stepper 的單次步進。
 const int kAddSetRepsStep = 1;
+
+/// 重量快捷鈕的增量(顯示單位:kg 模式即 kg、lb 模式即 lb)。
+const List<int> kAddSetWeightQuickAmounts = [5, 10, 20];
+
+/// 長按連續加減:按住滿 [kAddSetRepeatDelay] 後開始重複,初始每
+/// [kAddSetRepeatSlow] 一次;自按下起滿 [kAddSetRepeatAccelAfter] 後加速到
+/// 每 [kAddSetRepeatFast] 一次。
+const Duration kAddSetRepeatDelay = Duration(milliseconds: 400);
+const Duration kAddSetRepeatSlow = Duration(milliseconds: 150);
+const Duration kAddSetRepeatFast = Duration(milliseconds: 60);
+const Duration kAddSetRepeatAccelAfter = Duration(milliseconds: 1500);
 
 /// 開啟記組 sheet。使用者取消回傳 `null`。
 ///
@@ -207,9 +222,14 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
 
   /// 重量 −/+:輸入框為空或不是數字時視為 0;下限 0;結果四捨五入到
   /// 小數 2 位避免浮點尾數(例如 102.60000000000001)。
-  void _stepWeight(int direction, WeightUnit unit) {
+  void _stepWeight(int direction, WeightUnit unit) =>
+      _addWeight(direction * addSetWeightStep(unit));
+
+  /// 重量加上 [delta](顯示單位),空值/非數字視 0、下限 0、四捨五入小數 2 位。
+  /// −/+ 鈕與 +5/+10/+20 快捷鈕共用。
+  void _addWeight(double delta) {
     final current = double.tryParse(_weightController.text) ?? 0;
-    final next = current + direction * addSetWeightStep(unit);
+    final next = current + delta;
     final rounded = (next * 100).round() / 100;
     setState(
       () => _weightController.text = trimZeros(rounded < 0 ? 0 : rounded),
@@ -328,6 +348,24 @@ class _AddSetFormState extends ConsumerState<_AddSetForm> {
               onChanged: () => setState(() {}),
               onMinus: () => _stepWeight(-1, unit),
               onPlus: () => _stepWeight(1, unit),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                for (var i = 0; i < kAddSetWeightQuickAmounts.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: OutlinedButton(
+                      key: Key('addSetWeightQuick_${kAddSetWeightQuickAmounts[i]}'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                      ),
+                      onPressed: () => _addWeight(kAddSetWeightQuickAmounts[i].toDouble()),
+                      child: Text('+${kAddSetWeightQuickAmounts[i]}'),
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: AppSpacing.lg),
             _NumberStepper(
@@ -519,7 +557,6 @@ class _NumberStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    const buttonStyleSize = Size(56, 56);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -533,12 +570,11 @@ class _NumberStepper extends StatelessWidget {
         const SizedBox(height: AppSpacing.xs),
         Row(
           children: [
-            IconButton.filledTonal(
-              key: minusKey,
+            _HoldRepeatButton(
+              buttonKey: minusKey,
               tooltip: '減少$label',
-              style: IconButton.styleFrom(minimumSize: buttonStyleSize),
-              icon: const Icon(Icons.remove),
-              onPressed: onMinus,
+              icon: Icons.remove,
+              onStep: onMinus,
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -553,16 +589,104 @@ class _NumberStepper extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.md),
-            IconButton.filledTonal(
-              key: plusKey,
+            _HoldRepeatButton(
+              buttonKey: plusKey,
               tooltip: '增加$label',
-              style: IconButton.styleFrom(minimumSize: buttonStyleSize),
-              icon: const Icon(Icons.add),
-              onPressed: onPlus,
+              icon: Icons.add,
+              onStep: onPlus,
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 單點觸發一次 [onStep];按住滿 [kAddSetRepeatDelay] 即長按成立,於 t=400ms
+/// 觸發第 1 步,之後每 [kAddSetRepeatSlow] 一步,自按下起 t≥
+/// [kAddSetRepeatAccelAfter] 後改每 [kAddSetRepeatFast] 一步。放開、拖出按鈕
+/// 範圍、手勢取消、dispose 時立即停止。
+///
+/// 用 [LongPressGestureRecognizer](duration 400ms)而不是自己聽 pointer:
+/// 它 400ms 即勝出手勢競技場,壓過 IconButton tooltip 的 500ms 長按(不會彈
+/// tooltip 浮層),且長按成立後放開不會再觸發 [IconButton.onPressed]。
+class _HoldRepeatButton extends StatefulWidget {
+  const _HoldRepeatButton({
+    required this.buttonKey,
+    required this.tooltip,
+    required this.icon,
+    required this.onStep,
+  });
+
+  final Key buttonKey;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onStep;
+
+  @override
+  State<_HoldRepeatButton> createState() => _HoldRepeatButtonState();
+}
+
+class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
+  Timer? _timer;
+
+  /// 自按下起的時間軸位置(以各段 delay 累加,不依賴 Stopwatch)。
+  Duration _elapsed = Duration.zero;
+
+  void _onLongPressStart(LongPressStartDetails details) {
+    _stop();
+    HapticFeedback.selectionClick();
+    _elapsed = kAddSetRepeatDelay;
+    _fire();
+  }
+
+  void _fire() {
+    if (!mounted) return;
+    widget.onStep();
+    final next = _elapsed >= kAddSetRepeatAccelAfter ? kAddSetRepeatFast : kAddSetRepeatSlow;
+    _elapsed += next;
+    _timer = Timer(next, _fire);
+  }
+
+  void _stop() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void _onLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_timer == null) return;
+    final box = context.findRenderObject();
+    if (box is RenderBox && !(Offset.zero & box.size).contains(details.localPosition)) {
+      _stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RawGestureDetector(
+      gestures: {
+        LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+          () => LongPressGestureRecognizer(duration: kAddSetRepeatDelay),
+          (recognizer) => recognizer
+            ..onLongPressStart = _onLongPressStart
+            ..onLongPressMoveUpdate = _onLongPressMove
+            ..onLongPressEnd = ((_) => _stop())
+            ..onLongPressCancel = _stop,
+        ),
+      },
+      child: IconButton.filledTonal(
+        key: widget.buttonKey,
+        tooltip: widget.tooltip,
+        style: IconButton.styleFrom(minimumSize: const Size(56, 56)),
+        icon: Icon(widget.icon),
+        onPressed: widget.onStep,
+      ),
     );
   }
 }

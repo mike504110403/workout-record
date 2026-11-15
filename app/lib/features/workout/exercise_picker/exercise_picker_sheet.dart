@@ -25,7 +25,7 @@ import 'quick_add_exercise_sheet.dart';
 /// 選動作器的公開契約。
 ///
 /// - 單選(`multiSelect: false`,預設):點動作即回傳 `[exercise]` 並關閉。
-/// - 多選(`multiSelect: true`):可勾選多個,按下確認鈕回傳清單。
+/// - 多選(`multiSelect: true`):可勾選多個,按下確認鈕回傳清單(依勾選順序)。
 /// - 取消(左上角按鈕或滑掉/點背景關閉):回傳 `null`。
 /// - [workoutMode](ui-polish,**預設關閉**,只有進行中訓練頁開):收掉標題列
 ///   (靠拖曳把手/滑掉關閉)、搜尋框置頂、頂端加「最近用過」、「+ 自訂動作」
@@ -94,31 +94,38 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
     Navigator.of(context).pop([exercise]);
   }
 
-  /// 多選確認:回傳清單依「`allExercises` ∪ `categoryExercises` 的查詢順序」
-  /// 排列(先照 `allExercises` 的順序取出命中的,再補上只存在於
-  /// `categoryExercises`、`allExercises` 沒有的),**不是使用者勾選的先後
-  /// 順序**——契約沒有承諾回傳順序等於勾選順序,這裡先講清楚。
+  /// 「最近用過」chip 在多選模式下是切換勾選(不直接回傳)。勾選只存 id;
+  /// 最近動作理論上也在 `allExercises` 裡,但保險起見留一份物件,確認時
+  /// 兜底(避免 id 勾了卻解析不到而無聲消失)。
+  final Map<String, Exercise> _pickedFromRecent = {};
+
+  void _toggleRecent(Exercise exercise) {
+    _pickedFromRecent[exercise.id] = exercise;
+    ref.read(exercisePickerControllerProvider.notifier).toggleSelection(exercise.id);
+  }
+
+  /// 多選確認:回傳清單依**使用者勾選順序**排列(取消勾選後再勾 → 排到最後;
+  /// `selectedIds` 是保留插入順序的 LinkedHashSet,`toggleSelection` 每次複製
+  /// 後 add/remove,所以順序即勾選順序)。
   ///
-  /// code review major 2:原本只從 `allExercises` 解析勾選 id,但勾選動作
-  /// 可能發生在分類篩選過的 `categoryExercises` 上——若這兩份清單的查詢
-  /// 謂詞(`fetchAll` vs `fetchByCategory`)未來出現任何不一致,勾了的動作
-  /// 會在確認當下無聲消失(id 在 `selectedIds` 裡,但在 `allExercises` 裡
-  /// 找不到對應物件,`where` 直接跳過)。改成對兩份清單的聯集(依 id 去重)
-  /// 解析,不管勾選當下畫面顯示的是哪一份清單都不會遺漏。
+  /// code review major 2:勾選動作可能發生在分類篩選過的 `categoryExercises`
+  /// 上——只從 `allExercises` 解析的話,若兩份清單的查詢謂詞日後不一致,勾了
+  /// 的動作會在確認當下無聲消失。這裡對 `allExercises` ∪ `categoryExercises`
+  /// (再加最近用過 chip 勾的)依 id 去重後解析,解析不到的 id 才略過。
   void _confirmMultiSelect(ExercisePickerState state) {
-    // `<String, Exercise>{}` 是 LinkedHashMap,保留插入順序——先塞
-    // `allExercises`(fetchAll 依名稱排序的結果),再補只存在於
-    // `categoryExercises`、`allExercises` 沒有的(理論上不會發生,但兩份
-    // 清單來自不同查詢,防禦性地兜底)。`putIfAbsent` 確保重複 id 以先塞入
-    // 的為準,不會被後面覆寫。
-    final combined = <String, Exercise>{};
+    final byId = <String, Exercise>{};
     for (final e in state.allExercises) {
-      combined.putIfAbsent(e.id, () => e);
+      byId.putIfAbsent(e.id, () => e);
     }
     for (final e in state.categoryExercises) {
-      combined.putIfAbsent(e.id, () => e);
+      byId.putIfAbsent(e.id, () => e);
     }
-    final selected = combined.values.where((e) => state.selectedIds.contains(e.id)).toList();
+    for (final e in _pickedFromRecent.values) {
+      byId.putIfAbsent(e.id, () => e);
+    }
+    final selected = <Exercise>[
+      for (final id in state.selectedIds) ?byId[id],
+    ];
     Navigator.of(context).pop(selected);
   }
 
@@ -180,7 +187,12 @@ class _ExercisePickerSheetState extends ConsumerState<ExercisePickerSheet> {
                   state: state,
                   multiSelect: widget.multiSelect,
                   onSelectSingle: _selectSingle,
-                  topSection: widget.workoutMode ? _RecentSection(onSelect: _selectSingle) : null,
+                  topSection: widget.workoutMode
+                      ? _RecentSection(
+                          multiSelect: widget.multiSelect,
+                          onSelect: widget.multiSelect ? _toggleRecent : _selectSingle,
+                        )
+                      : null,
                   emptySearchAction: widget.workoutMode
                       ? FilledButton.tonalIcon(
                           key: const Key('exercise_picker_add_custom_from_search'),
@@ -615,16 +627,21 @@ class _ConfirmBar extends StatelessWidget {
 
 /// workoutMode 頂端「最近用過」:一排可橫向捲動的 chip,點了直接選該動作。
 /// 資料來自獨立的 [recentExercisesProvider](best-effort:載入中、失敗、沒有
-/// 紀錄時整區不顯示,不擋選動作)。
+/// 紀錄時整區不顯示,不擋選動作)。多選模式([multiSelect])點 chip 是切換勾選
+/// (已選的 chip 顯示勾選態),單選模式點了直接回傳。
 class _RecentSection extends ConsumerWidget {
-  const _RecentSection({required this.onSelect});
+  const _RecentSection({required this.onSelect, this.multiSelect = false});
 
   final void Function(Exercise exercise) onSelect;
+  final bool multiSelect;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final recent = ref.watch(recentExercisesProvider).value ?? const <Exercise>[];
     if (recent.isEmpty) return const SizedBox.shrink();
+    final selectedIds = multiSelect
+        ? ref.watch(exercisePickerControllerProvider.select((s) => s.value?.selectedIds ?? const <String>{}))
+        : const <String>{};
     final theme = Theme.of(context);
     return Column(
       key: const Key('exercise_picker_recent_section'),
@@ -647,11 +664,18 @@ class _RecentSection extends ConsumerWidget {
             itemBuilder: (context, index) {
               final exercise = recent[index];
               return Center(
-                child: ActionChip(
-                  key: Key('exercise_picker_recent_${exercise.id}'),
-                  label: Text(exercise.name),
-                  onPressed: () => onSelect(exercise),
-                ),
+                child: multiSelect
+                    ? FilterChip(
+                        key: Key('exercise_picker_recent_${exercise.id}'),
+                        label: Text(exercise.name),
+                        selected: selectedIds.contains(exercise.id),
+                        onSelected: (_) => onSelect(exercise),
+                      )
+                    : ActionChip(
+                        key: Key('exercise_picker_recent_${exercise.id}'),
+                        label: Text(exercise.name),
+                        onPressed: () => onSelect(exercise),
+                      ),
               );
             },
           ),

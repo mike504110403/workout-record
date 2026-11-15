@@ -22,6 +22,7 @@ Future<({List<Exercise> system, List<Exercise>? Function() result})> _pump(
   WidgetTester tester, {
   List<Exercise> Function(List<Exercise> system)? recentOf,
   Object? recentError,
+  bool multiSelect = false,
 }) async {
   SharedPreferences.setMockInitialValues({kAppleUserIdKey: testUserId});
   final prefs = await SharedPreferences.getInstance();
@@ -49,7 +50,7 @@ Future<({List<Exercise> system, List<Exercise>? Function() result})> _pump(
         home: Builder(
           builder: (context) => Scaffold(
             body: ElevatedButton(
-              onPressed: () async => picked = await showExercisePicker(context, workoutMode: true),
+              onPressed: () async => picked = await showExercisePicker(context, workoutMode: true, multiSelect: multiSelect),
               child: const Text('open'),
             ),
           ),
@@ -110,5 +111,83 @@ void main() {
     await tester.tap(find.byKey(const Key('exercise_picker_add_custom_from_search')));
     await tester.pumpAndSettle();
     expect(find.text('新增自訂動作'), findsWidgets);
+  });
+
+  testWidgets('workoutMode+多選:點「最近用過」chip 是切換勾選、不關閉選單,已選 chip 呈勾選態', (tester) async {
+    final h = await _pump(tester, multiSelect: true, recentOf: (system) => [system[3], system[1]]);
+    final chip3 = find.byKey(Key('exercise_picker_recent_${h.system[3].id}'));
+
+    await tester.tap(chip3);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('exercise_picker_search_field')), findsOneWidget, reason: '選單未關閉');
+    expect(h.result(), isNull);
+    expect(tester.widget<FilterChip>(chip3).selected, isTrue);
+    expect(tester.widget<FilterChip>(find.byKey(Key('exercise_picker_recent_${h.system[1].id}'))).selected, isFalse);
+    expect(find.text('確認 (1)'), findsOneWidget);
+
+    // 再點一次 = 取消勾選
+    await tester.tap(chip3);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilterChip>(chip3).selected, isFalse);
+    expect(find.text('確認 (0)'), findsOneWidget);
+  });
+
+  testWidgets('多選回傳依勾選順序:最近 chip 與清單列混選,取消再勾排到最後', (tester) async {
+    final h = await _pump(tester, multiSelect: true, recentOf: (system) => [system[3]]);
+    final s = h.system;
+    // 清單查詢順序(依名稱)與勾選順序刻意不同:先勾 chip(s[3]),再勾列 s[0]、s[2]。
+    await tester.tap(find.byKey(Key('exercise_picker_recent_${s[3].id}')));
+    for (final e in [s[0], s[2]]) {
+      final row = find.byKey(Key('exercise_checkbox_${e.id}'));
+      await tester.scrollUntilVisible(row, 200, scrollable: find.descendant(of: find.byKey(const Key('exercise_picker_list')), matching: find.byType(Scrollable)).first);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+    }
+    // 取消 s[0] 後再勾 → 排到最後
+    final row0 = find.byKey(Key('exercise_checkbox_${s[0].id}'));
+    await tester.scrollUntilVisible(row0, -200, scrollable: find.descendant(of: find.byKey(const Key('exercise_picker_list')), matching: find.byType(Scrollable)).first);
+    await tester.tap(row0);
+    await tester.pumpAndSettle();
+    await tester.tap(row0);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
+    await tester.pumpAndSettle();
+
+    expect(h.result()?.map((e) => e.id).toList(), [s[3].id, s[2].id, s[0].id]);
+  });
+
+  /// 清單目前由上而下前兩列的動作 id(= 查詢順序的前兩個)。
+  List<String> topTwoIds(WidgetTester tester) => [
+    for (final t in tester.widgetList<ListTile>(find.descendant(of: find.byKey(const Key('exercise_picker_list')), matching: find.byType(ListTile))).take(2))
+      (t.key! as ValueKey<String>).value.substring('exercise_row_'.length),
+  ];
+
+  Future<void> toggle(WidgetTester tester, String id) async {
+    await tester.tap(find.byKey(Key('exercise_checkbox_$id')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('多選順序:先勾查詢順序較後者再勾較前者 → 回傳依勾選順序(非查詢順序)', (tester) async {
+    final h = await _pump(tester, multiSelect: true);
+    final [earlier, later] = topTwoIds(tester);
+    await toggle(tester, later);
+    await toggle(tester, earlier);
+    await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
+    await tester.pumpAndSettle();
+    expect(h.result()?.map((e) => e.id).toList(), [later, earlier]);
+  });
+
+  testWidgets('多選順序:勾 A→勾 B→取消 A→再勾 A → [B, A]', (tester) async {
+    final h = await _pump(tester, multiSelect: true);
+    final [a, b] = topTwoIds(tester);
+    await toggle(tester, a);
+    await toggle(tester, b);
+    await toggle(tester, a); // 取消 A
+    await toggle(tester, a); // 再勾 A → 排到最後
+    await tester.tap(find.byKey(const Key('exercise_picker_confirm_button')));
+    await tester.pumpAndSettle();
+    expect(h.result()?.map((e) => e.id).toList(), [b, a]);
   });
 }

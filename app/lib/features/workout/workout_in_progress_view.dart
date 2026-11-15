@@ -2,7 +2,8 @@
 // ios/WorkoutRecord/WorkoutRecord/Sources/Views/Workout/WorkoutView.swift:152-351)。
 //
 // ui-polish 改版(2026-11-11):
-// - 頂端只留一列統計(時長 · 容量 · 組數)+ 右側 ⋯;休息計時緊貼其下。
+// - 頂端只留一列統計(時長 · 容量 · 組數)+ 右側 ⋯;休息計時(2026-11-16 起)
+//   在底部主鈕正上方,單手拇指可及。
 // - (2026-11-15 inprogress-ux)底部主鈕改「記下一組」(作用於目前動作),「完成」
 //   移到頂列右側;刪組/刪動作/完成訓練都是延遲執行＋復原
 //   (workout_pending_actions.dart)。
@@ -24,7 +25,6 @@ import '../../core/format/weight_format.dart' as weight_format;
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_card.dart';
-import '../../data/models/exercise.dart';
 import '../../data/models/workout.dart';
 import '../settings/preferences/weight_unit.dart';
 import 'add_set_sheet.dart';
@@ -47,21 +47,44 @@ import 'workout_summary_sheet.dart';
 Future<void> pickAndAddExercise(BuildContext context, WidgetRef ref) async {
   // 「最近用過」上次沒查到就趁這次開 sheet 重查(失敗結果不快取)。
   retryExerciseHistoryIfUnavailable(ref);
-  final selected = await showExercisePicker(context, workoutMode: true);
+  final selected = await showExercisePicker(context, workoutMode: true, multiSelect: true);
   if (selected == null || selected.isEmpty || !context.mounted) return;
-  final Exercise exercise = selected.first;
   final notifier = ref.read(workoutControllerProvider.notifier);
-  try {
-    await notifier.addExercise(exercise);
-  } catch (e) {
+  // 依勾選順序逐個加;某一個失敗就停,已加的保留。
+  for (final exercise in selected) {
+    try {
+      await notifier.addExercise(exercise);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
+      return;
+    }
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
-    return;
   }
-  if (!context.mounted) return;
+  // 只選 1 個才自動開記組 sheet;一次加多個不自動開(不知道要先記哪個)。
+  if (selected.length != 1) return;
+  final exercise = selected.first;
   final added = ref.read(workoutControllerProvider).value?.draft?.exercises.lastOrNull;
   if (added == null || added.exerciseId != exercise.id) return;
   await recordSet(context, ref, added.id);
+}
+
+/// 動作卡「上次成績」一行字:上次組清單裡重量最大的一組(同重量取次數多者,
+/// 再同取較前面的組)+ 組數,例如「上次 60 kg × 8・3 組」;最大重量為 0(自重)
+/// 改顯示該動作最大次數「上次 12 下・3 組」。沒有組回 null(不顯示)。
+/// 重量格式與組列一致(`trimZeros(kgToDisplay(..))`)。
+@visibleForTesting
+String? lastPerformanceText(List<WorkoutSet>? sets, WeightUnit unit) {
+  if (sets == null || sets.isEmpty) return null;
+  var best = sets.first;
+  for (final s in sets.skip(1)) {
+    if (s.weight > best.weight || (s.weight == best.weight && s.reps > best.reps)) best = s;
+  }
+  if (best.weight <= 0) {
+    final maxReps = sets.fold<int>(0, (m, s) => s.reps > m ? s.reps : m);
+    return '上次 $maxReps 下・${sets.length} 組';
+  }
+  return '上次 ${trimZeros(kgToDisplay(best.weight, unit))} ${unitSuffix(unit)} × ${best.reps}・${sets.length} 組';
 }
 
 String _exerciseName(WorkoutExercise exercise) =>
@@ -189,7 +212,6 @@ class WorkoutInProgressView extends ConsumerWidget {
     return Column(
       children: [
         const _WorkoutTopBar(),
-        const RestTimerBar(),
         Expanded(
           child: visibleIds.isEmpty
               ? _EmptyExercisesPrompt(onAdd: busy ? null : () => pickAndAddExercise(context, ref))
@@ -220,6 +242,8 @@ class WorkoutInProgressView extends ConsumerWidget {
                   },
                 ),
         ),
+        // 休息計時列/結束提示在底部拇指區,緊貼主鈕上方(不顯示時不佔高度)。
+        const RestTimerBar(),
         const _BottomActions(),
       ],
     );
@@ -660,12 +684,11 @@ class _ExerciseCard extends ConsumerWidget {
     );
     if (data == null) return const SizedBox.shrink();
     final exercise = data.exercise;
-    // 只在有計畫組時才需要「上次數字」;select 到該動作那一份,別的動作的
-    // 歷史變動不會重建這張卡。
-    final history = data.planned.isEmpty
-        ? null
-        : ref.watch(exerciseHistoryProvider.select((h) => h.value?.lastSetsByExerciseId[exercise.exerciseId]));
+    // 「上次數字」:計畫組預填 + 標題下的上次成績一行。select 到該動作那一份,
+    // 別的動作的歷史變動不會重建這張卡;載入中/失敗/沒歷史都是 null。
+    final history = ref.watch(exerciseHistoryProvider.select((h) => h.value?.lastSetsByExerciseId[exercise.exerciseId]));
     final unit = ref.watch(weightUnitProvider);
+    final lastPerformance = lastPerformanceText(history, unit);
     // 結算寫入中/放棄中/完成倒數中:不再接受記組/改組/刪組,避免寫進一筆正在結清的訓練。
     final editable = !ref.watch(_workoutBusyProvider);
     // 待刪的組:畫面已隱藏(DB 要等復原期結束才真刪),組號照「刪完重編」顯示。
@@ -685,7 +708,20 @@ class _ExerciseCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(name, style: theme.textTheme.titleMedium)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: theme.textTheme.titleMedium),
+                    if (lastPerformance != null)
+                      Text(
+                        lastPerformance,
+                        key: Key('lastPerformance_${exercise.id}'),
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                  ],
+                ),
+              ),
               PopupMenuButton<String>(
                 key: Key('exerciseMoreButton_${exercise.id}'),
                 tooltip: '動作選項',

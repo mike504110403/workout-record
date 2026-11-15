@@ -21,6 +21,7 @@ Future<_Result Function()> _openSheet(
   int? initialReps,
   double? initialRpe,
   bool initialIsWarmup = false,
+  bool compact = false,
 }) async {
   AddSetResult? value;
   var done = false;
@@ -42,6 +43,7 @@ Future<_Result Function()> _openSheet(
                   initialReps: initialReps,
                   initialRpe: initialRpe,
                   initialIsWarmup: initialIsWarmup,
+                  compact: compact,
                 );
                 done = true;
               },
@@ -312,5 +314,183 @@ void main() {
       expect(find.byKey(const Key('addSetSaveAndContinueButton')), findsNothing);
       expect(find.byKey(const Key('addSetAdvancedTile')), findsOneWidget);
     });
+  });
+  group('長按連續加減', () {
+    // 按下 → 400ms 起每 150ms 一次(含 400ms 那一刻),自按下起 1.5 秒後每 60ms。
+    Future<TestGesture> hold(WidgetTester tester, String key) =>
+        tester.startGesture(tester.getCenter(find.byKey(Key(key))));
+
+    testWidgets('重量 +:按住 1 秒 → 400/550/700/850/1000ms 共 5 次;放開後不再變化', (tester) async {
+      await _openSheet(tester);
+      final g = await hold(tester, 'addSetWeightPlusButton');
+
+      await tester.pump(const Duration(milliseconds: 399));
+      expect(_text(tester, 'addSetWeightField'), '');
+      await tester.pump(const Duration(milliseconds: 1)); // 400
+      expect(_text(tester, 'addSetWeightField'), '2.5');
+      await tester.pump(const Duration(milliseconds: 150)); // 550
+      expect(_text(tester, 'addSetWeightField'), '5');
+      await tester.pump(const Duration(milliseconds: 450)); // 1000
+      expect(_text(tester, 'addSetWeightField'), '12.5');
+      // 長按期間 Tooltip 浮層不出現(長按 400ms 先勝出,壓掉 tooltip 的 500ms)。
+      expect(find.text('增加重量 (kg)'), findsNothing);
+
+      await g.up();
+      await tester.pump();
+      expect(_text(tester, 'addSetWeightField'), '12.5'); // 放開不多加一次單點
+      await tester.pump(const Duration(seconds: 2));
+      expect(_text(tester, 'addSetWeightField'), '12.5');
+    });
+
+    testWidgets('按住超過 1.5 秒後加速到每 60ms', (tester) async {
+      await _openSheet(tester);
+      final g = await hold(tester, 'addSetWeightPlusButton');
+
+      // 400 + 150k:400..1450 共 8 次,1600ms 是第 9 次(之後每 60ms)。
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(_text(tester, 'addSetWeightField'), '20'); // 8 次
+      await tester.pump(const Duration(milliseconds: 100)); // 1600:第 9 次
+      expect(_text(tester, 'addSetWeightField'), '22.5');
+      await tester.pump(const Duration(milliseconds: 60)); // 1660
+      expect(_text(tester, 'addSetWeightField'), '25');
+      await tester.pump(const Duration(milliseconds: 120)); // 1720、1780
+      expect(_text(tester, 'addSetWeightField'), '30');
+      await g.up();
+      await tester.pump();
+    });
+
+    testWidgets('重量 −:長按到 0 停在 0,不出現負數', (tester) async {
+      await _openSheet(tester, initialWeight: 5, initialReps: 5);
+      final g = await hold(tester, 'addSetWeightMinusButton');
+      await tester.pump(const Duration(seconds: 2));
+      expect(_text(tester, 'addSetWeightField'), '0');
+      await g.up();
+      await tester.pump();
+      expect(_text(tester, 'addSetWeightField'), '0');
+    });
+
+    testWidgets('次數 +/−:同樣支援長按', (tester) async {
+      await _openSheet(tester, initialWeight: 50, initialReps: 3);
+      var g = await hold(tester, 'addSetRepsPlusButton');
+      await tester.pump(const Duration(milliseconds: 700)); // 400/550/700
+      await g.up();
+      await tester.pump();
+      expect(_text(tester, 'addSetRepsField'), '6');
+
+      g = await hold(tester, 'addSetRepsMinusButton');
+      await tester.pump(const Duration(seconds: 3));
+      await g.up();
+      await tester.pump();
+      expect(_text(tester, 'addSetRepsField'), '0');
+    });
+
+    testWidgets('單點只步進一次:kg +2.5、lb +5;不到 400ms 放開不連發', (tester) async {
+      await _openSheet(tester);
+      await tester.tap(find.byKey(const Key('addSetWeightPlusButton')));
+      await tester.pump(const Duration(seconds: 1));
+      expect(_text(tester, 'addSetWeightField'), '2.5');
+    });
+
+    testWidgets('單點 lb 模式 +5', (tester) async {
+      await _openSheet(tester, unit: WeightUnit.lb);
+      await tester.tap(find.byKey(const Key('addSetWeightPlusButton')));
+      await tester.pump(const Duration(seconds: 1));
+      expect(_text(tester, 'addSetWeightField'), '5');
+    });
+
+    testWidgets('按住後拖出按鈕範圍:立即停止', (tester) async {
+      await _openSheet(tester);
+      final g = await hold(tester, 'addSetWeightPlusButton');
+      await tester.pump(const Duration(milliseconds: 550));
+      expect(_text(tester, 'addSetWeightField'), '5');
+      await g.moveBy(const Offset(0, -300));
+      await tester.pump(const Duration(seconds: 2));
+      expect(_text(tester, 'addSetWeightField'), '5');
+      await g.up();
+      await tester.pump();
+      expect(_text(tester, 'addSetWeightField'), '5');
+    });
+
+    testWidgets('長按中關閉視窗(dispose):不拋例外、無 pending timer', (tester) async {
+      final h = await _openSheet(tester);
+      final g = await hold(tester, 'addSetWeightPlusButton');
+      await tester.pump(const Duration(milliseconds: 600));
+      // 按住中從外部關閉 sheet。
+      Navigator.of(tester.element(find.byKey(const Key('addSetWeightField'))), rootNavigator: true).pop();
+      await tester.pumpAndSettle();
+      expect(h().done, isTrue);
+      expect(find.byKey(const Key('addSetWeightField')), findsNothing);
+      await g.up();
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+      // 測試結束時 framework 會檢查 pending timer(有殘留會報 A Timer is still pending)。
+    });
+  });
+
+  group('重量快捷 +5/+10/+20', () {
+    testWidgets('空欄 +10 → 10;62.5 +10 → 72.5;連點累加', (tester) async {
+      await _openSheet(tester);
+      await _tap(tester, 'addSetWeightQuick_10');
+      expect(_text(tester, 'addSetWeightField'), '10');
+
+      await tester.enterText(find.byKey(const Key('addSetWeightField')), '62.5');
+      await _tap(tester, 'addSetWeightQuick_10');
+      expect(_text(tester, 'addSetWeightField'), '72.5');
+      await _tap(tester, 'addSetWeightQuick_5');
+      await _tap(tester, 'addSetWeightQuick_20');
+      expect(_text(tester, 'addSetWeightField'), '97.5');
+    });
+
+    testWidgets('快捷鈕點擊區 ≥48 高;次數沒有快捷鈕', (tester) async {
+      await _openSheet(tester);
+      for (final a in [5, 10, 20]) {
+        expect(tester.getSize(find.byKey(Key('addSetWeightQuick_$a'))).height, greaterThanOrEqualTo(48));
+      }
+      expect(find.byKey(const Key('addSetRepsQuick_5')), findsNothing);
+    });
+
+    testWidgets('lb 模式:+10 是 10 lb,存檔回傳換算成 kg', (tester) async {
+      final h = await _openSheet(tester, unit: WeightUnit.lb);
+      await _tap(tester, 'addSetWeightQuick_10');
+      expect(_text(tester, 'addSetWeightField'), '10');
+      await tester.enterText(find.byKey(const Key('addSetRepsField')), '5');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+      expect(h().value!.weight, closeTo(10 / kLbPerKg, 1e-9));
+    });
+
+    testWidgets('kg 模式存檔回傳 +20 後的值', (tester) async {
+      final h = await _openSheet(tester, initialWeight: 60, initialReps: 5);
+      await _tap(tester, 'addSetWeightQuick_20');
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+      expect(h().value!.weight, 80);
+    });
+  });
+
+  group('375x667 小螢幕不溢位', () {
+    for (final compact in [true, false]) {
+      testWidgets('compact=$compact 開視窗、展開進階選項無 overflow', (tester) async {
+        tester.view.physicalSize = const Size(375, 667);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await _openSheet(tester, compact: compact, previousWeight: 60, previousReps: 8);
+        expect(tester.takeException(), isNull);
+        // 不捲動就點得到三顆快捷鈕(在視窗內且 hit-testable)。
+        for (final a in [5, 10, 20]) {
+          final f = find.byKey(Key('addSetWeightQuick_$a'));
+          expect(f.hitTestable(), findsOneWidget);
+          expect(const Rect.fromLTWH(0, 0, 375, 667).contains(tester.getRect(f).center), isTrue);
+        }
+        await tester.tap(find.byKey(const Key('addSetWeightQuick_20')));
+        await tester.pump();
+        expect(_text(tester, 'addSetWeightField'), '80');
+        await tester.tap(find.text('進階選項'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 }
