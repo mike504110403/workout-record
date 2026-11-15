@@ -633,15 +633,20 @@ class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
   /// 自按下起的時間軸位置(以各段 delay 累加,不依賴 Stopwatch)。
   Duration _elapsed = Duration.zero;
 
+  /// 長按連加進行中:按鈕改實心強調色,手指按著時看得出「正在按住」
+  /// (長按勝出後 IconButton 自己的按壓高亮會被取消)。
+  bool _holding = false;
+
   void _onLongPressStart(LongPressStartDetails details) {
     _stop();
+    setState(() => _holding = true);
     HapticFeedback.selectionClick();
     _elapsed = kAddSetRepeatDelay;
     _fire();
   }
 
+  // 不加 mounted 守衛:dispose 一定取消 timer,守衛會把「dispose 漏取消」遮掉。
   void _fire() {
-    if (!mounted) return;
     widget.onStep();
     final next = _elapsed >= kAddSetRepeatAccelAfter ? kAddSetRepeatFast : kAddSetRepeatSlow;
     _elapsed += next;
@@ -653,11 +658,17 @@ class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
     _timer = null;
   }
 
+  /// 放開/拖出/手勢取消:停止並解除按住外觀。dispose 只呼叫 [_stop](不能 setState)。
+  void _release() {
+    _stop();
+    if (_holding && mounted) setState(() => _holding = false);
+  }
+
   void _onLongPressMove(LongPressMoveUpdateDetails details) {
     if (_timer == null) return;
     final box = context.findRenderObject();
     if (box is RenderBox && !(Offset.zero & box.size).contains(details.localPosition)) {
-      _stop();
+      _release();
     }
   }
 
@@ -676,14 +687,18 @@ class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
           (recognizer) => recognizer
             ..onLongPressStart = _onLongPressStart
             ..onLongPressMoveUpdate = _onLongPressMove
-            ..onLongPressEnd = ((_) => _stop())
-            ..onLongPressCancel = _stop,
+            ..onLongPressEnd = ((_) => _release())
+            ..onLongPressCancel = _release,
         ),
       },
       child: IconButton.filledTonal(
         key: widget.buttonKey,
         tooltip: widget.tooltip,
-        style: IconButton.styleFrom(minimumSize: const Size(56, 56)),
+        style: IconButton.styleFrom(
+          minimumSize: const Size(56, 56),
+          backgroundColor: _holding ? Theme.of(context).colorScheme.primary : null,
+          foregroundColor: _holding ? Theme.of(context).colorScheme.onPrimary : null,
+        ),
         icon: Icon(widget.icon),
         onPressed: widget.onStep,
       ),

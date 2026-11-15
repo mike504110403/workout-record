@@ -60,7 +60,7 @@ class SetRow extends StatelessWidget {
                 children: [
                   TextSpan(
                     text:
-                        '${trimZeros(kgToDisplay(set.weight, unit))} ${unitSuffix(unit)} × ${set.reps} 次',
+                        '${displayWeight(set.weight, unit)} ${unitSuffix(unit)} × ${set.reps} 次',
                     style: AppNumberStyles.body(
                       context,
                     ).copyWith(fontWeight: FontWeight.w600),

@@ -468,7 +468,7 @@ void main() {
       );
 
       // 單組列:50kg 換算成 lb 顯示,字尾正確。
-      final expectedRowWeight = trimZeros(kgToDisplay(50, WeightUnit.lb));
+      final expectedRowWeight = '110.23'; // 50 kg 換算後取小數 2 位
       expect(
         find.descendant(
           of: find.byKey(Key('workoutEditSetRow_$setId')),
@@ -482,7 +482,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('重量 (lb)'), findsOneWidget);
       final weightField = tester.widget<TextField>(find.byKey(const Key('addSetWeightField')));
-      expect(weightField.controller!.text, expectedRowWeight);
+      // 可編輯欄位不取整(取整後原樣存回會改動 kg 值),保留完整換算值。
+      expect(weightField.controller!.text, trimZeros(kgToDisplay(50, WeightUnit.lb)));
 
       // 輸入新的 lb 值 → 反向換算存回 kg(儲存一律 kg)。
       await tester.enterText(find.byKey(const Key('addSetWeightField')), '220.5');

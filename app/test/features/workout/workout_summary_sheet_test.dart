@@ -13,7 +13,6 @@ import 'package:workout_record/core/theme/app_semantic_colors.dart';
 import 'package:workout_record/data/models/workout.dart';
 import 'package:workout_record/features/settings/preferences/weight_unit.dart';
 import 'package:workout_record/features/workout/workout_summary_sheet.dart';
-import 'package:workout_record/features/workout/workout_ui_shared.dart';
 
 WorkoutSet _set(String id, int n, double weight, int reps, {bool warmup = false}) {
   final now = DateTime.now();
@@ -125,7 +124,7 @@ void main() {
       findsNothing,
     );
 
-    final expectedSetWeight = '${trimZeros(kgToDisplay(100, WeightUnit.lb))}lb';
+    final expectedSetWeight = '220.46lb';
     expect(find.text('$expectedSetWeight × 5'), findsOneWidget);
   });
 

@@ -14,7 +14,7 @@ import '../planned_sets_store.dart';
 import '../workout_ui_shared.dart';
 
 String _weightReps(double weightKg, int reps, WeightUnit unit) =>
-    '${trimZeros(kgToDisplay(weightKg, unit))} ${unitSuffix(unit)} × $reps';
+    '${displayWeight(weightKg, unit)} ${unitSuffix(unit)} × $reps';
 
 /// 重量未定(沒有上次紀錄的 0 kg 計畫組)顯示「— kg × 10」,不能顯示成「0 kg」。
 String _unsetWeightReps(int reps, WeightUnit unit) => '— ${unitSuffix(unit)} × $reps';

@@ -199,7 +199,7 @@ void main() {
       final we = await _startWith(h, ex);
       await _pumpView(tester, h);
 
-      expect(tester.widget<Text>(find.byKey(Key('lastPerformance_$we'))).data, '上次 44.092452437 lb × 5・3 組');
+      expect(tester.widget<Text>(find.byKey(Key('lastPerformance_$we'))).data, '上次 44.09 lb × 5・3 組');
     });
 
     testWidgets('自重(最大重量 0):改顯示最大次數', (tester) async {

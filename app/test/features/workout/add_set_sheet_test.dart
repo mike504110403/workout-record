@@ -411,6 +411,35 @@ void main() {
       expect(_text(tester, 'addSetWeightField'), '5');
     });
 
+    testWidgets('長按中按鈕改實心強調色,放開後恢復', (tester) async {
+      await _openSheet(tester);
+      final plus = find.byKey(const Key('addSetWeightPlusButton'));
+      Color? bg() => tester
+          .widget<IconButton>(plus)
+          .style
+          ?.backgroundColor
+          ?.resolve(<WidgetState>{});
+      final primary = Theme.of(tester.element(plus)).colorScheme.primary;
+      expect(bg(), isNot(primary));
+      final g = await hold(tester, 'addSetWeightPlusButton');
+      await tester.pump(const Duration(milliseconds: 450));
+      expect(bg(), primary);
+      await g.up();
+      await tester.pump();
+      expect(bg(), isNot(primary));
+    });
+
+    testWidgets('長按中子樹被直接換掉(不經 Navigator):dispose 取消 timer、不拋例外', (tester) async {
+      await _openSheet(tester);
+      final g = await hold(tester, 'addSetWeightPlusButton');
+      await tester.pump(const Duration(milliseconds: 600));
+      // 不走 pop(pop 會送 PointerCancel 兜底),直接把整棵樹換掉:只剩 dispose 裡的 _stop 防線。
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+      await g.up();
+    });
+
     testWidgets('長按中關閉視窗(dispose):不拋例外、無 pending timer', (tester) async {
       final h = await _openSheet(tester);
       final g = await hold(tester, 'addSetWeightPlusButton');

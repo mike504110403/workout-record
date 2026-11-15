@@ -236,7 +236,7 @@ List<List<WorkoutSet>> _groupSets(List<WorkoutSet> sets) {
 String _setLabel(List<WorkoutSet> group, WeightUnit unit) {
   final set = group.first;
   final base =
-      '${trimZeros(kgToDisplay(set.weight, unit))}${unitSuffix(unit)} × ${set.reps}'
+      '${displayWeight(set.weight, unit)}${unitSuffix(unit)} × ${set.reps}'
       '${set.isWarmup ? ' (暖身)' : ''}';
   return group.length > 1 ? '$base ×${group.length}' : base;
 }

@@ -37,7 +37,7 @@ import 'widgets/workout_set_tiles.dart';
 import 'workout_controller.dart';
 import 'workout_page.dart';
 import 'workout_pending_actions.dart';
-import 'workout_ui_shared.dart' show trimZeros;
+import 'workout_ui_shared.dart' show displayWeight;
 import 'workout_summary_sheet.dart';
 
 /// 選動作 → 加進草稿 → 自動開記組 sheet(選完動作直接記第一組,少一次點擊)。
@@ -55,12 +55,14 @@ Future<void> pickAndAddExercise(BuildContext context, WidgetRef ref) async {
     try {
       await notifier.addExercise(exercise);
     } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('新增動作失敗:$e')));
+      }
       return;
     }
-    if (!context.mounted) return;
+    // 不因頁面卸載(例如中途收起)中斷:notifier 已先取好,剩下的照加,不無聲漏掉。
   }
+  if (!context.mounted) return;
   // 只選 1 個才自動開記組 sheet;一次加多個不自動開(不知道要先記哪個)。
   if (selected.length != 1) return;
   final exercise = selected.first;
@@ -72,7 +74,7 @@ Future<void> pickAndAddExercise(BuildContext context, WidgetRef ref) async {
 /// 動作卡「上次成績」一行字:上次組清單裡重量最大的一組(同重量取次數多者,
 /// 再同取較前面的組)+ 組數,例如「上次 60 kg × 8・3 組」;最大重量為 0(自重)
 /// 改顯示該動作最大次數「上次 12 下・3 組」。沒有組回 null(不顯示)。
-/// 重量格式與組列一致(`trimZeros(kgToDisplay(..))`)。
+/// 重量格式與組列一致(`displayWeight`)。
 @visibleForTesting
 String? lastPerformanceText(List<WorkoutSet>? sets, WeightUnit unit) {
   if (sets == null || sets.isEmpty) return null;
@@ -84,7 +86,7 @@ String? lastPerformanceText(List<WorkoutSet>? sets, WeightUnit unit) {
     final maxReps = sets.fold<int>(0, (m, s) => s.reps > m ? s.reps : m);
     return '上次 $maxReps 下・${sets.length} 組';
   }
-  return '上次 ${trimZeros(kgToDisplay(best.weight, unit))} ${unitSuffix(unit)} × ${best.reps}・${sets.length} 組';
+  return '上次 ${displayWeight(best.weight, unit)} ${unitSuffix(unit)} × ${best.reps}・${sets.length} 組';
 }
 
 String _exerciseName(WorkoutExercise exercise) =>
@@ -927,7 +929,7 @@ class _BottomActions extends ConsumerWidget {
         final position = exercise.sets.length;
         final shown = plannedDisplayValues(planned, history, position);
         final weightUnset = plannedNeedsInput(planned, history);
-        final weightText = weightUnset ? '—' : trimZeros(kgToDisplay(shown.weight, unit));
+        final weightText = weightUnset ? '—' : displayWeight(shown.weight, unit);
         label = '完成下一組・$name $weightText ${unitSuffix(unit)} × ${shown.reps}';
         onPressed = () => _tapPlanned(
           context,

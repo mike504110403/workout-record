@@ -390,9 +390,9 @@ void main() {
         findsNothing,
       );
 
-      // 動作卡單組列:100kg 換算成 lb 顯示,字尾正確(trimZeros——不是固定
-      // 小數位,對照 add_set_sheet.dart 現行為)。
-      final expectedRowWeight = '${trimZeros(kgToDisplay(100, WeightUnit.lb))} lb';
+      // 動作卡單組列:100kg 換算成 lb 顯示,字尾正確(displayWeight:取小數 2 位
+      // 再去尾 0;可編輯欄位才保留完整換算值)。
+      final expectedRowWeight = '220.46 lb';
       expect(find.textContaining(expectedRowWeight), findsOneWidget);
     });
 
