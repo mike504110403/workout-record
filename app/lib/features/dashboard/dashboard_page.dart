@@ -23,8 +23,9 @@ import 'widgets/recent_workouts_section.dart';
 import 'widgets/start_workout_cta.dart';
 import 'widgets/week_summary_card.dart';
 
-/// 首頁。由上而下:唯一主 CTA(開始/繼續訓練)+ 最近用的模板 chip → 本週卡
-/// (次數、容量、目標進度)→ 體重卡(單列)→ 最近訓練(3 筆)。
+/// 首頁。捲動區由上而下:本週卡(次數、容量、目標進度)→ 體重卡(單列)→
+/// 最近訓練(3 筆)。唯一主 CTA(開始/繼續訓練)+ 最近用的模板 chip 固定在
+/// 底部導覽列正上方:健身房單手操作時拇指搆得到,頂部太遠。
 /// 不放頁名標題:底部導覽已標示所在分頁,內容直接從狀態列安全區下方開始。
 class DashboardPage extends ConsumerWidget {
   const DashboardPage({super.key});
@@ -32,8 +33,11 @@ class DashboardPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dashboardAsync = ref.watch(dashboardControllerProvider);
+    // 下拉刷新/重載期間保留上一份資料,底部面板不閃掉;首次載入與無資料的錯誤態不顯示。
+    final loadedState = dashboardAsync.hasValue ? dashboardAsync.value : null;
 
     return Scaffold(
+      bottomNavigationBar: loadedState == null ? null : _startPanel(context, ref, loadedState),
       // 只吃頂部安全區(狀態列);底部由分頁殼的導覽列負責。
       body: SafeArea(
         bottom: false,
@@ -96,8 +100,59 @@ class DashboardPage extends ConsumerWidget {
     );
   }
 
-  Widget _content(BuildContext context, WidgetRef ref, DashboardState state) {
+  /// 底部固定面板:模板 chip 在上、主 CTA 在最下(最靠拇指)。
+  Widget _startPanel(BuildContext context, WidgetRef ref, DashboardState state) {
     final recentTemplates = ref.watch(dashboardRecentTemplatesProvider);
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageHorizontal,
+            AppSpacing.sm,
+            AppSpacing.pageHorizontal,
+            AppSpacing.md,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 有草稿時不顯示模板:此時點模板只會回到草稿,誤導成「換用這個模板」。
+              if (!state.hasDraftWorkout)
+                RecentTemplatesRow(
+                  templates: recentTemplates.templates,
+                  // 沒有使用紀錄時列的是模板清單,標題不能說「最近用的」。
+                  title: recentTemplates.isFallback ? '模板' : '最近用的模板',
+                  onSelected: (template) => _launch(
+                    context,
+                    () => openTemplateWorkout(context, ref, applyTemplate(template)),
+                  ),
+                ),
+              StartWorkoutCta(
+                hasDraftWorkout: state.hasDraftWorkout,
+                onPressed: () => _launch(
+                  context,
+                  () async {
+                    if (state.hasDraftWorkout) {
+                      openCurrentWorkout(context);
+                    } else {
+                      await openFreeWorkout(context, ref);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, WidgetRef ref, DashboardState state) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.pageHorizontal,
@@ -108,31 +163,6 @@ class DashboardPage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          StartWorkoutCta(
-            hasDraftWorkout: state.hasDraftWorkout,
-            onPressed: () => _launch(
-              context,
-              () async {
-                if (state.hasDraftWorkout) {
-                  openCurrentWorkout(context);
-                } else {
-                  await openFreeWorkout(context, ref);
-                }
-              },
-            ),
-          ),
-          // 有草稿時不顯示模板:此時點模板只會回到草稿,誤導成「換用這個模板」。
-          if (!state.hasDraftWorkout)
-            RecentTemplatesRow(
-              templates: recentTemplates.templates,
-              // 沒有使用紀錄時列的是模板清單,標題不能說「最近用的」。
-              title: recentTemplates.isFallback ? '模板' : '最近用的模板',
-              onSelected: (template) => _launch(
-                context,
-                () => openTemplateWorkout(context, ref, applyTemplate(template)),
-              ),
-            ),
-          const SizedBox(height: AppSpacing.lg),
           WeekSummaryCard(
             weekWorkoutCount: state.weekWorkoutCount,
             weekTotalVolume: state.weekTotalVolume,

@@ -1,5 +1,5 @@
-// 首頁首屏唯一主 CTA:全寬 FilledButton。有進行中的訓練草稿時改成「繼續訓練」。
-// 「開始訓練」直接開始自由訓練;模板入口放在按鈕下方的 [RecentTemplatesRow]。
+// 首頁底部固定面板的唯一主 CTA:全寬 FilledButton。有進行中的訓練草稿時改成「繼續訓練」。
+// 「開始訓練」直接開始自由訓練;模板入口放在按鈕上方的 [RecentTemplatesRow]。
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_tokens.dart';

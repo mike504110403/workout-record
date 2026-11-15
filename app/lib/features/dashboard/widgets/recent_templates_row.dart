@@ -1,4 +1,4 @@
-// 「開始訓練」下方的「最近用的模板」chip 列:最多 4 個,一點就用該模板開始訓練。
+// 首頁底部面板「開始訓練」上方的「最近用的模板」chip 列:最多 4 個,一點就用該模板開始訓練。
 // 沒有模板時整列不顯示(不留空白)。chip 清單由 [dashboardRecentTemplatesProvider]
 // 排好,這裡只負責畫與回報點擊。
 import 'package:flutter/material.dart';
@@ -25,7 +25,7 @@ class RecentTemplatesRow extends StatelessWidget {
     if (templates.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

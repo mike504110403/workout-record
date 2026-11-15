@@ -16,6 +16,8 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:workout_record/core/theme/app_semantic_colors.dart';
+import 'package:workout_record/core/theme/app_tokens.dart';
+import 'package:workout_record/features/dashboard/widgets/week_summary_card.dart';
 import 'package:workout_record/data/db/app_database.dart'
     hide Workout, WorkoutExercise, WorkoutSet, BodyWeight, UserGoal;
 import 'package:workout_record/data/models/body_weight.dart';
@@ -326,7 +328,7 @@ void main() {
       expect(find.byType(SliverAppBar), findsNothing);
     });
 
-    testWidgets('主 CTA 緊貼狀態列安全區下方 8px(無標題列佔位)', (tester) async {
+    testWidgets('主 CTA 固定在底部(拇指區);捲動內容緊貼狀態列安全區下方 8px', (tester) async {
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(390, 844);
       addTearDown(tester.view.reset);
@@ -346,7 +348,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(tester.getTopLeft(find.byKey(const Key('quickActionStartWorkout'))).dy, 47 + 8);
+      // 單手操作:CTA 底緣貼齊畫面底部(只留面板內距),不在頂部。
+      expect(
+        tester.getBottomLeft(find.byKey(const Key('quickActionStartWorkout'))).dy,
+        844 - AppSpacing.md,
+      );
+      expect(tester.getTopLeft(find.byType(WeekSummaryCard)).dy, 47 + 8);
     });
   });
 
