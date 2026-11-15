@@ -72,6 +72,14 @@ Future<void> _tapAbandon(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// 按「完成」:延遲 4 秒(可復原)後才真的完成,測試把時間推過去。
+Future<void> _tapCompleteAndWait(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('completeWorkoutButton')));
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 4));
+  await tester.pumpAndSettle();
+}
+
 /// 展開記組 sheet 預設收合的「進階選項」。
 Future<void> _expandAdvanced(WidgetTester tester) async {
   await tester.tap(find.text('進階選項'));
@@ -217,7 +225,11 @@ void main() {
       await tester.tap(find.byKey(Key('deleteExerciseButton_$we')));
       await tester.pumpAndSettle();
 
+      // 延遲刪除:畫面立即隱藏,DB 要等 5 秒復原期結束才真刪。
       expect(find.byKey(Key('exerciseCard_$we')), findsNothing);
+      expect(harness.container.read(workoutControllerProvider).value!.draft!.exercises, hasLength(2));
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
       expect(harness.container.read(workoutControllerProvider).value!.draft!.exercises, hasLength(1));
     });
 
@@ -227,8 +239,7 @@ void main() {
       final button = tester.widget<FilledButton>(find.byKey(const Key('completeWorkoutButton')));
       expect(button.onPressed, isNotNull);
 
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
+      await _tapCompleteAndWait(tester);
 
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byKey(const Key('summaryTitleText')), findsOneWidget);
@@ -239,8 +250,7 @@ void main() {
       final harness = await harnessWithTwoExercises(tester, setsOnSecond: false);
       final workoutId = harness.container.read(workoutControllerProvider).value!.draft!.id;
 
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
+      await _tapCompleteAndWait(tester);
 
       expect(find.byType(AlertDialog), findsNothing);
       expect(

@@ -16,6 +16,9 @@ import '../workout_ui_shared.dart';
 String _weightReps(double weightKg, int reps, WeightUnit unit) =>
     '${trimZeros(kgToDisplay(weightKg, unit))} ${unitSuffix(unit)} × $reps';
 
+/// 重量未定(沒有上次紀錄的 0 kg 計畫組)顯示「— kg × 10」,不能顯示成「0 kg」。
+String _unsetWeightReps(int reps, WeightUnit unit) => '— ${unitSuffix(unit)} × $reps';
+
 /// 左滑露出的紅底刪除背景(真實組與計畫組共用)。
 Widget _swipeBackground(BuildContext context) {
   final colors = Theme.of(context).colorScheme;
@@ -28,10 +31,13 @@ Widget _swipeBackground(BuildContext context) {
 }
 
 class _SetNumberBadge extends StatelessWidget {
-  const _SetNumberBadge({required this.number, this.outlined = false});
+  const _SetNumberBadge({required this.number, this.outlined = false, this.done = false});
 
   final int number;
   final bool outlined;
+
+  /// 已記錄的組:實心 primary 底、白字(計畫組維持外框)。
+  final bool done;
 
   @override
   Widget build(BuildContext context) {
@@ -42,13 +48,15 @@ class _SetNumberBadge extends StatelessWidget {
       height: 28,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: outlined ? null : colors.surfaceContainerHighest,
+        color: done ? colors.primary : (outlined ? null : colors.surfaceContainerHighest),
         border: outlined ? Border.all(color: colors.outlineVariant) : null,
         shape: BoxShape.circle,
       ),
       child: Text(
         '$number',
-        style: theme.textTheme.labelMedium?.tabular.copyWith(color: colors.onSurfaceVariant),
+        style: theme.textTheme.labelMedium?.tabular.copyWith(
+          color: done ? colors.onPrimary : colors.onSurfaceVariant,
+        ),
       ),
     );
   }
@@ -64,6 +72,7 @@ class SwipeableSetRow extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.enabled = true,
+    this.displayNumber,
   });
 
   final WorkoutSet set;
@@ -71,6 +80,10 @@ class SwipeableSetRow extends StatelessWidget {
   final VoidCallback onEdit;
   final Future<bool> Function() onDelete;
   final bool enabled;
+
+  /// 列上顯示的組序號。預設用 `set.setNumber`;有待刪的組被隱藏時,後面的列要照
+  /// 「刪完重編」的結果顯示,由呼叫端傳入。
+  final int? displayNumber;
 
   @override
   Widget build(BuildContext context) {
@@ -80,17 +93,21 @@ class SwipeableSetRow extends StatelessWidget {
       key: ValueKey('dismissSet_${set.id}'),
       direction: enabled ? DismissDirection.endToStart : DismissDirection.none,
       background: _swipeBackground(context),
-      // 等刪除真的寫入成功才讓列消失;失敗時滑回原位(controller 已序列化
-      // 寫入,這裡不用自己防連滑)。
+      // [onDelete] 回 true＝列隱藏(延遲刪除、可復原,見 workout_pending_actions.dart),
+      // 呼叫端在同一個 frame 內把這組排除出清單;回 false＝滑回原位。
       confirmDismiss: (_) => onDelete(),
-      child: InkWell(
+      // 已記錄的組:淡色底 + 實心組號徽章,與外框徽章的計畫組一眼可分。Material
+      // 承接底色,點擊水波才畫得出來。
+      child: Material(
+        color: colors.primaryContainer.withValues(alpha: 0.35),
+        child: InkWell(
         key: Key('setRowTap_${set.id}'),
         onTap: enabled ? onEdit : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           child: Row(
             children: [
-              _SetNumberBadge(number: set.setNumber),
+              _SetNumberBadge(number: displayNumber ?? set.setNumber, done: true),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text.rich(
@@ -114,9 +131,11 @@ class SwipeableSetRow extends StatelessWidget {
                   '暖身',
                   style: theme.textTheme.labelSmall?.copyWith(color: colors.tertiary),
                 ),
+              const SizedBox(width: AppSpacing.sm),
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -135,6 +154,7 @@ class PlannedSetRow extends StatelessWidget {
     required this.onEdit,
     required this.onRemove,
     this.enabled = true,
+    this.weightUnset = false,
   });
 
   final PlannedSet planned;
@@ -144,6 +164,10 @@ class PlannedSetRow extends StatelessWidget {
   final VoidCallback onEdit;
   final Future<bool> Function() onRemove;
   final bool enabled;
+
+  /// 重量未定(該動作沒有上次紀錄且計畫重量為 0):顯示「— kg × N」;呼叫端也要把
+  /// [onConfirm] 接成開記組 sheet,不直接記 0 kg。
+  final bool weightUnset;
 
   @override
   Widget build(BuildContext context) {
@@ -166,14 +190,14 @@ class PlannedSetRow extends StatelessWidget {
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text(
-                  _weightReps(planned.weight, planned.reps, unit),
+                  weightUnset ? _unsetWeightReps(planned.reps, unit) : _weightReps(planned.weight, planned.reps, unit),
                   style: AppNumberStyles.body(context).copyWith(color: colors.onSurfaceVariant),
                 ),
               ),
               IconButton(
                 key: Key('confirmPlannedSet_${planned.id}'),
                 tooltip: '完成這組',
-                icon: const Icon(Icons.check_circle_outline),
+                icon: const Icon(Icons.radio_button_unchecked),
                 color: colors.primary,
                 onPressed: enabled ? onConfirm : null,
               ),

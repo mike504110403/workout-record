@@ -4,20 +4,41 @@
 // `Timer.periodic`(不是 iOS 的 `Timer.scheduledTimer` + Combine,但每秒遞減
 // 一次的行為一致)。
 //
+// 剩餘秒數以「結束時間點 - 現在」計算(時間來源 `package:clock`),Timer 只負責
+// 每秒驅動畫面;休息開始時另外排一則本機通知(`RestNotificationScheduler`),
+// 鎖屏/進背景也準時提醒。
+//
 // 測試用 `tester.pump(Duration(seconds: n))` 推進虛擬時間即可觸發
 // `Timer.periodic` 的回呼(flutter_test 的 `AutomatedTestWidgetsFlutterBinding`
-// 在 `FakeAsync` zone 內跑測試本體,`dart:async` 的 `Timer` 天生就能被
-// `pump()` 推進,不需要額外的假時鐘依賴)。
+// 在 `FakeAsync` zone 內跑測試本體,`clock.now()` 與 `Timer` 會一起被推進)。
+// 模擬「背景後時間跳過」則用 `withClock` 在 Timer 不觸發的情況下推進時鐘。
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'rest_notification_scheduler.dart';
 
 /// 休息自然倒數結束時的震動(對照 iOS `RestTimerView.swift` 結束時的
 /// `UINotificationFeedbackGenerator`)。抽成 provider 讓測試可觀察;使用者
 /// 手動 ±15 秒調到 0 或跳過不震動。Web/桌面平台 HapticFeedback 為 no-op。
 final restTimerFinishedFeedbackProvider = Provider<void Function()>(
-  (ref) => () => unawaited(HapticFeedback.heavyImpact()),
+  (ref) =>
+      () => unawaited(HapticFeedback.heavyImpact()),
+);
+
+/// App 目前是否在前景。休息自然結束時只有前景才取消通知——背景中
+/// (Android 行程活著時 Dart Timer 照跑)若也取消,會把正要送達或剛送達的
+/// 休息通知刪掉,鎖螢幕提醒就失效。抽成 provider 讓測試可模擬背景。
+/// lifecycleState 為 null(尚未回報,例如測試環境)視為前景。
+final restTimerAppInForegroundProvider = Provider<bool Function()>(
+  (ref) => () {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return lifecycle == null || lifecycle == AppLifecycleState.resumed;
+  },
 );
 
 class RestTimerState {
@@ -67,11 +88,25 @@ class RestTimerState {
 class RestTimerController extends Notifier<RestTimerState> {
   Timer? _timer;
 
+  /// 休息結束的時間點。剩餘秒數一律用 `_endsAt - clock.now()` 算,不靠 tick
+  /// 次數遞減——App 進背景/鎖屏時 Timer 會被凍結,回前景的第一個 tick 就能
+  /// 顯示正確秒數(或直接走自然結束)。非 null = 計時進行中。
+  DateTime? _endsAt;
+
+  late RestNotificationScheduler _scheduler;
+
   @override
   RestTimerState build() {
+    // dispose 回呼裡不能再用 ref,先把 scheduler 抓起來。
+    _scheduler = ref.read(restNotificationSchedulerProvider);
     ref.onDispose(() {
       _timer?.cancel();
       _timer = null;
+      // 帳號登出/訓練結束讓 provider 被丟棄時,不得留下孤兒通知。
+      if (_endsAt != null) {
+        _endsAt = null;
+        _safely(_scheduler.cancel);
+      }
     });
     return const RestTimerState();
   }
@@ -84,12 +119,16 @@ class RestTimerController extends Notifier<RestTimerState> {
   void start({required int seconds, String? exerciseName}) {
     _timer?.cancel();
     _timer = null;
+    _safely(_scheduler.cancel);
 
     if (seconds <= 0) {
+      _endsAt = null;
       state = RestTimerState(exerciseName: exerciseName, finishedCount: state.finishedCount);
       return;
     }
 
+    final endsAt = clock.now().add(Duration(seconds: seconds));
+    _endsAt = endsAt;
     state = RestTimerState(
       totalSeconds: seconds,
       remainingSeconds: seconds,
@@ -98,43 +137,80 @@ class RestTimerController extends Notifier<RestTimerState> {
       finishedCount: state.finishedCount,
     );
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _safely(() => _scheduler.schedule(endsAt, exerciseName: exerciseName));
+  }
+
+  /// `endsAt - now`,無條件進位到整秒;已到或超過回傳 0。
+  static int _secondsUntil(DateTime endsAt, DateTime now) {
+    final micros = endsAt.difference(now).inMicroseconds;
+    if (micros <= 0) return 0;
+    return (micros + Duration.microsecondsPerSecond - 1) ~/ Duration.microsecondsPerSecond;
   }
 
   void _tick() {
-    if (state.remainingSeconds <= 1) {
+    final endsAt = _endsAt;
+    if (endsAt == null) return;
+    final remaining = _secondsUntil(endsAt, clock.now());
+    if (remaining <= 0) {
       _timer?.cancel();
       _timer = null;
+      _endsAt = null;
       state = state.copyWith(remainingSeconds: 0, isRunning: false, finishedCount: state.finishedCount + 1);
+      if (ref.read(restTimerAppInForegroundProvider)()) _safely(_scheduler.cancel);
       ref.read(restTimerFinishedFeedbackProvider)();
       return;
     }
-    state = state.copyWith(remainingSeconds: state.remainingSeconds - 1);
+    state = state.copyWith(remainingSeconds: remaining);
   }
 
-  /// ±15 秒調整(對照 iOS `RestTimerManager.adjustTime`)。往下調整不會低於
-  /// 0;若把時間往上調超過原本的 [RestTimerState.totalSeconds],連帶把
-  /// `totalSeconds` 也拉高——否則進度環的 `progress`(= remaining /
-  /// total)會超過 1.0。調到 0 時等同時間到,停止計時器。
+  /// ±15 秒調整(對照 iOS `RestTimerManager.adjustTime`):改的是結束時間點,
+  /// 並把通知重排到新的時間。往下調整不會低於 0;若把時間往上調超過原本的
+  /// [RestTimerState.totalSeconds],連帶把 `totalSeconds` 也拉高——否則進度環的
+  /// `progress`(= remaining / total)會超過 1.0。調到 0 時等同時間到,停止
+  /// 計時器並取消通知。沒有進行中的計時時不做事。
   void adjust(int deltaSeconds) {
-    if (state.totalSeconds == 0) return;
-    final newRemaining = (state.remainingSeconds + deltaSeconds).clamp(0, 1 << 30);
-    final newTotal = newRemaining > state.totalSeconds ? newRemaining : state.totalSeconds;
-    state = state.copyWith(remainingSeconds: newRemaining, totalSeconds: newTotal);
+    final endsAt = _endsAt;
+    if (endsAt == null || state.totalSeconds == 0) return;
+    final newEndsAt = endsAt.add(Duration(seconds: deltaSeconds));
+    final newRemaining = _secondsUntil(newEndsAt, clock.now());
 
     if (newRemaining == 0) {
       _timer?.cancel();
       _timer = null;
-      state = state.copyWith(isRunning: false);
+      _endsAt = null;
+      state = state.copyWith(remainingSeconds: 0, isRunning: false);
+      _safely(_scheduler.cancel);
+      return;
     }
+
+    _endsAt = newEndsAt;
+    final newTotal = newRemaining > state.totalSeconds ? newRemaining : state.totalSeconds;
+    state = state.copyWith(remainingSeconds: newRemaining, totalSeconds: newTotal);
+    final name = state.exerciseName;
+    _safely(() => _scheduler.schedule(newEndsAt, exerciseName: name));
   }
 
   /// 跳過休息,直接清空回到未啟動狀態。
   void skip() {
     _timer?.cancel();
     _timer = null;
+    _endsAt = null;
     state = RestTimerState(finishedCount: state.finishedCount);
+    _safely(_scheduler.cancel);
+  }
+
+  /// 通知是附加功能:scheduler 同步或非同步拋例外都只記 log,不得影響計時。
+  void _safely(Future<void> Function() op) {
+    try {
+      unawaited(
+        op().catchError((Object e, StackTrace s) {
+          debugPrint('RestTimerController: notification failed: $e');
+        }),
+      );
+    } catch (e) {
+      debugPrint('RestTimerController: notification failed: $e');
+    }
   }
 }
 
-final restTimerControllerProvider =
-    NotifierProvider<RestTimerController, RestTimerState>(RestTimerController.new);
+final restTimerControllerProvider = NotifierProvider<RestTimerController, RestTimerState>(RestTimerController.new);

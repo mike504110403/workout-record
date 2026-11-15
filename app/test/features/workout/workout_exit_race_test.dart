@@ -63,6 +63,7 @@ Future<void> _run(
   required bool abandon,
   Duration removeDelay = Duration.zero,
   bool lateReturn = false,
+  bool minimizeWhileWaiting = false,
 }) async {
   final values = <String, Object>{
     kAppleUserIdKey: testUserId,
@@ -121,13 +122,23 @@ Future<void> _run(
     await tester.tap(find.byKey(const Key('abandonWorkoutConfirmButton')));
   } else {
     await tester.tap(find.byKey(const Key('completeWorkoutButton')));
+    if (minimizeWhileWaiting) {
+      // 倒數期間(完成是延遲 4 秒執行、可復原)收起訓練頁:畫面拆掉,仍要完成。
+      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('workoutMinimizeButton')));
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkoutPage, skipOffstage: false), findsNothing);
+    }
   }
-  // 模擬真機:每 16ms 一個 frame(先過時間再畫 frame)。
-  for (var i = 0; i < 60; i++) {
+  // 模擬真機:每 16ms 一個 frame(先過時間再畫 frame)。完成要多等 4 秒復原期。
+  for (var i = 0; i < (abandon ? 60 : 300); i++) {
     await tester.pump(const Duration(milliseconds: 16));
   }
   await tester.pumpAndSettle();
 }
+
+ProviderContainer container(WidgetTester tester) =>
+    ProviderScope.containerOf(tester.element(find.byType(WorkItOutApp)));
 
 void main() {
   group('慢速 prefs.remove + 每 16ms 一幀', () {
@@ -153,6 +164,16 @@ void main() {
       await tester.tap(find.byKey(const Key('workoutSummaryDoneButton')));
       await tester.pumpAndSettle();
       expect(find.byType(WorkoutPage, skipOffstage: false), findsNothing);
+      expect(find.byType(DashboardPage).hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('完成倒數期間收起訓練頁 → 照樣完成、彈結算 sheet、回首頁', (tester) async {
+      await _run(tester, abandon: false, minimizeWhileWaiting: true);
+      expect(find.byKey(const Key('workoutSummaryDoneButton')), findsOneWidget);
+      expect(container(tester).read(workoutControllerProvider).value?.draft, isNull);
+
+      await tester.tap(find.byKey(const Key('workoutSummaryDoneButton')));
+      await tester.pumpAndSettle();
       expect(find.byType(DashboardPage).hitTestable(), findsOneWidget);
     });
 

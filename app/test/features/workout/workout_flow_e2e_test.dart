@@ -125,6 +125,14 @@ Future<void> _fillAddSetSheet(
   await tester.pumpAndSettle();
 }
 
+/// 按「完成」:延遲 4 秒(可復原)後才真的完成,測試把時間推過去。
+Future<void> _tapCompleteAndWait(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('completeWorkoutButton')));
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 4));
+  await tester.pumpAndSettle();
+}
+
 /// 全螢幕訓練頁在最上層、導覽列不可見。
 void _expectOnWorkoutPage() {
   expect(find.byType(WorkoutPage), findsOneWidget);
@@ -189,8 +197,7 @@ void main() {
       expect(find.byKey(const Key('restTimerBar')), findsOneWidget);
 
       // 不需要「完成動作」:直接完成訓練,沒有確認框。
-      await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-      await tester.pumpAndSettle();
+      await _tapCompleteAndWait(tester);
       expect(find.byType(AlertDialog), findsNothing);
 
       // 結算:暖身組(20x10=200)排除,只計正式組(100x5=500)。
@@ -244,19 +251,24 @@ void main() {
       expect(find.byKey(Key('plannedSetRow_${p.id}')), findsOneWidget);
     }
 
-    // 打勾兩組 → 變成真實組。
+    // 底部主按鈕:草稿還沒有任何組 → 目前動作是第一個動作,指向它的第一個計畫組。
+    expect(find.text('完成下一組・${squat.exerciseName} — kg × 10'), findsOneWidget);
+
+    // 打勾兩組 → 變成真實組。模板重量一律 0 且全新動作沒有上次紀錄,打勾改開記組
+    // sheet 要人輸入重量(不能一鍵記成 0 kg):第一組點列上的勾、第二組點底部主按鈕。
     await tester.tap(find.byKey(Key('confirmPlannedSet_${planned[0].id}')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(Key('confirmPlannedSet_${planned[1].id}')));
+    await _fillAddSetSheet(tester, weight: '60', reps: '10');
+    await tester.tap(find.byKey(const Key('recordNextSetButton')));
     await tester.pumpAndSettle();
+    await _fillAddSetSheet(tester, weight: '60', reps: '10');
 
     final afterConfirm = (await workoutRepo.fetchById(draft.id))!;
     expect(afterConfirm.exercises.first.sets, hasLength(2));
     expect(find.byKey(Key('plannedSetRow_${planned[0].id}')), findsNothing);
     expect(find.byKey(Key('plannedSetRow_${planned[2].id}')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('completeWorkoutButton')));
-    await tester.pumpAndSettle();
+    await _tapCompleteAndWait(tester);
     expect(find.byType(AlertDialog), findsNothing);
     // 其餘 4 個動作 0 組 → 完成時自動丟棄,結算只剩 1 個動作。
     expect(

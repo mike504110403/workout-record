@@ -190,8 +190,12 @@ void main() {
       await tester.drag(find.byKey(Key('setRowTap_$setId')), const Offset(-500, 0));
       await tester.pumpAndSettle();
 
-      expect(_flow(h).draft!.exercises.single.sets, isEmpty);
+      // 延遲刪除:畫面立即隱藏,DB 要等 5 秒復原期結束才真刪。
       expect(find.byKey(Key('setRow_$setId')), findsNothing);
+      expect(_flow(h).draft!.exercises.single.sets, hasLength(1));
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(_flow(h).draft!.exercises.single.sets, isEmpty);
     });
   });
 
@@ -228,8 +232,37 @@ void main() {
       return h;
     }
 
-    testWidgets('沒有歷史 → 顯示模板值(0 kg × 10);打勾 → 真實組 +1、該計畫組消失', (tester) async {
+    testWidgets('沒有歷史且 0 kg → 顯示「— kg × 10」;打勾 → 開記組 sheet(重量空白、存檔鈕停用)、不直接記組', (tester) async {
       final h = await fromTemplate(tester);
+      final we = _flow(h).draft!.exercises.single.id;
+      final planned = _flow(h).plannedSets[we]!;
+      expect(find.text('— kg × 10'), findsNWidgets(3));
+      expect(find.text('0 kg × 10'), findsNothing);
+
+      await tester.tap(find.byKey(Key('confirmPlannedSet_${planned.first.id}')));
+      await tester.pumpAndSettle();
+
+      // 開出 sheet:重量欄空、存檔鈕停用;沒有新增任何組。
+      expect(find.byKey(const Key('addSetWeightField')), findsOneWidget);
+      expect(tester.widget<TextField>(find.byKey(const Key('addSetWeightField'))).controller!.text, isEmpty);
+      expect(tester.widget<FilledButton>(find.byKey(const Key('addSetSaveButton'))).onPressed, isNull);
+      expect(_flow(h).draft!.exercises.single.sets, isEmpty);
+
+      // 輸入重量才可存 → 真實組 +1、該計畫組消失。
+      await tester.enterText(find.byKey(const Key('addSetWeightField')), '40');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('addSetSaveButton')));
+      await tester.pumpAndSettle();
+      final sets = _flow(h).draft!.exercises.single.sets;
+      expect(sets, hasLength(1));
+      expect((sets.single.weight, sets.single.reps), (40.0, 10));
+      expect(find.byKey(Key('plannedSetRow_${planned.first.id}')), findsNothing);
+      expect(find.byKey(Key('setRow_${sets.single.id}')), findsOneWidget);
+      _stopRest(h);
+    });
+
+    testWidgets('有上次紀錄(上次就是 0 kg 的徒手動作)→ 顯示「0 kg × 10」、打勾照常直接記組', (tester) async {
+      final h = await fromTemplate(tester, history: [(0, 10), (0, 10), (0, 10)]);
       final we = _flow(h).draft!.exercises.single.id;
       final planned = _flow(h).plannedSets[we]!;
       expect(find.text('0 kg × 10'), findsNWidgets(3));
@@ -237,11 +270,11 @@ void main() {
       await tester.tap(find.byKey(Key('confirmPlannedSet_${planned.first.id}')));
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const Key('addSetWeightField')), findsNothing);
       final sets = _flow(h).draft!.exercises.single.sets;
       expect(sets, hasLength(1));
       expect((sets.single.weight, sets.single.reps), (0.0, 10));
       expect(find.byKey(Key('plannedSetRow_${planned.first.id}')), findsNothing);
-      expect(find.byKey(Key('setRow_${sets.single.id}')), findsOneWidget);
       _stopRest(h);
     });
 
@@ -270,6 +303,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('第 2 組'), findsOneWidget);
       await tester.enterText(find.byKey(const Key('addSetWeightField')), '40');
+      await tester.pump();
       await tester.tap(find.byKey(const Key('addSetSaveButton')));
       await tester.pumpAndSettle();
 
@@ -306,7 +340,7 @@ void main() {
     });
 
     testWidgets('結算寫入中 → 計畫組打勾/點擊/左滑、組列點擊/左滑、新增組數全部停用(flow-fix 5)', (tester) async {
-      final h = await fromTemplate(tester, testController: true);
+      final h = await fromTemplate(tester, testController: true, history: [(50, 10)]);
       final notifier = h.container.read(workoutControllerProvider.notifier) as _TestController;
       final we = _flow(h).draft!.exercises.single.id;
       final planned = _flow(h).plannedSets[we]!;

@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UserNotifications
 
 /// 舊版 iOS App 留在 `UserDefaults.standard` 的所有 key。**讀(getLegacy*)與刪
 /// (clearLegacyUserDefaults)共用這一份**:新增要匯入的舊 key 時加在這裡,刪帳號就
@@ -65,6 +66,9 @@ private enum LegacyKey {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    // flutter_local_notifications:讓前景/背景的通知事件交給 plugin 處理
+    // (前景是否顯示由排程時的 presentation 選項決定)。
+    UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     setUpLegacyPrefsChannel()
     return result
